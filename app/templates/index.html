@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Import Section -->
+<div class="section" id="section-import">
+    <h2>Import Data</h2>
+
+    <!-- Garmin JSON Bulk Import -->
+    <div class="card" style="margin-bottom:16px;">
+        <h2>Garmin Data Export (JSON)</h2>
+        <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.9rem;">
+            Upload your Garmin data export files. Select all 5 JSON files at once.
+            Safe to re-import — existing data is updated, not duplicated.
+        </p>
+        <div class="upload-zone" id="json-upload-zone">
+            <input type="file" id="json-files" accept=".json" multiple>
+            <p><strong>Drop Garmin JSON files here</strong></p>
+            <p>Golf-CLUB.json, Golf-CLUB_TYPES.json, Golf-COURSE.json, Golf-SCORECARD.json, Golf-SHOT.json</p>
+        </div>
+        <div id="json-file-list" style="margin-top:12px; display:none;">
+            <p style="color:var(--text-muted); font-size:0.85rem;">Selected files:</p>
+            <ul id="json-file-names" style="color:var(--accent); font-size:0.85rem; margin:8px 0 12px 20px;"></ul>
+            <button class="btn btn-primary" id="btn-json-import">Import All</button>
+            <button class="btn btn-secondary" id="btn-json-cancel" style="margin-left:8px;">Cancel</button>
+        </div>
+        <div id="json-status-msg" class="status" style="display:none;"></div>
+    </div>
+
+    <!-- Single FIT File Import -->
+    <div class="card">
+        <h2>Single FIT File</h2>
+        <div class="upload-zone" id="upload-zone">
+            <input type="file" id="fit-file" accept=".fit">
+            <p><strong>Drop a Garmin .FIT file here</strong></p>
+            <p>or click to browse</p>
+        </div>
+
+        <div id="status-msg" class="status" style="display:none;"></div>
+
+        <div class="preview-panel" id="preview-panel">
+            <h3 style="margin-bottom:12px; color:var(--accent);">Preview</h3>
+            <div class="grid-2">
+                <div>
+                    <p><strong>Course:</strong> <span id="p-course"></span></p>
+                    <p><strong>Date:</strong> <span id="p-date"></span></p>
+                    <p><strong>Tee:</strong> <span id="p-tee"></span></p>
+                    <p><strong>Player:</strong> <span id="p-player"></span></p>
+                </div>
+                <div>
+                    <p><strong>Score:</strong> <span id="p-strokes"></span> (<span id="p-vs-par"></span>)</p>
+                    <p><strong>Holes:</strong> <span id="p-holes"></span></p>
+                    <p><strong>Rating/Slope:</strong> <span id="p-rating"></span> / <span id="p-slope"></span></p>
+                    <p><strong>Shots tracked:</strong> <span id="p-shots"></span></p>
+                </div>
+            </div>
+
+            <h4 style="margin-top:16px; margin-bottom:8px; color:var(--text-muted);">Scorecard</h4>
+            <div class="scorecard" id="p-scorecard"></div>
+
+            <div style="margin-top:20px; display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-import">Import to Database</button>
+                <button class="btn btn-secondary" id="btn-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rounds Section -->
+<div class="section" id="section-rounds">
+    <h2>Rounds</h2>
+    <div class="card">
+        <table id="rounds-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Course</th>
+                    <th>Score</th>
+                    <th>vs Par</th>
+                    <th>Holes</th>
+                    <th>Shots</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody id="rounds-body">
+                <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Courses Section -->
+<div class="section" id="section-courses">
+    <h2>Courses</h2>
+    <div class="card">
+        <table id="courses-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Holes</th>
+                    <th>Par</th>
+                    <th>Rating</th>
+                    <th>Slope</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="courses-body">
+                <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Loading...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/app.js"></script>
+{% endblock %}

@@ -3071,7 +3071,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const hl = rangeState.highlightedShotIds;
         const hasHighlight = hl.size > 0;
         document.querySelectorAll('#range-club-sections tr[data-shot-id]').forEach(tr => {
-            const id = parseInt(tr.dataset.shotId);
+            const id = tr.dataset.shotId;
             if (!hasHighlight) {
                 tr.classList.remove('shot-highlighted', 'shot-dimmed');
             } else if (hl.has(id)) {
@@ -3441,7 +3441,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function _fmtCell(shot, colKey) {
         const col = COL_MAP[colKey];
         if (!col) return '\u2014';
-        if (colKey === 'shot_number') return shot.shot_number;
+        if (colKey === 'shot_number') return shot._rowNum || shot.shot_number;
         const val = shot[colKey];
         if (col.fmt && FORMATTERS[col.fmt]) return FORMATTERS[col.fmt](val);
         return val != null ? String(val) : '\u2014';
@@ -3541,11 +3541,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }).join('') + '<td></td>';
 
             // Build shot rows
-            const shotRows = sortedShots.map(s => {
+            const isAllTime = rangeState.selectedSession === 'all';
+            const shotRows = sortedShots.map((s, rowIdx) => {
                 const isExpanded = rangeState.expandedShotId === s.id;
-                const dataCells = cols.map(key => `<td>${_fmtCell(s, key)}</td>`).join('');
-                const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${s.source === "trackman" ? "trackman" : "range"}', ${s.id})" style="font-size:0.7rem;">Move</button></td>`;
-                let row = `<tr data-shot-id="${s.id}" onclick="window._toggleShotHighlight(${s.id})" class="clickable${isExpanded ? ' detail-expanded' : ''}">${dataCells}${moveBtn}</tr>`;
+                const displayShot = isAllTime ? {...s, _rowNum: rowIdx + 1} : s;
+                const dataCells = cols.map(key => `<td>${_fmtCell(displayShot, key)}</td>`).join('');
+                const shotType = s.source === 'trackman' ? 'trackman' : 'range';
+                const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${s.raw_id})" style="font-size:0.7rem;">Move</button></td>`;
+                let row = `<tr data-shot-id="${s.id}" onclick="window._toggleShotHighlight('${s.id}')" class="clickable${isExpanded ? ' detail-expanded' : ''}">${dataCells}${moveBtn}</tr>`;
 
                 // Inline detail panel
                 if (isExpanded) {
@@ -3620,7 +3623,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `<tr class="detail-panel-row"><td colspan="${colSpan}"><div class="shot-detail-panel">${html}
             <div style="text-align:right; margin-top:8px;">
-                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shot.source === "trackman" ? "trackman" : "range"}', ${shot.id})" style="font-size:0.75rem;">Move Shot</button>
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shot.source === "trackman" ? "trackman" : "range"}', ${shot.raw_id})" style="font-size:0.75rem;">Move Shot</button>
             </div>
         </div></td></tr>`;
     }
@@ -3718,13 +3721,543 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ── Floating Shot Detail Panel ──
+
+    let shotPanelPopout = null; // Reference to pop-out window
+
+    function showShotPanel(shot) {
+        const panel = document.getElementById('shot-panel');
+        if (!panel) return;
+        panel.style.display = 'flex';
+
+        // Title
+        const clubName = shot.club_name || shot.club_type_raw;
+        document.getElementById('shot-panel-title').textContent = `Shot ${shot.shot_number} — ${clubName}`;
+
+        // Find session info
+        const session = rangeState.sessions.find(s => s.id === shot.session_id);
+        const sourceLabel = shot.source === 'trackman' ? 'Trackman' : shot.source === 'rapsodo_mlm2pro' ? 'MLM2PRO' : shot.source;
+        const sessionDate = session ? new Date(session.session_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        const sessionTitle = session?.title || '';
+
+        // Data sections
+        const data = document.getElementById('shot-panel-data');
+        const sections = [
+            { title: 'Source', items: [
+                ['Device', sourceLabel, ''], ['Session', sessionDate, ''],
+            ]},
+            { title: 'Flight', items: [
+                ['Carry', _fmt(shot.carry_yards), 'yds'], ['Total', _fmt(shot.total_yards), 'yds'],
+                ['Side', _fmtSigned(shot.side_carry_yards), 'yds'], ['Side Tot', _fmtSigned(shot.side_total_yards), 'yds'],
+                ['Apex', _fmt(shot.apex_yards), 'yds'], ['Curve', _fmt(shot.curve_yards), 'yds'],
+                ['Hang Time', shot.hang_time_sec != null ? shot.hang_time_sec.toFixed(1) : '\u2014', 's'],
+                ['Descent', _fmtDeg(shot.descent_angle_deg), ''],
+            ]},
+            { title: 'Club & Swing', items: [
+                ['Club Spd', _fmt(shot.club_speed_mph), 'mph'], ['Ball Spd', _fmt(shot.ball_speed_mph), 'mph'],
+                ['Smash', _fmt2(shot.smash_factor), ''], ['Attack', _fmtDeg(shot.attack_angle_deg), ''],
+                ['Club Path', _fmtDeg(shot.club_path_deg), ''], ['Face Ang', _fmtDeg(shot.face_angle_deg), ''],
+                ['F2P', _fmtDeg(shot.face_to_path_deg), ''], ['Dyn Loft', _fmtDeg(shot.dynamic_loft_deg), ''],
+                ['Spin Loft', _fmtDeg(shot.spin_loft_deg), ''], ['Swing Pl', _fmtDeg(shot.swing_plane_deg), ''],
+                ['Swing Dir', _fmtDeg(shot.swing_direction_deg), ''], ['Dyn Lie', _fmtDeg(shot.dynamic_lie_deg), ''],
+            ]},
+            { title: 'Spin', items: [
+                ['Rate', _fmtInt(shot.spin_rate_rpm), 'rpm'], ['Axis', _fmtDeg(shot.spin_axis_deg), ''],
+                ['Launch', _fmtDeg(shot.launch_angle_deg), ''], ['Launch Dir', _fmtDeg(shot.launch_direction_deg), ''],
+            ]},
+            { title: 'Impact', items: [
+                ['Offset', _fmt(shot.impact_offset_in), 'in'], ['Height', _fmt(shot.impact_height_in), 'in'],
+                ['Low Point', _fmt(shot.low_point_distance_in), 'in'],
+            ]},
+        ];
+
+        function _renderItem([label, val, unit]) {
+            const unitSpan = unit && val !== '\u2014' ? ` <span style="color:var(--text-dim);font-size:0.7rem;">${unit}</span>` : '';
+            return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span><span class="shot-panel-item-value">${val}${unitSpan}</span></div>`;
+        }
+
+        data.innerHTML = sections.map(sec => `
+            <div class="shot-panel-section">
+                <div class="shot-panel-section-title">${sec.title}</div>
+                <div class="shot-panel-grid">
+                    ${sec.items.map(_renderItem).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        // Also update pop-out window if open
+        if (shotPanelPopout && !shotPanelPopout.closed) {
+            updatePopoutPanel(shot);
+        }
+    }
+
+    function hideShotPanel() {
+        const panel = document.getElementById('shot-panel');
+        if (panel) panel.style.display = 'none';
+    }
+
+    // Close button
+    document.getElementById('btn-panel-close')?.addEventListener('click', () => {
+        hideShotPanel();
+        clearHighlights();
+    });
+
+    // Pop-out button
+    document.getElementById('btn-panel-popout')?.addEventListener('click', () => {
+        const panel = document.getElementById('shot-panel');
+        if (!panel) return;
+
+        shotPanelPopout = window.open('', 'ShotDetail', 'width=680,height=800,scrollbars=yes');
+        if (!shotPanelPopout) return;
+
+        const doc = shotPanelPopout.document;
+        doc.title = 'Shot Detail — Birdie Book';
+        doc.head.innerHTML = `<style>
+            body { font-family: system-ui, -apple-system, sans-serif; background: #111318; color: #e4e4e7; margin: 0; padding: 16px; }
+            .shot-panel-diagrams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+            .club-diagram-card { background: #e8e8e8; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+            .club-diagram-card canvas { width: 100%; height: auto; }
+            .shot-panel-footnote { font-size: 0.7rem; color: #71717a; text-align: center; margin-bottom: 10px; font-style: italic; }
+            .shot-panel-section { margin-bottom: 14px; }
+            .shot-panel-section-title { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; margin-bottom: 6px; font-weight: 600; }
+            .shot-panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
+            .shot-panel-item { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+            .shot-panel-item-label { color: #a1a1aa; }
+            .shot-panel-item-value { font-weight: 500; }
+            h2 { font-size: 1rem; margin: 0 0 12px 0; }
+        </style>`;
+        doc.body.innerHTML = `<h2 id="popout-title">Shot Detail</h2>
+            <div class="shot-panel-diagrams">
+                <div class="club-diagram-card" id="club-side-card"><img id="club-side-img" src="" alt="Side view"><div class="diagram-overlay" id="club-side-overlay"></div></div>
+                <div class="club-diagram-card" id="club-top-card"><img id="club-top-img" src="" alt="Top view"><div class="diagram-overlay" id="club-top-overlay"></div></div>
+            </div>
+            <div class="shot-panel-footnote" id="shot-panel-footnote" style="display:none;">* Partial data — some measurements unavailable</div>
+            <div id="shot-panel-data"></div>`;
+
+        // Render current shot into pop-out
+        const currentShot = _getCurrentSelectedShot();
+        if (currentShot) updatePopoutPanel(currentShot);
+
+        // Hide inline panel
+        panel.style.display = 'none';
+    });
+
+    function updatePopoutPanel(shot) {
+        if (!shotPanelPopout || shotPanelPopout.closed) return;
+        const doc = shotPanelPopout.document;
+        const clubName = shot.club_name || shot.club_type_raw;
+        doc.getElementById('popout-title').textContent = `Shot ${shot.shot_number} — ${clubName}`;
+
+        // Update images and overlays in pop-out
+        const cat = _getClubCategory(shot);
+        const popSideImg = doc.getElementById('club-side-img');
+        const popTopImg = doc.getElementById('club-top-img');
+        if (popSideImg) popSideImg.src = `${window.location.origin}/static/images/clubheads/${cat}_side.png`;
+        if (popTopImg) popTopImg.src = `${window.location.origin}/static/images/clubheads/${cat}_top.png`;
+        const popSideOverlay = doc.getElementById('club-side-overlay');
+        const popTopOverlay = doc.getElementById('club-top-overlay');
+        if (popSideOverlay) popSideOverlay.innerHTML = _buildOverlayLabels(shot, 'side');
+        if (popTopOverlay) popTopOverlay.innerHTML = _buildOverlayLabels(shot, 'top');
+
+        // Data
+        const hasFullData = shot.face_angle_deg != null && shot.dynamic_loft_deg != null;
+        doc.getElementById('shot-panel-footnote').style.display = hasFullData ? 'none' : 'block';
+
+        const mainPanel = document.getElementById('shot-panel');
+        const dataEl = mainPanel?.querySelector('#shot-panel-data');
+        if (dataEl) {
+            doc.getElementById('shot-panel-data').innerHTML = dataEl.innerHTML;
+        }
+    }
+
+    function _getCurrentSelectedShot() {
+        if (rangeState.highlightedShotIds.size !== 1) return null;
+        const id = [...rangeState.highlightedShotIds][0];
+        return rangeState.allShots.find(s => s.id === id) || null;
+    }
+
+    // ── Club Head Diagrams ──
+
+    function _getClubCategory(shot) {
+        const name = (shot.club_name || shot.club_type_raw || '').toLowerCase();
+        if (name === 'driver') return 'Driver';
+        if (name.includes('wood')) return 'Wood';
+        if (name.includes('hybrid')) return 'Hybrid';
+        if (name.includes('wedge')) return 'Wedge';
+        return 'Iron';
+    }
+
+    function _updateDiagramImages(shot) {
+        const cat = _getClubCategory(shot);
+        const sideImg = document.getElementById('club-side-img');
+        const topImg = document.getElementById('club-top-img');
+        if (sideImg) sideImg.src = `/static/images/clubheads/${cat}_side.png`;
+        if (topImg) topImg.src = `/static/images/clubheads/${cat}_top.png`;
+    }
+
+    function _buildOverlayLabels(shot, view) {
+        // Build positioned labels over the club head images
+        // Side view: Dynamic Loft (top-left), Spin Rate (top-right), Attack Angle (bottom-left), Spin Loft (bottom-right)
+        // Top view: Club Path (top-left), Face To Path (top-right), Face Angle (bottom-left), Spin Axis (bottom-right)
+        if (view === 'side') {
+            return `
+                <div class="diagram-label" style="top:6px;left:8px;">
+                    <div class="diagram-label-name">Dynamic Loft</div>
+                    <div class="diagram-label-value">${shot.dynamic_loft_deg != null ? shot.dynamic_loft_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+                <div class="diagram-label" style="top:6px;right:8px;text-align:right;">
+                    <div class="diagram-label-name">Spin Rate</div>
+                    <div class="diagram-label-value">${shot.spin_rate_rpm != null ? Math.round(shot.spin_rate_rpm) + ' rpm' : '\u2014'}</div>
+                </div>
+                <div class="diagram-label" style="bottom:6px;left:8px;">
+                    <div class="diagram-label-name">Attack Angle</div>
+                    <div class="diagram-label-value">${shot.attack_angle_deg != null ? shot.attack_angle_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+                <div class="diagram-label" style="bottom:6px;right:8px;text-align:right;">
+                    <div class="diagram-label-name">Spin Loft</div>
+                    <div class="diagram-label-value">${shot.spin_loft_deg != null ? shot.spin_loft_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+            `;
+        } else {
+            return `
+                <div class="diagram-label" style="top:6px;left:8px;">
+                    <div class="diagram-label-name">Club Path</div>
+                    <div class="diagram-label-value">${shot.club_path_deg != null ? shot.club_path_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+                <div class="diagram-label" style="top:6px;right:8px;text-align:right;">
+                    <div class="diagram-label-name">Face To Path</div>
+                    <div class="diagram-label-value">${shot.face_to_path_deg != null ? shot.face_to_path_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+                <div class="diagram-label" style="bottom:6px;left:8px;">
+                    <div class="diagram-label-name">Face Angle</div>
+                    <div class="diagram-label-value">${shot.face_angle_deg != null ? shot.face_angle_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+                <div class="diagram-label" style="bottom:6px;right:8px;text-align:right;">
+                    <div class="diagram-label-name">Spin Axis</div>
+                    <div class="diagram-label-value">${shot.spin_axis_deg != null ? shot.spin_axis_deg.toFixed(1) + '\u00b0' : '\u2014'}</div>
+                </div>
+            `;
+        }
+    }
+
+    function drawClubSideView(shot, canvasOverride) {
+        const canvas = canvasOverride || document.getElementById('club-side-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        // Background
+        ctx.fillStyle = '#e8e8e8';
+        ctx.fillRect(0, 0, W, H);
+
+        const cx = W * 0.42, cy = H * 0.52;
+        const isWood = _isDriver(shot);
+        const dynLoft = shot.dynamic_loft_deg;
+        const attackAngle = shot.attack_angle_deg;
+        const spinLoft = shot.spin_loft_deg;
+
+        // Ground line
+        ctx.strokeStyle = '#bbb';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(20, cy + 30);
+        ctx.lineTo(W - 20, cy + 30);
+        ctx.stroke();
+
+        // Draw shaft
+        const shaftAngle = (dynLoft != null ? -dynLoft * 0.5 : -5) * Math.PI / 180;
+        const shaftLen = 80;
+        ctx.save();
+        ctx.translate(cx, cy - 5);
+        ctx.rotate(shaftAngle);
+        ctx.fillStyle = '#555';
+        ctx.fillRect(-2, -shaftLen, 4, shaftLen);
+        // Grip ferrule
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-3, -3, 6, 6);
+        ctx.restore();
+
+        // Draw club head
+        ctx.save();
+        ctx.translate(cx, cy);
+        const headRotation = dynLoft != null ? -dynLoft * Math.PI / 180 * 0.3 : 0;
+        ctx.rotate(headRotation);
+
+        if (isWood) {
+            // Driver/wood head — rounded shape
+            ctx.fillStyle = '#2a2a2a';
+            ctx.beginPath();
+            ctx.ellipse(8, 8, 28, 18, 0.15, 0, 2 * Math.PI);
+            ctx.fill();
+            // Face
+            ctx.fillStyle = '#444';
+            ctx.beginPath();
+            ctx.ellipse(-18, 6, 5, 16, 0.1, 0, 2 * Math.PI);
+            ctx.fill();
+            // Model text
+            const model = _getClubModel(shot);
+            if (model) {
+                ctx.fillStyle = '#888';
+                ctx.font = '7px system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText(model, 10, 12);
+            }
+        } else {
+            // Iron head — blade shape
+            ctx.fillStyle = '#888';
+            ctx.beginPath();
+            ctx.moveTo(-5, -12);
+            ctx.lineTo(15, -8);
+            ctx.lineTo(18, 20);
+            ctx.lineTo(-5, 24);
+            ctx.lineTo(-10, 0);
+            ctx.closePath();
+            ctx.fill();
+            // Face edge
+            ctx.fillStyle = '#666';
+            ctx.fillRect(-10, -8, 5, 28);
+            // Model text
+            const model = _getClubModel(shot);
+            if (model) {
+                ctx.fillStyle = '#444';
+                ctx.font = '6px system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText(model, 6, 10);
+            }
+        }
+        ctx.restore();
+
+        // Ball
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#ccc';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(cx + 65, cy + 20, 10, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Angle lines
+        const lineStartX = cx - 10;
+        const lineStartY = cy + 10;
+
+        // Attack angle line (blue)
+        if (attackAngle != null) {
+            const aRad = -attackAngle * Math.PI / 180;
+            ctx.strokeStyle = '#1565C0';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(lineStartX - 40, lineStartY - Math.tan(aRad) * -40);
+            ctx.lineTo(lineStartX + 50, lineStartY - Math.tan(aRad) * 50);
+            ctx.stroke();
+        }
+
+        // Dynamic loft line (red) — shows face angle relative to vertical
+        if (dynLoft != null) {
+            const lRad = -dynLoft * Math.PI / 180;
+            ctx.strokeStyle = '#d32f2f';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx - 5, cy - 30);
+            ctx.lineTo(cx - 5 + Math.sin(lRad) * 40, cy - 30 + Math.cos(lRad) * 40);
+            ctx.stroke();
+        }
+
+        // Ball launch line (dashed gray)
+        if (shot.launch_angle_deg != null) {
+            const laRad = -shot.launch_angle_deg * Math.PI / 180;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(cx + 50, cy + 20);
+            ctx.lineTo(cx + 50 + 80, cy + 20 + Math.tan(laRad) * 80);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Corner labels
+        ctx.font = '10px system-ui';
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'left';
+        ctx.fillText('Dynamic Loft', 8, 16);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(dynLoft != null ? dynLoft.toFixed(1) + '\u00b0' : '\u2014', 8, 28);
+
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'right';
+        ctx.fillText('Spin Rate', W - 8, 16);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(shot.spin_rate_rpm != null ? Math.round(shot.spin_rate_rpm) + ' rpm' : '\u2014', W - 8, 28);
+
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'left';
+        ctx.fillText('Attack Angle', 8, H - 10);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(attackAngle != null ? attackAngle.toFixed(1) + '\u00b0' : '\u2014', 8, H - 0);
+
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'right';
+        ctx.fillText('Spin Loft', W - 8, H - 10);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(spinLoft != null ? spinLoft.toFixed(1) + '\u00b0' : '\u2014', W - 8, H - 0);
+    }
+
+    function drawClubTopView(shot, canvasOverride) {
+        const canvas = canvasOverride || document.getElementById('club-top-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        ctx.fillStyle = '#e8e8e8';
+        ctx.fillRect(0, 0, W, H);
+
+        const cx = W * 0.4, cy = H * 0.5;
+        const isWood = _isDriver(shot);
+        const clubPath = shot.club_path_deg;
+        const faceAngle = shot.face_angle_deg;
+        const f2p = shot.face_to_path_deg;
+        const spinAxis = shot.spin_axis_deg;
+
+        // Target line (horizontal blue)
+        ctx.strokeStyle = '#1565C0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(20, cy);
+        ctx.lineTo(W - 40, cy);
+        ctx.stroke();
+
+        // Draw shaft (vertical)
+        ctx.fillStyle = '#555';
+        ctx.fillRect(cx - 2, cy - 50, 4, 45);
+        // Hosel
+        ctx.fillStyle = '#333';
+        ctx.beginPath();
+        ctx.arc(cx, cy - 5, 4, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // Draw club head from top
+        ctx.save();
+        ctx.translate(cx, cy);
+        const headRot = faceAngle != null ? faceAngle * Math.PI / 180 * 0.5 : 0;
+        ctx.rotate(headRot);
+
+        if (isWood) {
+            ctx.fillStyle = '#2a2a2a';
+            ctx.beginPath();
+            ctx.ellipse(0, 12, 16, 24, 0, 0, 2 * Math.PI);
+            ctx.fill();
+            // Face line
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-14, -2);
+            ctx.lineTo(14, -2);
+            ctx.stroke();
+            const model = _getClubModel(shot);
+            if (model) {
+                ctx.fillStyle = '#777';
+                ctx.font = '6px system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText(model, 0, 18);
+            }
+        } else {
+            ctx.fillStyle = '#888';
+            ctx.beginPath();
+            ctx.moveTo(-18, -4);
+            ctx.lineTo(18, -4);
+            ctx.lineTo(16, 8);
+            ctx.lineTo(-16, 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-18, -4);
+            ctx.lineTo(18, -4);
+            ctx.stroke();
+            const model = _getClubModel(shot);
+            if (model) {
+                ctx.fillStyle = '#444';
+                ctx.font = '5px system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText(model, 0, 5);
+            }
+        }
+        ctx.restore();
+
+        // Face angle line (red)
+        if (faceAngle != null) {
+            const faRad = faceAngle * Math.PI / 180;
+            ctx.strokeStyle = '#d32f2f';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy + 30);
+            ctx.lineTo(cx + Math.sin(faRad) * 50, cy + 30 - Math.cos(faRad) * 50);
+            ctx.stroke();
+        }
+
+        // Ball
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#ccc';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(W - 55, cy, 10, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Ball launch line (dashed)
+        if (shot.launch_direction_deg != null) {
+            const ldRad = shot.launch_direction_deg * Math.PI / 180;
+            ctx.setLineDash([4, 3]);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(W - 55, cy);
+            ctx.lineTo(W - 55 + 40, cy - Math.sin(ldRad) * 40);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Corner labels
+        ctx.font = '10px system-ui';
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'left';
+        ctx.fillText('Club Path', 8, 16);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(clubPath != null ? clubPath.toFixed(1) + '\u00b0' : '\u2014', 8, 28);
+
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'right';
+        ctx.fillText('Face To Path', W - 8, 16);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(f2p != null ? f2p.toFixed(1) + '\u00b0' : '\u2014', W - 8, 28);
+
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'left';
+        ctx.fillText('Face Angle', 8, H - 10);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(faceAngle != null ? faceAngle.toFixed(1) + '\u00b0' : '\u2014', 8, H - 0);
+
+        ctx.fillStyle = '#555';
+        ctx.textAlign = 'right';
+        ctx.fillText('Spin Axis', W - 8, H - 10);
+        ctx.fillStyle = '#e65100';
+        ctx.fillText(spinAxis != null ? spinAxis.toFixed(1) + '\u00b0' : '\u2014', W - 8, H - 0);
+    }
+
     // Toggle shot highlight from table click
     window._toggleShotHighlight = function(shotId) {
         const hl = rangeState.highlightedShotIds;
         if (hl.size === 1 && hl.has(shotId)) {
             clearHighlights();
+            hideShotPanel();
         } else {
             highlightShots([shotId]);
+            // Show shot panel with this shot's data
+            const shot = rangeState.allShots.find(s => s.id === shotId);
+            if (shot) showShotPanel(shot);
         }
     };
 

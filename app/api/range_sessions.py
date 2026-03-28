@@ -54,7 +54,8 @@ class RangeSessionSummary(BaseModel):
     shot_count: int = 0
 
 class RangeShotResponse(BaseModel):
-    id: int
+    id: str  # Unique across sources: "mlm_{id}" or "tm_{id}"
+    raw_id: int  # Original DB id for API calls (reassign, etc.)
     session_id: Optional[int] = None
     shot_number: int
     club_type_raw: str
@@ -273,7 +274,8 @@ class RangeShotsResponse(BaseModel):
 def _mlm_to_response(s: RangeShot) -> RangeShotResponse:
     """Convert a RangeShot (MLM2PRO) to the unified response format."""
     return RangeShotResponse(
-        id=s.id,
+        id=f"mlm_{s.id}",
+        raw_id=s.id,
         session_id=s.session_id,
         shot_number=s.shot_number,
         club_type_raw=s.club_type_raw,
@@ -304,7 +306,8 @@ def _tm_to_response(s: TrackmanShot) -> RangeShotResponse:
     # Map apex_ft to apex_yards for chart consistency (convert ft → yds)
     apex_yds = round(s.apex_ft / 3.0, 1) if s.apex_ft else None
     return RangeShotResponse(
-        id=s.id,
+        id=f"tm_{s.id}",
+        raw_id=s.id,
         session_id=s.session_id,
         shot_number=s.shot_number,
         club_type_raw=s.club_type_raw or "",
@@ -411,6 +414,10 @@ def get_range_shots(
         if club and resp.club_name != club:
             continue
         shot_responses.append(resp)
+
+    # Sort combined results by session date (newest first), then shot number
+    session_dates = {s.id: s.session_date for s in all_sessions}
+    shot_responses.sort(key=lambda r: (session_dates.get(r.session_id, ""), r.shot_number), reverse=True)
 
     return RangeShotsResponse(
         sessions=session_summaries,

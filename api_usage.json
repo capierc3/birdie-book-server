@@ -10,8 +10,9 @@
       "last_call": null
     },
     "google_maps_static": {
-      "calls": 0,
-      "last_call": null
+      "calls": 1,
+      "last_call": "2026-03-28T19:42:21.601905",
+      "last_endpoint": "staticmap"
     }
   }
 }

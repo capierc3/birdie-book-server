@@ -1,35 +1,59 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, func
+from sqlalchemy import Boolean, Column, Integer, String, Float, DateTime, ForeignKey, Text, func
 from sqlalchemy.orm import relationship
 
 from app.database import Base
 
 
-class Course(Base):
-    """Golf course — maps to Venue in the Android app."""
-    __tablename__ = "courses"
+class GolfClub(Base):
+    """Golf club / venue — the physical location that contains one or more courses."""
+    __tablename__ = "golf_clubs"
 
     id = Column(Integer, primary_key=True)
-    garmin_snapshot_id = Column(Integer, unique=True, index=True)
     name = Column(String(200), nullable=False)
     address = Column(String(500))
     lat = Column(Float)
     lng = Column(Float)
     google_place_id = Column(String(200))
-    holes = Column(Integer, default=18)
-    par = Column(Integer)
-    slope_rating = Column(Float)
-    course_rating = Column(Float)
+    photo_url = Column(String(500))
     user_rating = Column(Float)
     user_notes = Column(String(2000))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    courses = relationship("Course", back_populates="club", cascade="all, delete-orphan")
+
+
+class Course(Base):
+    """A specific course within a golf club (e.g., 'Eagle' at Pine Knob)."""
+    __tablename__ = "courses"
+
+    id = Column(Integer, primary_key=True)
+    golf_club_id = Column(Integer, ForeignKey("golf_clubs.id", ondelete="CASCADE"), nullable=False)
+    garmin_snapshot_id = Column(Integer, unique=True, index=True)
+    name = Column(String(200))  # NULL for single-course clubs
+    holes = Column(Integer, default=18)
+    par = Column(Integer)
+    slope_rating = Column(Float)
+    course_rating = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    club = relationship("GolfClub", back_populates="courses")
     tees = relationship("CourseTee", back_populates="course", cascade="all, delete-orphan")
     rounds = relationship("Round", back_populates="course")
 
+    @property
+    def display_name(self) -> str:
+        """Full display name combining club and course."""
+        if self.club and self.name:
+            return f"{self.club.name} — {self.name}"
+        if self.club:
+            return self.club.name
+        return self.name or "Unknown"
+
 
 class CourseTee(Base):
-    """Tee box configuration — maps to VenueTee in the Android app."""
+    """Tee box configuration for a course."""
     __tablename__ = "course_tees"
 
     id = Column(Integer, primary_key=True)
@@ -40,13 +64,14 @@ class CourseTee(Base):
     par_total = Column(Integer)
     number_of_holes = Column(Integer, default=18)
     total_yards = Column(Integer)
+    inferred = Column(Boolean, default=False)
 
     course = relationship("Course", back_populates="tees")
     holes = relationship("CourseHole", back_populates="tee", cascade="all, delete-orphan")
 
 
 class CourseHole(Base):
-    """Per-hole data for a specific tee — maps to VenueHoleData in the Android app."""
+    """Per-hole data for a specific tee."""
     __tablename__ = "course_holes"
 
     id = Column(Integer, primary_key=True)
@@ -57,6 +82,14 @@ class CourseHole(Base):
     handicap = Column(Integer)
     flag_lat = Column(Float)
     flag_lng = Column(Float)
+    tee_lat = Column(Float)
+    tee_lng = Column(Float)
+    fairway_path = Column(Text)  # JSON array of [lat, lng] waypoints
+    rotation_deg = Column(Integer, default=0)  # CSS rotation in degrees
+    custom_zoom = Column(Integer)  # User-overridden zoom level (null = auto)
+    custom_bounds = Column(Text)  # JSON: {"min_lat":..,"max_lat":..,"min_lng":..,"max_lng":..}
+    shot_offset_x = Column(Float)  # Pixel offset to align shots with image after crop
+    shot_offset_y = Column(Float)
 
     tee = relationship("CourseTee", back_populates="holes")
     images = relationship("HoleImage", back_populates="hole")

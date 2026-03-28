@@ -5,8 +5,9 @@ Handles upserts for courses (match by name) and creates rounds/shots.
 
 from sqlalchemy.orm import Session
 
-from app.models import Course, CourseTee, CourseHole, Round, RoundHole, Shot, Player
+from app.models import GolfClub, Course, CourseTee, CourseHole, Round, RoundHole, Shot, Player
 from app.services.fit_parser import ParsedRound
+from app.services.garmin_json_parser import _split_course_name
 
 
 def find_or_create_player(db: Session, name: str) -> Player:
@@ -20,11 +21,24 @@ def find_or_create_player(db: Session, name: str) -> Player:
 
 def find_or_create_course(db: Session, parsed: ParsedRound) -> tuple[Course, CourseTee | None]:
     """Find existing course by name or create a new one with tee/hole data."""
-    course = db.query(Course).filter(Course.name == parsed.course_name).first()
+    club_name, course_name = _split_course_name(parsed.course_name)
+
+    # Try to find existing club + course combo
+    golf_club = db.query(GolfClub).filter(GolfClub.name == club_name).first()
+    course = None
+    if golf_club:
+        course = (db.query(Course)
+                  .filter(Course.golf_club_id == golf_club.id, Course.name == course_name)
+                  .first())
 
     if not course:
+        if not golf_club:
+            golf_club = GolfClub(name=club_name)
+            db.add(golf_club)
+            db.flush()
         course = Course(
-            name=parsed.course_name,
+            golf_club_id=golf_club.id,
+            name=course_name,
             holes=parsed.holes_completed,
             par=parsed.par,
             slope_rating=parsed.slope_rating,

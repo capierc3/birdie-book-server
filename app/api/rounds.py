@@ -44,6 +44,7 @@ class RoundHoleResponse(BaseModel):
 class RoundSummaryResponse(BaseModel):
     id: int
     garmin_id: Optional[int] = None
+    course_id: Optional[int] = None
     course_name: Optional[str] = None
     tee_name: Optional[str] = None
     date: date
@@ -88,7 +89,8 @@ def list_rounds(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
         results.append(RoundSummaryResponse(
             id=r.id,
             garmin_id=r.garmin_id,
-            course_name=r.course.name if r.course else None,
+            course_id=r.course_id,
+            course_name=r.course.display_name if r.course else None,
             tee_name=None,
             date=r.date,
             holes_completed=r.holes_completed,
@@ -115,7 +117,8 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
     return RoundDetailResponse(
         id=r.id,
         garmin_id=r.garmin_id,
-        course_name=r.course.name if r.course else None,
+        course_id=r.course_id,
+        course_name=r.course.display_name if r.course else None,
         tee_name=None,
         date=r.date,
         holes_completed=r.holes_completed,
@@ -142,6 +145,6 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
             fairway=h.fairway,
             gir=h.gir,
             penalty_strokes=h.penalty_strokes,
-            shots=[ShotResponse.model_validate(s) for s in h.shots],
+            shots=[ShotResponse.model_validate(s) for s in sorted(h.shots, key=lambda s: s.shot_number)],
         ) for h in sorted(r.holes, key=lambda x: x.hole_number)],
     )

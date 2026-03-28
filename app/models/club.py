@@ -11,13 +11,16 @@ class Club(Base):
     id = Column(Integer, primary_key=True)
     garmin_id = Column(Integer, unique=True, index=True)
     player_id = Column(Integer, ForeignKey("players.id"))
-    club_type = Column(String(30), nullable=False)  # Driver, 7 Iron, etc.
+    club_type = Column(String(30), nullable=False)  # Standard type: Driver, 7 Wood, etc.
     club_type_id = Column(Integer)  # Garmin clubTypeId
+    name = Column(String(100))  # Custom user name (e.g. "Old Shillelagh"), null = use club_type
     model = Column(String(100))
     shaft_length_in = Column(Float)
     flex = Column(String(20))
     loft_deg = Column(Float)
     lie_deg = Column(Float)
+    color = Column(String(7))  # Hex color e.g. "#42a5f5", assigned on creation
+    source = Column(String(30), default="manual")  # "garmin", "rapsodo_mlm2pro", "trackman", "manual"
     retired = Column(Boolean, default=False)
     sort_order = Column(Integer, default=0)
     garmin_last_modified = Column(DateTime)
@@ -42,6 +45,19 @@ class ClubStats(Base):
     p10 = Column(Float)
     p90 = Column(Float)
     sample_count = Column(Integer)
+
+    # Range/sim stats (from launch monitor data)
+    range_avg_yards = Column(Float)
+    range_median_yards = Column(Float)
+    range_max_yards = Column(Float)
+    range_sample_count = Column(Integer)
+
+    # Combined on-course + range stats
+    combined_avg_yards = Column(Float)
+    combined_median_yards = Column(Float)
+    combined_max_yards = Column(Float)
+    combined_sample_count = Column(Integer)
+
     last_computed = Column(DateTime, server_default=func.now())
 
     club = relationship("Club", back_populates="stats")

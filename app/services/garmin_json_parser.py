@@ -43,8 +43,9 @@ def load_club_types(data: list[dict]) -> dict[int, dict]:
 @dataclass
 class ParsedClub:
     garmin_id: int
-    club_type: str  # "Driver", "7 Iron", etc.
+    club_type: str  # Standard type: "Driver", "7 Iron", etc. (from club_type_id)
     club_type_id: int
+    name: Optional[str] = None  # Custom user name if different from club_type
     model: Optional[str] = None
     shaft_length_in: float = 0
     flex: str = "REGULAR"
@@ -58,7 +59,9 @@ class ParsedClub:
 @dataclass
 class ParsedCourseRef:
     garmin_snapshot_id: int
-    name: str
+    name: str  # Original full name from Garmin
+    club_name: str = ""  # Left of ~ (or full name if no ~)
+    course_name: Optional[str] = None  # Right of ~ (None for single-course clubs)
 
 
 @dataclass
@@ -147,16 +150,26 @@ def _parse_epoch_ms(ms: Optional[int]) -> Optional[datetime]:
 
 def parse_clubs(data: list[dict], club_types: dict[int, dict] | None = None) -> list[ParsedClub]:
     """Parse Golf-CLUB.json data array."""
+    from app.services.garmin_club_types import get_standard_club_type
+
     types = club_types or CLUB_TYPE_MAP
     results = []
     for c in data:
         type_id = c.get("clubTypeId", 0)
         type_info = types.get(type_id, {})
 
+        # Standard type from CLUB_TYPES.json or hardcoded fallback
+        standard_type = type_info.get("name") or get_standard_club_type(type_id, "Unknown")
+
+        # User-given name — only store if it differs from the standard type
+        user_name = (c.get("name") or "").strip()
+        custom_name = user_name if user_name and user_name != standard_type else None
+
         results.append(ParsedClub(
             garmin_id=c["id"],
-            club_type=c.get("name") or type_info.get("name", "Unknown"),
+            club_type=standard_type,
             club_type_id=type_id,
+            name=custom_name,
             model=c.get("model", "").strip() or None,
             shaft_length_in=c.get("shaftLength", type_info.get("shaft_length_in", 0)),
             flex=c.get("flexTypeId", "REGULAR"),
@@ -169,14 +182,26 @@ def parse_clubs(data: list[dict], club_types: dict[int, dict] | None = None) -> 
     return results
 
 
+def _split_course_name(full_name: str) -> tuple[str, Optional[str]]:
+    """Split 'Club Name ~ Course Name' into (club_name, course_name).
+    Returns (full_name, None) if no ~ separator found."""
+    if "~" in full_name:
+        parts = full_name.split("~", 1)
+        return parts[0].strip(), parts[1].strip()
+    return full_name.strip(), None
+
+
 def parse_courses(data: list[dict]) -> list[ParsedCourseRef]:
     """Parse Golf-COURSE.json data array."""
     results = []
     for entry in data:
         for snapshot_id, name in entry.items():
+            club_name, course_name = _split_course_name(name)
             results.append(ParsedCourseRef(
                 garmin_snapshot_id=int(snapshot_id),
                 name=name,
+                club_name=club_name,
+                course_name=course_name,
             ))
     return results
 

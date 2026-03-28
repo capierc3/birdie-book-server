@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func as sqlfunc
 from pydantic import BaseModel
 from typing import Optional
 
 from app.database import get_db
-from app.models import Course, CourseTee, CourseHole, HoleImage
+from app.models import GolfClub, Course, CourseTee, CourseHole, HoleImage
 from app.services.image_service import fetch_all_hole_images
+from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses
+from app.services.places_service import fetch_club_photo
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -17,6 +20,8 @@ class HoleImageResponse(BaseModel):
     zoom_level: int
     center_lat: Optional[float] = None
     center_lng: Optional[float] = None
+    width_px: Optional[int] = None
+    height_px: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -30,6 +35,14 @@ class CourseHoleResponse(BaseModel):
     handicap: Optional[int] = None
     flag_lat: Optional[float] = None
     flag_lng: Optional[float] = None
+    tee_lat: Optional[float] = None
+    tee_lng: Optional[float] = None
+    fairway_path: Optional[str] = None
+    rotation_deg: int = 0
+    custom_zoom: Optional[int] = None
+    custom_bounds: Optional[str] = None
+    shot_offset_x: Optional[float] = None
+    shot_offset_y: Optional[float] = None
     image: Optional[HoleImageResponse] = None
 
     class Config:
@@ -51,7 +64,9 @@ class CourseTeeResponse(BaseModel):
 
 class CourseResponse(BaseModel):
     id: int
-    name: str
+    display_name: str
+    club_name: str
+    course_name: Optional[str] = None
     address: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
@@ -61,6 +76,11 @@ class CourseResponse(BaseModel):
     course_rating: Optional[float] = None
     user_rating: Optional[float] = None
     user_notes: Optional[str] = None
+    photo_url: Optional[str] = None
+    slope_min: Optional[float] = None
+    slope_max: Optional[float] = None
+    tee_count: int = 0
+    golf_club_id: int = 0
 
     class Config:
         from_attributes = True
@@ -73,28 +93,61 @@ class CourseDetailResponse(CourseResponse):
         from_attributes = True
 
 
-class CourseCreateRequest(BaseModel):
-    name: str
-    address: Optional[str] = None
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-    google_place_id: Optional[str] = None
-    holes: int = 18
-    par: Optional[int] = None
-    slope_rating: Optional[float] = None
-    course_rating: Optional[float] = None
+# --- Helpers ---
+
+def _build_course_response(db: Session, course: Course) -> CourseResponse:
+    """Build a CourseResponse dict with computed tee stats and GolfClub data."""
+    tee_stats = (
+        db.query(
+            sqlfunc.count(CourseTee.id),
+            sqlfunc.min(CourseTee.slope_rating),
+            sqlfunc.max(CourseTee.slope_rating),
+        )
+        .filter(CourseTee.course_id == course.id)
+        .first()
+    )
+    tee_count, slope_min, slope_max = tee_stats or (0, None, None)
+    club = course.club
+
+    return CourseResponse(
+        id=course.id,
+        display_name=course.display_name,
+        club_name=club.name if club else "",
+        course_name=course.name,
+        address=club.address if club else None,
+        lat=club.lat if club else None,
+        lng=club.lng if club else None,
+        holes=course.holes,
+        par=course.par,
+        slope_rating=course.slope_rating,
+        course_rating=course.course_rating,
+        user_rating=club.user_rating if club else None,
+        user_notes=club.user_notes if club else None,
+        photo_url=club.photo_url if club else None,
+        slope_min=slope_min,
+        slope_max=slope_max,
+        tee_count=tee_count,
+        golf_club_id=club.id if club else 0,
+    )
 
 
 # --- Endpoints ---
 
 @router.get("/", response_model=list[CourseResponse])
 def list_courses(db: Session = Depends(get_db)):
-    return db.query(Course).order_by(Course.name).all()
+    courses = (
+        db.query(Course)
+        .options(joinedload(Course.club))
+        .join(GolfClub)
+        .order_by(GolfClub.name, Course.name)
+        .all()
+    )
+    return [_build_course_response(db, c) for c in courses]
 
 
 @router.get("/{course_id}", response_model=CourseDetailResponse)
 def get_course(course_id: int, db: Session = Depends(get_db)):
-    course = db.query(Course).filter(Course.id == course_id).first()
+    course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
 
@@ -108,16 +161,9 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
         hole_responses = []
         for h in holes:
             img = db.query(HoleImage).filter(HoleImage.hole_id == h.id).first()
-            hole_responses.append(CourseHoleResponse(
-                id=h.id,
-                hole_number=h.hole_number,
-                par=h.par,
-                yardage=h.yardage,
-                handicap=h.handicap,
-                flag_lat=h.flag_lat,
-                flag_lng=h.flag_lng,
-                image=HoleImageResponse.model_validate(img) if img else None,
-            ))
+            hole_resp = CourseHoleResponse.model_validate(h)
+            hole_resp.image = HoleImageResponse.model_validate(img) if img else None
+            hole_responses.append(hole_resp)
         tee_responses.append(CourseTeeResponse(
             id=tee.id,
             tee_name=tee.tee_name,
@@ -128,29 +174,58 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
             holes=hole_responses,
         ))
 
+    base = _build_course_response(db, course)
     return CourseDetailResponse(
-        id=course.id,
-        name=course.name,
-        address=course.address,
-        lat=course.lat,
-        lng=course.lng,
-        holes=course.holes,
-        par=course.par,
-        slope_rating=course.slope_rating,
-        course_rating=course.course_rating,
-        user_rating=course.user_rating,
-        user_notes=course.user_notes,
+        **base.model_dump(),
         tees=tee_responses,
     )
 
 
-@router.post("/", response_model=CourseResponse, status_code=201)
-def create_course(req: CourseCreateRequest, db: Session = Depends(get_db)):
-    course = Course(**req.model_dump())
-    db.add(course)
-    db.commit()
-    db.refresh(course)
-    return course
+class ApplyMatchRequest(BaseModel):
+    api_id: int
+
+
+@router.post("/club/{golf_club_id}/sync")
+def sync_club(golf_club_id: int, db: Session = Depends(get_db)):
+    """Sync all courses for a golf club from the golf course API, including combo course splitting."""
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+    return sync_club_courses(db, club)
+
+
+
+@router.post("/{course_id}/search-matches")
+def search_matches(course_id: int, db: Session = Depends(get_db)):
+    """Search for matching courses and return scored candidates for user selection."""
+    course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return search_course_candidates(db, course)
+
+
+@router.post("/{course_id}/apply-match")
+def apply_match(course_id: int, req: ApplyMatchRequest, db: Session = Depends(get_db)):
+    """Apply tee/hole data from a user-selected golf course API match."""
+    course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return apply_golf_course_data(db, course, req.api_id)
+
+
+@router.post("/{course_id}/fetch-photo")
+def fetch_photo(course_id: int, force: bool = False, db: Session = Depends(get_db)):
+    """Fetch a photo from Google Places for this course's club."""
+    course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    club = course.club
+    if not club:
+        raise HTTPException(status_code=400, detail="Course has no associated club")
+    photo_url = fetch_club_photo(db, club, force=force)
+    if photo_url:
+        return {"status": "ok", "photo_url": photo_url}
+    return {"status": "not_found", "reason": "No photo found via Google Places"}
 
 
 @router.post("/{course_id}/tees/{tee_id}/fetch-images")
@@ -158,3 +233,95 @@ def fetch_images(course_id: int, tee_id: int, db: Session = Depends(get_db)):
     """Fetch and cache satellite images for all holes of a tee."""
     images = fetch_all_hole_images(db, course_id, tee_id)
     return {"fetched": len(images)}
+
+
+@router.post("/{course_id}/holes/{hole_id}/fetch-image")
+def fetch_single_hole_image(course_id: int, hole_id: int, db: Session = Depends(get_db)):
+    """Fetch and cache a satellite image for a single hole."""
+    from app.services.image_service import fetch_hole_image
+    hole = db.query(CourseHole).filter(CourseHole.id == hole_id).first()
+    if not hole:
+        raise HTTPException(status_code=404, detail="Hole not found")
+    result = fetch_hole_image(db, hole)
+    if result:
+        return {
+            "status": "ok",
+            "filename": result.filename,
+            "center_lat": result.center_lat,
+            "center_lng": result.center_lng,
+            "zoom_level": result.zoom_level,
+        }
+    return {"status": "error", "reason": "Failed to fetch image (check API limits)"}
+
+
+class HoleUpdateRequest(BaseModel):
+    par: Optional[int] = None
+    yardage: Optional[int] = None
+    handicap: Optional[int] = None
+    tee_lat: Optional[float] = None
+    tee_lng: Optional[float] = None
+    flag_lat: Optional[float] = None
+    flag_lng: Optional[float] = None
+    fairway_path: Optional[str] = None  # JSON string of [[lat, lng], ...]
+    rotation_deg: Optional[int] = None
+    custom_zoom: Optional[int] = None
+    custom_bounds: Optional[str] = None  # JSON: {"min_lat":..,"max_lat":..,"min_lng":..,"max_lng":..}
+    shot_offset_x: Optional[float] = None  # Pixel offset for aligning shots after crop
+    shot_offset_y: Optional[float] = None
+
+
+@router.put("/{course_id}/holes/{hole_id}")
+def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Session = Depends(get_db)):
+    """Update hole data (par, yardage, handicap, tee/green GPS, fairway path)."""
+    hole = db.query(CourseHole).filter(CourseHole.id == hole_id).first()
+    if not hole:
+        raise HTTPException(status_code=404, detail="Hole not found")
+    if hole.tee.course_id != course_id:
+        raise HTTPException(status_code=400, detail="Hole does not belong to this course")
+
+    # Track if tee/green positions changed (need image re-fetch)
+    positions_changed = False
+
+    if req.par is not None:
+        hole.par = req.par
+    if req.yardage is not None:
+        hole.yardage = req.yardage
+    if req.handicap is not None:
+        hole.handicap = req.handicap
+    if req.tee_lat is not None:
+        hole.tee_lat = req.tee_lat
+        hole.tee_lng = req.tee_lng
+        positions_changed = True
+    if req.flag_lat is not None:
+        hole.flag_lat = req.flag_lat
+        hole.flag_lng = req.flag_lng
+        positions_changed = True
+    if req.fairway_path is not None:
+        hole.fairway_path = req.fairway_path
+    if req.rotation_deg is not None:
+        hole.rotation_deg = req.rotation_deg
+    if req.custom_zoom is not None:
+        hole.custom_zoom = req.custom_zoom if req.custom_zoom else None
+        positions_changed = True
+    if req.custom_bounds is not None:
+        hole.custom_bounds = req.custom_bounds if req.custom_bounds else None
+        positions_changed = True
+    if req.shot_offset_x is not None:
+        hole.shot_offset_x = req.shot_offset_x
+    if req.shot_offset_y is not None:
+        hole.shot_offset_y = req.shot_offset_y
+
+    # If positions changed, delete cached image so it re-fetches with new bounds
+    if positions_changed:
+        existing_img = db.query(HoleImage).filter(HoleImage.hole_id == hole.id).first()
+        if existing_img:
+            # Delete image file
+            from pathlib import Path
+            img_path = Path("app/static/images/holes") / existing_img.filename
+            if img_path.exists():
+                img_path.unlink()
+            db.delete(existing_img)
+
+    db.commit()
+    db.refresh(hole)
+    return {"status": "ok", "hole_id": hole.id, "positions_changed": positions_changed}

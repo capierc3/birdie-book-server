@@ -1,13 +1,17 @@
-from app.models.course import Course, CourseTee, CourseHole
+from app.models.course import GolfClub, Course, CourseTee, CourseHole
 from app.models.round import Round, RoundHole, Shot
 from app.models.club import Club, ClubStats
 from app.models.player import Player
 from app.models.hole_image import HoleImage
+from app.models.range_session import RangeSession, RangeShot
+from app.models.trackman_shot import TrackmanShot
 
 __all__ = [
-    "Course", "CourseTee", "CourseHole",
+    "GolfClub", "Course", "CourseTee", "CourseHole",
     "Round", "RoundHole", "Shot",
     "Club", "ClubStats",
     "Player",
     "HoleImage",
+    "RangeSession", "RangeShot",
+    "TrackmanShot",
 ]

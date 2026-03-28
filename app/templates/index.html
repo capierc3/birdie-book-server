@@ -1,36 +1,613 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- Import Section -->
-<div class="section" id="section-import">
-    <h2>Import Data</h2>
+
+<!-- ===== Dashboard Section ===== -->
+<div class="content-section active" id="section-dashboard">
+    <div class="page-header">
+        <h1>Dashboard</h1>
+        <p>Your golf performance at a glance</p>
+    </div>
+
+    <div class="stats-row" id="dash-stats">
+        <div class="stat-card">
+            <div class="stat-label">Total Rounds</div>
+            <div class="stat-value" id="stat-rounds">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Courses Played</div>
+            <div class="stat-value" id="stat-courses">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Best Score</div>
+            <div class="stat-value" id="stat-best">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Avg Score vs Par</div>
+            <div class="stat-value" id="stat-avg">--</div>
+        </div>
+    </div>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-header">
+                <h2>Recent Rounds</h2>
+                <a href="#rounds" class="btn btn-ghost btn-sm nav-link" data-section="section-rounds">View All</a>
+            </div>
+            <div id="dash-recent-rounds">
+                <div class="empty-state">
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Your Courses</h2>
+                <a href="#courses" class="btn btn-ghost btn-sm nav-link" data-section="section-courses">View All</a>
+            </div>
+            <div id="dash-courses">
+                <div class="empty-state">
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Rounds Section ===== -->
+<div class="content-section" id="section-rounds">
+    <div class="page-header">
+        <h1>Rounds</h1>
+        <p>All your recorded rounds</p>
+    </div>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table id="rounds-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Course</th>
+                        <th>Score</th>
+                        <th>vs Par</th>
+                        <th>Holes</th>
+                        <th>Shots</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody id="rounds-body">
+                    <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Courses Section ===== -->
+<div class="content-section" id="section-courses">
+    <div class="page-header">
+        <h1>Courses</h1>
+        <p>Golf courses in your database</p>
+    </div>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table id="courses-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Holes</th>
+                        <th>Par</th>
+                        <th>Tees</th>
+                        <th>Slope</th>
+                    </tr>
+                </thead>
+                <tbody id="courses-body">
+                    <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Course Detail Section ===== -->
+<div class="content-section" id="section-course-detail">
+    <!-- Hero Banner -->
+    <div class="course-hero" id="course-hero">
+        <div class="course-hero-overlay"></div>
+        <div class="course-hero-content">
+            <a href="#courses" class="btn btn-ghost btn-sm nav-link course-back-link" data-section="section-courses">&larr; All Courses</a>
+            <h1 id="course-detail-name">Course</h1>
+            <p id="course-detail-subtitle"></p>
+        </div>
+    </div>
+
+    <!-- Course Info -->
+    <div class="stats-row" id="course-detail-stats"></div>
+
+    <!-- Sync + View Holes -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Course Data</h2>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-primary btn-sm" id="btn-view-holes">View Holes</button>
+                <button class="btn btn-secondary btn-sm" id="btn-course-sync">Sync Course Data</button>
+            </div>
+        </div>
+        <div id="course-sync-status" class="status" style="display:none;"></div>
+
+        <!-- Tees -->
+        <div id="course-detail-tees"></div>
+    </div>
+
+    <!-- Rounds at this course -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Rounds Played Here</h2>
+            <span class="badge" id="course-rounds-count">0</span>
+        </div>
+        <div id="course-detail-rounds"></div>
+    </div>
+</div>
+
+<!-- ===== Course Match Modal ===== -->
+<div class="modal-overlay" id="course-match-modal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Select Course</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-modal-close">&times;</button>
+        </div>
+        <p class="modal-subtitle" id="modal-search-info">Searching for matches...</p>
+        <div id="modal-candidates" class="modal-body">
+            <div class="empty-state"><p>Searching...</p></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary btn-sm" id="btn-modal-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Hole View Section ===== -->
+<div class="content-section" id="section-hole-view">
+    <div class="page-header" style="display:flex; align-items:center; gap:16px;">
+        <a id="hole-view-back" class="btn btn-ghost btn-sm" href="#courses">&larr; Back</a>
+        <div>
+            <h1 id="hole-view-title">Course</h1>
+            <p id="hole-view-subtitle"></p>
+        </div>
+    </div>
+
+    <!-- Hole Detail (map + shots) -->
+    <div class="card" id="hole-detail-card">
+        <div class="card-header">
+            <h2 id="hole-detail-title">Select a hole</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-edit-hole" style="display:none;">Edit Hole</button>
+        </div>
+
+        <!-- Edit Toolbar (hidden by default) -->
+        <div class="hole-edit-toolbar" id="hole-edit-toolbar" style="display:none;">
+            <div class="edit-tools">
+                <button class="btn btn-sm edit-tool active" data-tool="tee" id="tool-tee">Place Tee</button>
+                <button class="btn btn-sm edit-tool" data-tool="green" id="tool-green">Place Green</button>
+                <button class="btn btn-sm edit-tool" data-tool="fairway" id="tool-fairway">Draw Fairway</button>
+                <button class="btn btn-ghost btn-sm" id="tool-clear-fairway">Clear Path</button>
+            </div>
+
+            <div class="edit-tools" style="margin-left:8px;">
+                <button class="btn btn-sm edit-tool" data-tool="crop" id="tool-crop">Crop View</button>
+                <button class="btn btn-ghost btn-sm" id="tool-reset-image" title="Reset to original image">Reset Image</button>
+                <button class="btn btn-ghost btn-sm" id="tool-rotate-cw" title="Rotate 15° clockwise">↻</button>
+                <button class="btn btn-ghost btn-sm" id="tool-rotate-ccw" title="Rotate 15° counter-clockwise">↺</button>
+                <span id="edit-rotation-label" style="font-size:0.78rem; color:var(--text-muted); min-width:28px; text-align:center;">0°</span>
+            </div>
+
+            <div class="edit-fields">
+                <label>Par <input type="number" id="edit-par" min="3" max="6" class="edit-input"></label>
+                <label>Yards <input type="number" id="edit-yardage" min="50" max="700" class="edit-input"></label>
+                <label>HCP <input type="number" id="edit-handicap" min="1" max="18" class="edit-input"></label>
+            </div>
+            <div class="edit-actions">
+                <button class="btn btn-primary btn-sm" id="btn-save-hole">Save</button>
+                <button class="btn btn-secondary btn-sm" id="btn-cancel-edit">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Hole Map with Shot Overlay -->
+        <div class="hole-map-container" id="hole-map-container">
+            <div class="hole-map-empty" id="hole-map-empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                    <circle cx="12" cy="10" r="3"/>
+                </svg>
+                <p id="hole-map-message">Select a hole to view map</p>
+            </div>
+            <div class="hole-map" id="hole-map" style="display:none;">
+                <img id="hole-map-img" alt="Hole satellite view" draggable="false" />
+                <canvas id="hole-map-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- Hole Stats + Round Selector on same row -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+            <div id="hole-detail-stats"></div>
+            <div class="window-selector">
+                <label for="round-select">Viewing:</label>
+                <select id="round-select" class="club-window-select">
+                    <option value="historic">Historic</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Shot List (round mode only) -->
+        <div id="hole-shot-list"></div>
+    </div>
+
+    <!-- Scorecard (below hole detail) -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Scorecard</h2>
+        </div>
+
+        <!-- Scorecard Grid -->
+        <div id="scorecard-container"></div>
+    </div>
+</div>
+
+<!-- ===== Clubs Section ===== -->
+<div class="content-section" id="section-clubs">
+    <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <h1>Clubs</h1>
+            <p>Your bag and club performance</p>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-add-club">Add Club</button>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Club Distances</h2>
+            <div class="window-selector" style="display:flex; gap:16px; align-items:center;">
+                <div>
+                    <label for="club-source-select">Data:</label>
+                    <select id="club-source-select" class="club-window-select">
+                        <option value="course">On-Course</option>
+                        <option value="range">Range</option>
+                        <option value="combined">Combined</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="club-window-select">Compare to:</label>
+                    <select id="club-window-select" class="club-window-select">
+                        <option value="">All Time</option>
+                        <option value="rounds:1">Last Round</option>
+                        <option value="rounds:5">Last 5 Rounds</option>
+                        <option value="rounds:10">Last 10 Rounds</option>
+                        <option value="rounds:20">Last 20 Rounds</option>
+                        <option value="months:3">Last 3 Months</option>
+                        <option value="months:6">Last 6 Months</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="clubs-table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Club</th>
+                        <th>Avg</th>
+                        <th>Max</th>
+                        <th>Median</th>
+                        <th>Shots</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="clubs-body">
+                    <tr><td colspan="7" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Club Edit Modal ===== -->
+<div class="modal-overlay" id="club-edit-modal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="club-modal-title">Add Club</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-club-modal-close">&times;</button>
+        </div>
+        <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
+            <input type="hidden" id="club-edit-id">
+            <div class="grid-2" style="gap:12px;">
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Club Type *</span>
+                    <input type="text" id="club-edit-type" class="edit-input" placeholder="e.g. Driver, 7 Iron" style="width:100%;">
+                </label>
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Custom Name</span>
+                    <input type="text" id="club-edit-name" class="edit-input" placeholder="e.g. Old Faithful" style="width:100%;">
+                </label>
+            </div>
+            <div class="grid-2" style="gap:12px;">
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Model</span>
+                    <input type="text" id="club-edit-model" class="edit-input" placeholder="e.g. Callaway Epic" style="width:100%;">
+                </label>
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Flex</span>
+                    <input type="text" id="club-edit-flex" class="edit-input" placeholder="e.g. Stiff, Regular" style="width:100%;">
+                </label>
+            </div>
+            <div class="grid-2" style="gap:12px;">
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Loft (deg)</span>
+                    <input type="number" id="club-edit-loft" class="edit-input" step="0.5" style="width:100%;">
+                </label>
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Lie (deg)</span>
+                    <input type="number" id="club-edit-lie" class="edit-input" step="0.5" style="width:100%;">
+                </label>
+            </div>
+            <div class="grid-2" style="gap:12px;">
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Shaft Length (in)</span>
+                    <input type="number" id="club-edit-shaft" class="edit-input" step="0.25" style="width:100%;">
+                </label>
+                <label style="display:flex; flex-direction:column; gap:4px;">
+                    <span style="font-size:0.78rem; color:var(--text-muted);">Color</span>
+                    <input type="color" id="club-edit-color" style="width:48px; height:32px; padding:2px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg); cursor:pointer;">
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer" style="display:flex; gap:8px; justify-content:flex-end; margin-top:16px;">
+            <button class="btn btn-secondary btn-sm" id="btn-club-modal-cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" id="btn-club-modal-save">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Club Merge Modal ===== -->
+<div class="modal-overlay" id="club-merge-modal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>Merge Club</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-merge-modal-close">&times;</button>
+        </div>
+        <p style="color:var(--text-muted); font-size:0.88rem; margin-bottom:12px;" id="merge-modal-info">
+            Select a club to merge into:
+        </p>
+        <div id="merge-modal-list" class="modal-body"></div>
+        <div class="modal-footer" style="margin-top:16px;">
+            <button class="btn btn-secondary btn-sm" id="btn-merge-modal-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Shot Reassign Modal ===== -->
+<div class="modal-overlay" id="shot-reassign-modal" style="display:none;">
+    <div class="modal reassign-modal">
+        <div class="modal-header">
+            <h2>Reassign Shot</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-reassign-modal-close">&times;</button>
+        </div>
+
+        <div class="reassign-content">
+            <!-- Your Bag -->
+            <div class="reassign-box">
+                <div class="reassign-box-label">Your Bag</div>
+                <div id="reassign-club-list" class="reassign-scroll"></div>
+            </div>
+
+            <!-- Create New Club -->
+            <div class="reassign-box">
+                <div class="reassign-box-label">Create New Club</div>
+                <div class="reassign-form-grid">
+                    <label class="reassign-field">
+                        <span>Club Type *</span>
+                        <input type="text" id="reassign-new-type" class="edit-input" placeholder="e.g. Driver">
+                    </label>
+                    <label class="reassign-field">
+                        <span>Name</span>
+                        <input type="text" id="reassign-new-name" class="edit-input" placeholder="e.g. Old Faithful">
+                    </label>
+                    <label class="reassign-field">
+                        <span>Model</span>
+                        <input type="text" id="reassign-new-model" class="edit-input" placeholder="e.g. Callaway Epic">
+                    </label>
+                    <label class="reassign-field">
+                        <span>Flex</span>
+                        <input type="text" id="reassign-new-flex" class="edit-input" placeholder="e.g. Stiff">
+                    </label>
+                    <label class="reassign-field">
+                        <span>Loft</span>
+                        <input type="number" id="reassign-new-loft" class="edit-input" step="0.5">
+                    </label>
+                    <label class="reassign-field">
+                        <span>Lie</span>
+                        <input type="number" id="reassign-new-lie" class="edit-input" step="0.5">
+                    </label>
+                </div>
+                <div style="text-align:right; margin-top:12px;">
+                    <button class="btn btn-primary btn-sm" id="btn-reassign-new-club">Create & Assign</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-secondary btn-sm" id="btn-reassign-modal-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Range Sessions Section ===== -->
+<div class="content-section" id="section-range">
+    <div class="page-header">
+        <h1>Range Sessions</h1>
+        <p>Launch monitor practice data</p>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Sessions</h2>
+        </div>
+        <div class="table-wrap">
+            <table id="range-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Source</th>
+                        <th>Shots</th>
+                        <th>Title</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="range-body">
+                    <tr><td colspan="5" class="empty-state">No range sessions yet. Import MLM2PRO data to get started.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Range Analytics Detail ===== -->
+<div class="content-section" id="section-range-detail">
+    <!-- Controls bar -->
+    <div class="range-controls">
+        <a href="#range" class="btn btn-ghost btn-sm nav-link" data-section="section-range">&larr; Sessions</a>
+        <div class="window-selector">
+            <label for="range-session-select">Session:</label>
+            <select id="range-session-select" class="club-window-select">
+                <option value="all">All Time</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Club toggles -->
+    <div id="range-club-toggles" class="club-toggles"></div>
+
+    <!-- Charts row -->
+    <div class="range-charts-row">
+        <div class="range-chart-container card">
+            <div class="range-chart-header">
+                <h3 style="margin:0; font-size:0.9rem;">Dispersion</h3>
+                <div class="range-view-toggle">
+                    <button class="active" id="btn-view-total" onclick="window._setRangeView('total')">Total</button>
+                    <button id="btn-view-carry" onclick="window._setRangeView('carry')">Carry</button>
+                </div>
+            </div>
+            <div class="range-canvas-wrap">
+                <canvas id="range-scatter-canvas"></canvas>
+            </div>
+            <div class="range-legend" id="range-scatter-legend"></div>
+        </div>
+
+        <div class="range-chart-container card">
+            <div class="range-chart-header">
+                <h3 style="margin:0; font-size:0.9rem;">Ball Flight</h3>
+            </div>
+            <div class="range-canvas-wrap">
+                <canvas id="range-trajectory-canvas"></canvas>
+            </div>
+            <div class="range-legend" id="range-trajectory-legend"></div>
+        </div>
+    </div>
+
+    <!-- Collapsible club shot sections -->
+    <div id="range-club-sections"></div>
+</div>
+
+<!-- ===== Import Section ===== -->
+<div class="content-section" id="section-import">
+    <div class="page-header">
+        <h1>Import Data</h1>
+        <p>Import rounds and range sessions from your devices</p>
+    </div>
+
+    <!-- Trackman URL Import -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Trackman Report (URL)</h2>
+            <span class="badge" style="background:#e53935; color:#fff;">Range</span>
+        </div>
+        <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.88rem;">
+            Paste a Trackman shared report URL. The report data is fetched directly from Trackman's servers.
+            Duplicate reports are detected automatically.
+        </p>
+        <div style="display:flex; gap:8px; align-items:center;">
+            <input type="text" id="trackman-url" class="edit-input" placeholder="https://web-dynamic-reports.trackmangolf.com/?r=..." style="flex:1;">
+            <button class="btn btn-primary btn-sm" id="btn-trackman-import">Import</button>
+        </div>
+        <div id="trackman-status-msg" class="status" style="display:none;"></div>
+    </div>
+
+    <!-- Rapsodo MLM2PRO CSV Import -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Rapsodo MLM2PRO (CSV)</h2>
+            <span class="badge" style="background:var(--accent); color:#000;">Range</span>
+        </div>
+        <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.88rem;">
+            Upload shot export CSVs from the Rapsodo MLM2PRO app.
+            Select multiple files to bulk import. Duplicates are detected automatically.
+        </p>
+        <div class="upload-zone" id="rapsodo-upload-zone">
+            <input type="file" id="rapsodo-file" accept=".csv" multiple>
+            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="6"/>
+                <circle cx="12" cy="12" r="2"/>
+            </svg>
+            <p><strong>Drop MLM2PRO CSV files here</strong></p>
+            <p>mlm2pro_shotexport_*.csv (one or more)</p>
+        </div>
+        <div id="rapsodo-status-msg" class="status" style="display:none;"></div>
+    </div>
 
     <!-- Garmin JSON Bulk Import -->
-    <div class="card" style="margin-bottom:16px;">
-        <h2>Garmin Data Export (JSON)</h2>
-        <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.9rem;">
+    <div class="card">
+        <div class="card-header">
+            <h2>Garmin Data Export (JSON)</h2>
+            <span class="badge">Recommended</span>
+        </div>
+        <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.88rem;">
             Upload your Garmin data export files. Select all 5 JSON files at once.
             Safe to re-import — existing data is updated, not duplicated.
         </p>
         <div class="upload-zone" id="json-upload-zone">
             <input type="file" id="json-files" accept=".json" multiple>
+            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
             <p><strong>Drop Garmin JSON files here</strong></p>
             <p>Golf-CLUB.json, Golf-CLUB_TYPES.json, Golf-COURSE.json, Golf-SCORECARD.json, Golf-SHOT.json</p>
         </div>
-        <div id="json-file-list" style="margin-top:12px; display:none;">
-            <p style="color:var(--text-muted); font-size:0.85rem;">Selected files:</p>
-            <ul id="json-file-names" style="color:var(--accent); font-size:0.85rem; margin:8px 0 12px 20px;"></ul>
-            <button class="btn btn-primary" id="btn-json-import">Import All</button>
-            <button class="btn btn-secondary" id="btn-json-cancel" style="margin-left:8px;">Cancel</button>
+        <div class="file-list" id="json-file-list" style="display:none;">
+            <p style="color:var(--text-muted); font-size:0.84rem;">Selected files:</p>
+            <ul id="json-file-names"></ul>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-primary" id="btn-json-import">Import All</button>
+                <button class="btn btn-secondary" id="btn-json-cancel">Cancel</button>
+            </div>
         </div>
         <div id="json-status-msg" class="status" style="display:none;"></div>
     </div>
 
     <!-- Single FIT File Import -->
     <div class="card">
-        <h2>Single FIT File</h2>
+        <div class="card-header">
+            <h2>Single FIT File</h2>
+            <span class="badge" style="background:var(--bg-hover); color:var(--text-muted);">Fallback</span>
+        </div>
         <div class="upload-zone" id="upload-zone">
             <input type="file" id="fit-file" accept=".fit">
+            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+            </svg>
             <p><strong>Drop a Garmin .FIT file here</strong></p>
             <p>or click to browse</p>
         </div>
@@ -38,7 +615,7 @@
         <div id="status-msg" class="status" style="display:none;"></div>
 
         <div class="preview-panel" id="preview-panel">
-            <h3 style="margin-bottom:12px; color:var(--accent);">Preview</h3>
+            <h3 style="margin-bottom:12px; color:var(--accent); font-size:1rem;">Preview</h3>
             <div class="grid-2">
                 <div>
                     <p><strong>Course:</strong> <span id="p-course"></span></p>
@@ -54,10 +631,10 @@
                 </div>
             </div>
 
-            <h4 style="margin-top:16px; margin-bottom:8px; color:var(--text-muted);">Scorecard</h4>
+            <h4 style="margin-top:16px; margin-bottom:8px; color:var(--text-muted); font-size:0.88rem;">Scorecard</h4>
             <div class="scorecard" id="p-scorecard"></div>
 
-            <div style="margin-top:20px; display:flex; gap:12px;">
+            <div style="margin-top:20px; display:flex; gap:8px;">
                 <button class="btn btn-primary" id="btn-import">Import to Database</button>
                 <button class="btn btn-secondary" id="btn-cancel">Cancel</button>
             </div>
@@ -65,52 +642,27 @@
     </div>
 </div>
 
-<!-- Rounds Section -->
-<div class="section" id="section-rounds">
-    <h2>Rounds</h2>
+<!-- ===== Settings Section ===== -->
+<div class="content-section" id="section-settings">
+    <div class="page-header">
+        <h1>Settings</h1>
+        <p>Application configuration</p>
+    </div>
+
     <div class="card">
-        <table id="rounds-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Course</th>
-                    <th>Score</th>
-                    <th>vs Par</th>
-                    <th>Holes</th>
-                    <th>Shots</th>
-                    <th>Source</th>
-                </tr>
-            </thead>
-            <tbody id="rounds-body">
-                <tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading...</td></tr>
-            </tbody>
-        </table>
+        <div class="card-header">
+            <h2>Data Management</h2>
+        </div>
+        <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.88rem;">
+            Clear all data and start fresh. This will delete all rounds, courses, clubs, range sessions, and shots.
+        </p>
+        <button class="btn btn-sm" id="btn-clear-data" style="background:#d32f2f; color:#fff;">Clear All Data</button>
+        <div id="clear-data-status" class="status" style="display:none;"></div>
     </div>
 </div>
 
-<!-- Courses Section -->
-<div class="section" id="section-courses">
-    <h2>Courses</h2>
-    <div class="card">
-        <table id="courses-table">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Holes</th>
-                    <th>Par</th>
-                    <th>Rating</th>
-                    <th>Slope</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody id="courses-body">
-                <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Loading...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v=0.1.0"></script>
 {% endblock %}

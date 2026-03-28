@@ -3369,10 +3369,90 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Collapsible Club Sections ──
 
+    // ── Column Configuration System ──
+
     function _fmt(v, dec = 1) { return v != null ? v.toFixed(dec) : '\u2014'; }
+    function _fmt2(v) { return v != null ? v.toFixed(2) : '\u2014'; }
     function _fmtDeg(v) { return v != null ? v.toFixed(1) + '\u00b0' : '\u2014'; }
     function _fmtInt(v) { return v != null ? Math.round(v).toString() : '\u2014'; }
     function _fmtSigned(v) { return v != null ? (v >= 0 ? '+' : '') + v.toFixed(1) : '\u2014'; }
+
+    const FORMATTERS = { _fmt, _fmt2, _fmtDeg, _fmtInt, _fmtSigned };
+
+    const ALL_COLUMNS = [
+        { key: 'shot_number', label: '#', fmt: null, align: 'center', width: '40px', fixed: true },
+        { key: 'carry_yards', label: 'Carry', fmt: '_fmt' },
+        { key: 'total_yards', label: 'Total', fmt: '_fmt' },
+        { key: 'ball_speed_mph', label: 'Ball Spd', fmt: '_fmt' },
+        { key: 'club_speed_mph', label: 'Club Spd', fmt: '_fmt' },
+        { key: 'launch_angle_deg', label: 'Launch', fmt: '_fmtDeg' },
+        { key: 'spin_rate_rpm', label: 'Spin', fmt: '_fmtInt' },
+        { key: 'apex_yards', label: 'Apex', fmt: '_fmt' },
+        { key: 'side_carry_yards', label: 'Side', fmt: '_fmtSigned' },
+        { key: 'descent_angle_deg', label: 'Descent', fmt: '_fmtDeg' },
+        { key: 'smash_factor', label: 'Smash', fmt: '_fmt2' },
+        { key: 'attack_angle_deg', label: 'Attack', fmt: '_fmtDeg' },
+        { key: 'club_path_deg', label: 'Club Path', fmt: '_fmtDeg' },
+        { key: 'launch_direction_deg', label: 'Launch Dir', fmt: '_fmtDeg' },
+        { key: 'spin_axis_deg', label: 'Spin Axis', fmt: '_fmtDeg' },
+        { key: 'face_angle_deg', label: 'Face Ang', fmt: '_fmtDeg', trackman: true },
+        { key: 'face_to_path_deg', label: 'F2P', fmt: '_fmtDeg', trackman: true },
+        { key: 'dynamic_loft_deg', label: 'Dyn Loft', fmt: '_fmtDeg', trackman: true },
+        { key: 'spin_loft_deg', label: 'Spin Loft', fmt: '_fmtDeg', trackman: true },
+        { key: 'swing_plane_deg', label: 'Swing Pl', fmt: '_fmtDeg', trackman: true },
+        { key: 'swing_direction_deg', label: 'Swing Dir', fmt: '_fmtDeg', trackman: true },
+        { key: 'dynamic_lie_deg', label: 'Dyn Lie', fmt: '_fmtDeg', trackman: true },
+        { key: 'impact_offset_in', label: 'Imp Offset', fmt: '_fmt', trackman: true },
+        { key: 'impact_height_in', label: 'Imp Height', fmt: '_fmt', trackman: true },
+        { key: 'low_point_distance_in', label: 'Low Point', fmt: '_fmt', trackman: true },
+        { key: 'curve_yards', label: 'Curve', fmt: '_fmt', trackman: true },
+        { key: 'hang_time_sec', label: 'Hang Time', fmt: '_fmt', trackman: true },
+        { key: 'side_total_yards', label: 'Side Tot', fmt: '_fmtSigned', trackman: true },
+        { key: 'smash_index', label: 'Smash Idx', fmt: '_fmt2', trackman: true },
+        { key: 'ball_speed_diff_mph', label: 'Spd Diff', fmt: '_fmtSigned', trackman: true },
+    ];
+
+    const DEFAULT_VISIBLE = ['shot_number','carry_yards','total_yards','ball_speed_mph','club_speed_mph','launch_angle_deg','spin_rate_rpm','apex_yards','side_carry_yards','descent_angle_deg','smash_factor'];
+    const COL_MAP = {};
+    ALL_COLUMNS.forEach(c => { COL_MAP[c.key] = c; });
+
+    function _loadColumnConfig() {
+        try {
+            const saved = localStorage.getItem('birdie_book_range_columns');
+            if (saved) {
+                const keys = JSON.parse(saved);
+                // Validate all keys exist
+                if (keys.every(k => COL_MAP[k])) return keys;
+            }
+        } catch (e) { /* ignore */ }
+        return [...DEFAULT_VISIBLE];
+    }
+
+    function _saveColumnConfig() {
+        localStorage.setItem('birdie_book_range_columns', JSON.stringify(rangeState.visibleColumns));
+    }
+
+    rangeState.visibleColumns = _loadColumnConfig();
+    rangeState.editColumnsMode = false;
+    rangeState.sortColumn = null;
+    rangeState.sortDirection = null; // null, 'desc', 'asc'
+    rangeState.expandedShotId = null;
+
+    function _fmtCell(shot, colKey) {
+        const col = COL_MAP[colKey];
+        if (!col) return '\u2014';
+        if (colKey === 'shot_number') return shot.shot_number;
+        const val = shot[colKey];
+        if (col.fmt && FORMATTERS[col.fmt]) return FORMATTERS[col.fmt](val);
+        return val != null ? String(val) : '\u2014';
+    }
+
+    function _sortVal(shot, colKey) {
+        // Return a numeric value for sorting. Null → -Infinity
+        if (colKey === 'shot_number') return shot.shot_number;
+        const val = shot[colKey];
+        return val != null ? val : -Infinity;
+    }
 
     function renderClubSections(shots) {
         const container = document.getElementById('range-club-sections');
@@ -3399,13 +3479,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return Math.sqrt(variance);
         };
 
-        // Sort by bag order
         const sorted = Object.entries(groups).sort((a, b) => clubBagOrder(a[0]) - clubBagOrder(b[0]));
+        const cols = rangeState.visibleColumns;
+        const editMode = rangeState.editColumnsMode;
 
         if (sorted.length === 0) {
             container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No shots to display.</p></div>';
             return;
         }
+
+        // Available columns not currently shown (for add menu)
+        const hiddenCols = ALL_COLUMNS.filter(c => !c.fixed && !cols.includes(c.key));
 
         container.innerHTML = sorted.map(([clubName, clubShots], i) => {
             const avgCarry = _avg(clubShots.map(s => s.carry_yards));
@@ -3413,27 +3497,62 @@ document.addEventListener('DOMContentLoaded', () => {
             const color = getClubColor(clubName);
             const collapsed = i >= 2 ? ' collapsed' : '';
 
-            // Compute averages for summary row
-            const avgBallSpd = _avg(clubShots.map(s => s.ball_speed_mph));
-            const avgClubSpd = _avg(clubShots.map(s => s.club_speed_mph));
-            const avgLaunch = _avg(clubShots.map(s => s.launch_angle_deg));
-            const avgSpin = _avg(clubShots.map(s => s.spin_rate_rpm));
-            const avgApex = _avg(clubShots.map(s => s.apex_yards));
-            const avgSide = _avg(clubShots.map(s => s.side_carry_yards));
-            const avgDescent = _avg(clubShots.map(s => s.descent_angle_deg));
-            const avgSmash = _avg(clubShots.map(s => s.smash_factor));
+            // Sort data rows
+            let sortedShots = [...clubShots];
+            if (rangeState.sortColumn && rangeState.sortDirection) {
+                const dir = rangeState.sortDirection === 'desc' ? -1 : 1;
+                sortedShots.sort((a, b) => {
+                    const va = _sortVal(a, rangeState.sortColumn);
+                    const vb = _sortVal(b, rangeState.sortColumn);
+                    return (va - vb) * dir;
+                });
+            }
 
-            // Compute std dev for consistency row
-            const sdCarry = _stdDev(clubShots.map(s => s.carry_yards));
-            const sdTotal = _stdDev(clubShots.map(s => s.total_yards));
-            const sdBallSpd = _stdDev(clubShots.map(s => s.ball_speed_mph));
-            const sdClubSpd = _stdDev(clubShots.map(s => s.club_speed_mph));
-            const sdLaunch = _stdDev(clubShots.map(s => s.launch_angle_deg));
-            const sdSpin = _stdDev(clubShots.map(s => s.spin_rate_rpm));
-            const sdApex = _stdDev(clubShots.map(s => s.apex_yards));
-            const sdSide = _stdDev(clubShots.map(s => s.side_carry_yards));
-            const sdDescent = _stdDev(clubShots.map(s => s.descent_angle_deg));
-            const sdSmash = _stdDev(clubShots.map(s => s.smash_factor));
+            // Build header row
+            const headerCells = cols.map((key, ci) => {
+                const col = COL_MAP[key];
+                if (!col) return '';
+                const sortArrow = rangeState.sortColumn === key
+                    ? (rangeState.sortDirection === 'desc' ? ' \u25BC' : ' \u25B2')
+                    : '';
+                const removeBtn = editMode && !col.fixed
+                    ? `<span class="col-remove" onclick="event.stopPropagation(); window._removeColumn('${key}')">\u00d7</span>`
+                    : '';
+                const dragAttr = editMode && !col.fixed ? `draggable="true" data-col-idx="${ci}"` : '';
+                const style = col.width ? `style="width:${col.width}"` : '';
+                return `<th ${style} ${dragAttr} onclick="window._sortByColumn('${key}')" class="sortable${editMode ? ' edit-mode' : ''}">${col.label}${sortArrow}${removeBtn}</th>`;
+            }).join('');
+
+            const addBtn = editMode
+                ? `<th class="col-add-cell"><span class="col-add" onclick="event.stopPropagation(); window._showAddColumn(this)">+</span></th>`
+                : '<th></th>'; // action column
+
+            // Build summary rows
+            const avgCells = cols.map(key => {
+                if (key === 'shot_number') return '<td><strong>Avg</strong></td>';
+                const val = _avg(clubShots.map(s => s[key]));
+                return `<td>${_fmtCell({[key]: val, shot_number: 0}, key)}</td>`;
+            }).join('') + '<td></td>';
+
+            const sdCells = cols.map(key => {
+                if (key === 'shot_number') return '<td><strong>StdDev</strong></td>';
+                const val = _stdDev(clubShots.map(s => s[key]));
+                return `<td>${_fmtCell({[key]: val, shot_number: 0}, key)}</td>`;
+            }).join('') + '<td></td>';
+
+            // Build shot rows
+            const shotRows = sortedShots.map(s => {
+                const isExpanded = rangeState.expandedShotId === s.id;
+                const dataCells = cols.map(key => `<td>${_fmtCell(s, key)}</td>`).join('');
+                const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${s.source === "trackman" ? "trackman" : "range"}', ${s.id})" style="font-size:0.7rem;">Move</button></td>`;
+                let row = `<tr data-shot-id="${s.id}" onclick="window._toggleShotHighlight(${s.id})" class="clickable${isExpanded ? ' detail-expanded' : ''}">${dataCells}${moveBtn}</tr>`;
+
+                // Inline detail panel
+                if (isExpanded) {
+                    row += _buildDetailPanel(s, cols.length + 1);
+                }
+                return row;
+            }).join('');
 
             return `
             <div class="club-section${collapsed}">
@@ -3444,61 +3563,159 @@ document.addEventListener('DOMContentLoaded', () => {
                     <span class="club-section-meta">
                         ${clubShots.length} shots \u00b7 Carry: ${avgCarry != null ? avgCarry.toFixed(1) : '\u2014'} \u00b7 Total: ${avgTotal != null ? avgTotal.toFixed(1) : '\u2014'}
                     </span>
+                    <span class="col-edit-toggle" onclick="event.stopPropagation(); window._toggleEditColumns()" title="Edit columns">${editMode ? '\u2713' : '\u270E'}</span>
                 </div>
                 <div class="club-section-body">
                     <table>
-                        <thead><tr>
-                            <th>#</th><th>Carry</th><th>Total</th><th>Ball Spd</th><th>Club Spd</th>
-                            <th>Launch</th><th>Spin</th><th>Apex</th><th>Side</th><th>Descent</th><th>Smash</th><th></th>
-                        </tr></thead>
+                        <thead><tr>${headerCells}${addBtn}</tr></thead>
                         <tbody>
-                            <tr class="summary-row summary-avg">
-                                <td><strong>Avg</strong></td>
-                                <td>${_fmt(avgCarry)}</td>
-                                <td>${_fmt(avgTotal)}</td>
-                                <td>${_fmt(avgBallSpd)}</td>
-                                <td>${_fmt(avgClubSpd)}</td>
-                                <td>${_fmtDeg(avgLaunch)}</td>
-                                <td>${_fmtInt(avgSpin)}</td>
-                                <td>${_fmt(avgApex)}</td>
-                                <td>${_fmtSigned(avgSide)}</td>
-                                <td>${_fmtDeg(avgDescent)}</td>
-                                <td>${_fmt(avgSmash, 2)}</td>
-                                <td></td>
-                            </tr>
-                            <tr class="summary-row summary-sd">
-                                <td><strong>StdDev</strong></td>
-                                <td>${_fmt(sdCarry)}</td>
-                                <td>${_fmt(sdTotal)}</td>
-                                <td>${_fmt(sdBallSpd)}</td>
-                                <td>${_fmt(sdClubSpd)}</td>
-                                <td>${_fmtDeg(sdLaunch)}</td>
-                                <td>${_fmtInt(sdSpin)}</td>
-                                <td>${_fmt(sdApex)}</td>
-                                <td>${_fmt(sdSide)}</td>
-                                <td>${_fmtDeg(sdDescent)}</td>
-                                <td>${_fmt(sdSmash, 2)}</td>
-                                <td></td>
-                            </tr>
-                            ${clubShots.map(s => `<tr data-shot-id="${s.id}" onclick="window._toggleShotHighlight(${s.id})" class="clickable">
-                                <td>${s.shot_number}</td>
-                                <td>${_fmt(s.carry_yards)}</td>
-                                <td>${_fmt(s.total_yards)}</td>
-                                <td>${_fmt(s.ball_speed_mph)}</td>
-                                <td>${_fmt(s.club_speed_mph)}</td>
-                                <td>${_fmtDeg(s.launch_angle_deg)}</td>
-                                <td>${_fmtInt(s.spin_rate_rpm)}</td>
-                                <td>${_fmt(s.apex_yards)}</td>
-                                <td>${_fmtSigned(s.side_carry_yards)}</td>
-                                <td>${_fmtDeg(s.descent_angle_deg)}</td>
-                                <td>${_fmt(s.smash_factor, 2)}</td>
-                                <td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${s.source === "trackman" ? "trackman" : "range"}', ${s.id})" style="font-size:0.7rem;">Move</button></td>
-                            </tr>`).join('')}
+                            <tr class="summary-row summary-avg">${avgCells}</tr>
+                            <tr class="summary-row summary-sd">${sdCells}</tr>
+                            ${shotRows}
                         </tbody>
                     </table>
                 </div>
             </div>`;
         }).join('');
+
+        // Attach drag handlers if in edit mode
+        if (editMode) _attachDragHandlers();
+    }
+
+    function _buildDetailPanel(shot, colSpan) {
+        const sections = [
+            { title: 'Flight', fields: [
+                ['Carry', _fmt(shot.carry_yards)], ['Total', _fmt(shot.total_yards)],
+                ['Side', _fmtSigned(shot.side_carry_yards)], ['Side Tot', _fmtSigned(shot.side_total_yards)],
+                ['Apex', _fmt(shot.apex_yards)], ['Curve', _fmt(shot.curve_yards)],
+                ['Hang Time', shot.hang_time_sec != null ? shot.hang_time_sec.toFixed(1) + 's' : '\u2014'],
+                ['Descent', _fmtDeg(shot.descent_angle_deg)],
+            ]},
+            { title: 'Club & Swing', fields: [
+                ['Club Spd', _fmt(shot.club_speed_mph)], ['Ball Spd', _fmt(shot.ball_speed_mph)],
+                ['Smash', _fmt2(shot.smash_factor)], ['Attack', _fmtDeg(shot.attack_angle_deg)],
+                ['Club Path', _fmtDeg(shot.club_path_deg)], ['Face Ang', _fmtDeg(shot.face_angle_deg)],
+                ['F2P', _fmtDeg(shot.face_to_path_deg)], ['Dyn Loft', _fmtDeg(shot.dynamic_loft_deg)],
+                ['Spin Loft', _fmtDeg(shot.spin_loft_deg)], ['Swing Pl', _fmtDeg(shot.swing_plane_deg)],
+                ['Swing Dir', _fmtDeg(shot.swing_direction_deg)], ['Dyn Lie', _fmtDeg(shot.dynamic_lie_deg)],
+            ]},
+            { title: 'Impact', fields: [
+                ['Offset', _fmt(shot.impact_offset_in)], ['Height', _fmt(shot.impact_height_in)],
+                ['Low Point', _fmt(shot.low_point_distance_in)],
+            ]},
+            { title: 'Spin', fields: [
+                ['Rate', _fmtInt(shot.spin_rate_rpm)], ['Axis', _fmtDeg(shot.spin_axis_deg)],
+                ['Launch', _fmtDeg(shot.launch_angle_deg)], ['Launch Dir', _fmtDeg(shot.launch_direction_deg)],
+            ]},
+        ];
+
+        const html = sections.map(sec => `
+            <div class="detail-section">
+                <div class="detail-section-title">${sec.title}</div>
+                <div class="detail-grid">
+                    ${sec.fields.map(([label, val]) => `<div class="detail-item"><span class="detail-label">${label}</span><span class="detail-value">${val}</span></div>`).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        return `<tr class="detail-panel-row"><td colspan="${colSpan}"><div class="shot-detail-panel">${html}
+            <div style="text-align:right; margin-top:8px;">
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shot.source === "trackman" ? "trackman" : "range"}', ${shot.id})" style="font-size:0.75rem;">Move Shot</button>
+            </div>
+        </div></td></tr>`;
+    }
+
+    // ── Column Edit, Sort, Detail handlers ──
+
+    window._toggleEditColumns = function() {
+        rangeState.editColumnsMode = !rangeState.editColumnsMode;
+        renderRangeAnalytics();
+    };
+
+    window._removeColumn = function(key) {
+        rangeState.visibleColumns = rangeState.visibleColumns.filter(k => k !== key);
+        _saveColumnConfig();
+        renderRangeAnalytics();
+    };
+
+    window._showAddColumn = function(el) {
+        // Remove existing dropdown if any
+        document.querySelectorAll('.col-add-dropdown').forEach(d => d.remove());
+
+        const hidden = ALL_COLUMNS.filter(c => !c.fixed && !rangeState.visibleColumns.includes(c.key));
+        if (hidden.length === 0) return;
+
+        const dd = document.createElement('div');
+        dd.className = 'col-add-dropdown';
+        dd.innerHTML = hidden.map(c =>
+            `<div class="col-add-option" onclick="window._addColumn('${c.key}')">${c.label}${c.trackman ? ' <span style="color:var(--text-dim); font-size:0.7rem;">(TM)</span>' : ''}</div>`
+        ).join('');
+        el.parentElement.appendChild(dd);
+
+        // Close on outside click
+        setTimeout(() => {
+            document.addEventListener('click', function handler(e) {
+                if (!dd.contains(e.target)) { dd.remove(); document.removeEventListener('click', handler); }
+            });
+        }, 10);
+    };
+
+    window._addColumn = function(key) {
+        rangeState.visibleColumns.push(key);
+        _saveColumnConfig();
+        document.querySelectorAll('.col-add-dropdown').forEach(d => d.remove());
+        renderRangeAnalytics();
+    };
+
+    window._sortByColumn = function(key) {
+        if (rangeState.editColumnsMode) return; // Don't sort in edit mode
+        if (rangeState.sortColumn === key) {
+            // Cycle: desc → asc → default
+            if (rangeState.sortDirection === 'desc') rangeState.sortDirection = 'asc';
+            else { rangeState.sortColumn = null; rangeState.sortDirection = null; }
+        } else {
+            rangeState.sortColumn = key;
+            rangeState.sortDirection = 'desc';
+        }
+        renderRangeAnalytics();
+    };
+
+    // Shot detail toggle (integrated with highlight)
+    const _origToggle = window._toggleShotHighlight;
+    window._toggleShotHighlight = function(shotId) {
+        // Toggle detail panel
+        rangeState.expandedShotId = rangeState.expandedShotId === shotId ? null : shotId;
+        // Also do highlighting
+        if (_origToggle) _origToggle(shotId);
+        else renderRangeAnalytics();
+    };
+
+    // Drag to reorder columns
+    let _dragColIdx = null;
+    function _attachDragHandlers() {
+        document.querySelectorAll('.club-section-body th[draggable]').forEach(th => {
+            th.addEventListener('dragstart', (e) => {
+                _dragColIdx = parseInt(th.dataset.colIdx);
+                th.classList.add('th-dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+            th.addEventListener('dragend', () => { th.classList.remove('th-dragging'); });
+            th.addEventListener('dragover', (e) => { e.preventDefault(); th.classList.add('th-dragover'); });
+            th.addEventListener('dragleave', () => { th.classList.remove('th-dragover'); });
+            th.addEventListener('drop', (e) => {
+                e.preventDefault();
+                th.classList.remove('th-dragover');
+                const toIdx = parseInt(th.dataset.colIdx);
+                if (_dragColIdx !== null && _dragColIdx !== toIdx) {
+                    const cols = rangeState.visibleColumns;
+                    const [moved] = cols.splice(_dragColIdx, 1);
+                    cols.splice(toIdx, 0, moved);
+                    _saveColumnConfig();
+                    renderRangeAnalytics();
+                }
+                _dragColIdx = null;
+            });
+        });
     }
 
     // Toggle shot highlight from table click

@@ -181,9 +181,18 @@ cython_debug/
 .idea/
 .vscode/
 
-# Project-specific — cached satellite images (fetched at runtime)
+# Database
+*.db
+*.db-journal
+
+# API usage tracking
+api_usage.json
+
+# Project-specific — runtime images (fetched/generated at runtime)
 app/static/images/holes/
+app/static/images/clubs/
 !app/static/images/holes/.gitkeep
+!app/static/images/default-course.jpg
 
 # Claude
 .claude/

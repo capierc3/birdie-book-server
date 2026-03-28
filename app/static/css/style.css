@@ -1425,6 +1425,120 @@ tbody tr.clickable { cursor: pointer; }
     font-weight: 500;
 }
 
+/* Column edit mode */
+.col-edit-toggle {
+    margin-left: auto;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    transition: color 0.15s;
+}
+.col-edit-toggle:hover { color: var(--accent); }
+
+.club-section-body th.sortable {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    white-space: nowrap;
+}
+.club-section-body th.sortable:hover { color: var(--text); }
+.club-section-body th.edit-mode { padding-right: 18px; }
+
+.col-remove {
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    line-height: 1;
+    padding: 1px 3px;
+    border-radius: 2px;
+}
+.col-remove:hover { color: #ef5350; background: rgba(239,83,80,0.15); }
+
+.col-add-cell { width: 32px; text-align: center !important; }
+.col-add {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    cursor: pointer;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+.col-add:hover { color: var(--accent); border-color: var(--accent); }
+
+.col-add-dropdown {
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 100;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    max-height: 280px;
+    overflow-y: auto;
+    min-width: 160px;
+}
+.col-add-option {
+    padding: 8px 14px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.col-add-option:hover { background: var(--bg-hover); }
+
+.th-dragging { opacity: 0.4; }
+.th-dragover { border-left: 2px solid var(--accent) !important; }
+
+/* Shot detail panel */
+.detail-panel-row td { padding: 0 !important; }
+.shot-detail-panel {
+    background: var(--bg-sidebar);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+.detail-section {
+    flex: 1;
+    min-width: 180px;
+}
+.detail-section-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+}
+.detail-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    padding: 2px 0;
+}
+.detail-label { color: var(--text-muted); }
+.detail-value { font-weight: 500; }
+
+tr.detail-expanded { background: var(--bg-hover) !important; }
+
 /* Club toggle pills */
 .club-toggles {
     display: flex;

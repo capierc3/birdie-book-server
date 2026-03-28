@@ -76,8 +76,24 @@ class RangeShotResponse(BaseModel):
     club_path_deg: Optional[float] = None
     spin_rate_rpm: Optional[float] = None
     spin_axis_deg: Optional[float] = None
-    trajectory_json: Optional[str] = None  # Trackman 3D trajectory points
-    source: str = "rapsodo_mlm2pro"  # "rapsodo_mlm2pro" or "trackman"
+    # Trackman-specific fields (None for MLM2PRO shots)
+    face_angle_deg: Optional[float] = None
+    face_to_path_deg: Optional[float] = None
+    dynamic_loft_deg: Optional[float] = None
+    spin_loft_deg: Optional[float] = None
+    swing_plane_deg: Optional[float] = None
+    swing_direction_deg: Optional[float] = None
+    dynamic_lie_deg: Optional[float] = None
+    impact_offset_in: Optional[float] = None
+    impact_height_in: Optional[float] = None
+    low_point_distance_in: Optional[float] = None
+    curve_yards: Optional[float] = None
+    hang_time_sec: Optional[float] = None
+    side_total_yards: Optional[float] = None
+    smash_index: Optional[float] = None
+    ball_speed_diff_mph: Optional[float] = None
+    trajectory_json: Optional[str] = None
+    source: str = "rapsodo_mlm2pro"
 
 class ClubGroupStats(BaseModel):
     club_type_raw: str
@@ -308,6 +324,22 @@ def _tm_to_response(s: TrackmanShot) -> RangeShotResponse:
         club_path_deg=s.club_path_deg,
         spin_rate_rpm=s.spin_rate_rpm,
         spin_axis_deg=s.spin_axis_deg,
+        # Trackman-specific fields
+        face_angle_deg=s.face_angle_deg,
+        face_to_path_deg=s.face_to_path_deg,
+        dynamic_loft_deg=s.dynamic_loft_deg,
+        spin_loft_deg=s.spin_loft_deg,
+        swing_plane_deg=s.swing_plane_deg,
+        swing_direction_deg=s.swing_direction_deg,
+        dynamic_lie_deg=s.dynamic_lie_deg,
+        impact_offset_in=s.impact_offset_in,
+        impact_height_in=s.impact_height_in,
+        low_point_distance_in=s.low_point_distance_in,
+        curve_yards=s.curve_yards,
+        hang_time_sec=s.hang_time_sec,
+        side_total_yards=s.side_total_yards,
+        smash_index=s.smash_index,
+        ball_speed_diff_mph=s.ball_speed_diff_mph,
         trajectory_json=s.trajectory_json,
         source="trackman",
     )

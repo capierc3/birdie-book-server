@@ -216,27 +216,19 @@ def compute_club_stats(db: Session) -> dict:
 
         # Range fields
         if range_stats:
-            existing.range_avg_yards = range_stats["avg_yards"]
-            existing.range_median_yards = range_stats["median_yards"]
-            existing.range_max_yards = range_stats["max_yards"]
-            existing.range_sample_count = range_stats["sample_count"]
+            for key, val in range_stats.items():
+                setattr(existing, f"range_{key}", val)
         else:
-            existing.range_avg_yards = None
-            existing.range_median_yards = None
-            existing.range_max_yards = None
-            existing.range_sample_count = None
+            for key in ("avg_yards", "median_yards", "std_dev", "min_yards", "max_yards", "p10", "p90", "sample_count"):
+                setattr(existing, f"range_{key}", None)
 
         # Combined fields
         if combined_stats:
-            existing.combined_avg_yards = combined_stats["avg_yards"]
-            existing.combined_median_yards = combined_stats["median_yards"]
-            existing.combined_max_yards = combined_stats["max_yards"]
-            existing.combined_sample_count = combined_stats["sample_count"]
+            for key, val in combined_stats.items():
+                setattr(existing, f"combined_{key}", val)
         else:
-            existing.combined_avg_yards = None
-            existing.combined_median_yards = None
-            existing.combined_max_yards = None
-            existing.combined_sample_count = None
+            for key in ("avg_yards", "median_yards", "std_dev", "min_yards", "max_yards", "p10", "p90", "sample_count"):
+                setattr(existing, f"combined_{key}", None)
 
         existing.last_computed = now
         updated += 1
@@ -314,12 +306,7 @@ def compute_windowed_club_stats(
         for club_id, distances in club_dists.items():
             stats = _compute_stats_from_distances(distances, min_samples=1)
             if stats:
-                result[club_id] = {
-                    "avg_yards": stats["avg_yards"],
-                    "median_yards": stats["median_yards"],
-                    "max_yards": stats["max_yards"],
-                    "sample_count": stats["sample_count"],
-                }
+                result[club_id] = stats  # Full stats dict: avg, median, std_dev, min, max, p10, p90, sample_count
         return result
 
     # On-course windowing
@@ -361,11 +348,6 @@ def compute_windowed_club_stats(
         club = garmin_to_club[garmin_id]
         stats = _compute_stats_from_distances(distances, min_samples=1)
         if stats:
-            result[club.id] = {
-                "avg_yards": stats["avg_yards"],
-                "median_yards": stats["median_yards"],
-                "max_yards": stats["max_yards"],
-                "sample_count": stats["sample_count"],
-            }
+            result[club.id] = stats  # Full stats dict
 
     return result

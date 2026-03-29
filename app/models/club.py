@@ -49,13 +49,21 @@ class ClubStats(Base):
     # Range/sim stats (from launch monitor data)
     range_avg_yards = Column(Float)
     range_median_yards = Column(Float)
+    range_std_dev = Column(Float)
+    range_min_yards = Column(Float)
     range_max_yards = Column(Float)
+    range_p10 = Column(Float)
+    range_p90 = Column(Float)
     range_sample_count = Column(Integer)
 
     # Combined on-course + range stats
     combined_avg_yards = Column(Float)
     combined_median_yards = Column(Float)
+    combined_std_dev = Column(Float)
+    combined_min_yards = Column(Float)
     combined_max_yards = Column(Float)
+    combined_p10 = Column(Float)
+    combined_p90 = Column(Float)
     combined_sample_count = Column(Integer)
 
     last_computed = Column(DateTime, server_default=func.now())

@@ -27,19 +27,31 @@ class ClubStatsResponse(BaseModel):
     # Range/sim stats
     range_avg_yards: Optional[float] = None
     range_median_yards: Optional[float] = None
+    range_std_dev: Optional[float] = None
+    range_min_yards: Optional[float] = None
     range_max_yards: Optional[float] = None
+    range_p10: Optional[float] = None
+    range_p90: Optional[float] = None
     range_sample_count: Optional[int] = None
     # Combined on-course + range
     combined_avg_yards: Optional[float] = None
     combined_median_yards: Optional[float] = None
+    combined_std_dev: Optional[float] = None
+    combined_min_yards: Optional[float] = None
     combined_max_yards: Optional[float] = None
+    combined_p10: Optional[float] = None
+    combined_p90: Optional[float] = None
     combined_sample_count: Optional[int] = None
 
 
 class WindowedStatsResponse(BaseModel):
     avg_yards: Optional[float] = None
     median_yards: Optional[float] = None
+    std_dev: Optional[float] = None
+    min_yards: Optional[float] = None
     max_yards: Optional[float] = None
+    p10: Optional[float] = None
+    p90: Optional[float] = None
     sample_count: Optional[int] = None
 
 
@@ -162,11 +174,19 @@ def _build_club_response(c: Club, windowed: dict = None) -> ClubResponse:
             sample_count=c.stats.sample_count,
             range_avg_yards=c.stats.range_avg_yards,
             range_median_yards=c.stats.range_median_yards,
+            range_std_dev=c.stats.range_std_dev,
+            range_min_yards=c.stats.range_min_yards,
             range_max_yards=c.stats.range_max_yards,
+            range_p10=c.stats.range_p10,
+            range_p90=c.stats.range_p90,
             range_sample_count=c.stats.range_sample_count,
             combined_avg_yards=c.stats.combined_avg_yards,
             combined_median_yards=c.stats.combined_median_yards,
+            combined_std_dev=c.stats.combined_std_dev,
+            combined_min_yards=c.stats.combined_min_yards,
             combined_max_yards=c.stats.combined_max_yards,
+            combined_p10=c.stats.combined_p10,
+            combined_p90=c.stats.combined_p90,
             combined_sample_count=c.stats.combined_sample_count,
         ) if c.stats else None,
         windowed_stats=WindowedStatsResponse(**windowed[c.id]) if windowed and c.id in windowed else None,

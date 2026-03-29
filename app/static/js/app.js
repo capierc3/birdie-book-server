@@ -23,6 +23,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Scroll to top
         window.scrollTo(0, 0);
+
+        // Re-render box plot when clubs section becomes visible (fixes zero-width canvas)
+        if (sectionId === 'section-clubs' && _lastBoxPlotClubs) {
+            requestAnimationFrame(() => renderClubBoxPlot(_lastBoxPlotClubs));
+        }
     }
 
     // Sidebar nav clicks
@@ -2319,14 +2324,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ========== Club Window Selector ==========
     let clubWindow = '';
-    let clubSource = 'course';
+    let clubSource = 'combined';
     const clubWindowSelect = document.getElementById('club-window-select');
     const clubSourceSelect = document.getElementById('club-source-select');
 
     if (clubWindowSelect) {
         clubWindowSelect.addEventListener('change', () => {
             clubWindow = clubWindowSelect.value;
-            loadClubs();
+            // Source comparisons use local data — just re-render, no API call needed
+            if (clubWindow.startsWith('source:') || clubWindow === '') {
+                renderClubsTable();
+            } else {
+                loadClubs();
+            }
         });
     }
 
@@ -2343,6 +2353,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         add('', 'All Time');
+        add('source:range', 'vs Range Data');
+        add('source:course', 'vs Course Data');
 
         if (src === 'course') {
             add('rounds:1', 'Last Round');
@@ -2384,7 +2396,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadClubs() {
         try {
             let url = '/api/clubs/';
-            if (clubWindow) {
+            // source:range and source:course use local stats, no API window params
+            if (clubWindow && !clubWindow.startsWith('source:')) {
                 const [type, value] = clubWindow.split(':');
                 url += `?window_type=${type}&window_value=${value}`;
             }
@@ -2443,35 +2456,68 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderClubsTable() {
         const tbody = document.getElementById('clubs-body');
         if (clubsCache.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No clubs yet. Import data or add a club to get started.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No clubs yet. Import data or add a club to get started.</td></tr>';
             return;
         }
 
         const hasWindow = clubWindow !== '';
+        const isSourceCompare = clubWindow.startsWith('source:');
 
         // Sort by bag order
         const sorted = [...clubsCache].sort((a, b) => clubBagOrder(a.club_type) - clubBagOrder(b.club_type));
 
         tbody.innerHTML = sorted.map(c => {
             const s = c.stats;
-            const w = c.windowed_stats;
+
+            // For source comparison, build windowed_stats from the other source's data
+            let w = c.windowed_stats;
+            if (isSourceCompare && s) {
+                const cmpSource = clubWindow.split(':')[1]; // "range" or "course"
+                if (cmpSource === 'range') {
+                    w = s.range_avg_yards != null ? {
+                        avg_yards: s.range_avg_yards, median_yards: s.range_median_yards,
+                        std_dev: s.range_std_dev, min_yards: s.range_min_yards,
+                        max_yards: s.range_max_yards, p10: s.range_p10, p90: s.range_p90,
+                        sample_count: s.range_sample_count,
+                    } : null;
+                } else if (cmpSource === 'course') {
+                    w = s.avg_yards != null ? {
+                        avg_yards: s.avg_yards, median_yards: s.median_yards,
+                        std_dev: s.std_dev, min_yards: s.min_yards,
+                        max_yards: s.max_yards, p10: s.p10, p90: s.p90,
+                        sample_count: s.sample_count,
+                    } : null;
+                }
+            }
 
             // Pick the right stats based on source toggle
-            let avgVal, medianVal, maxVal, shotCount;
+            let avgVal, medianVal, maxVal, stdDevVal, minVal, p10Val, p90Val, shotCount;
             if (clubSource === 'range') {
                 avgVal = s?.range_avg_yards;
                 medianVal = s?.range_median_yards;
+                stdDevVal = s?.range_std_dev;
+                minVal = s?.range_min_yards;
                 maxVal = s?.range_max_yards;
+                p10Val = s?.range_p10;
+                p90Val = s?.range_p90;
                 shotCount = s?.range_sample_count;
             } else if (clubSource === 'combined') {
                 avgVal = s?.combined_avg_yards;
                 medianVal = s?.combined_median_yards;
+                stdDevVal = s?.combined_std_dev;
+                minVal = s?.combined_min_yards;
                 maxVal = s?.combined_max_yards;
+                p10Val = s?.combined_p10;
+                p90Val = s?.combined_p90;
                 shotCount = s?.combined_sample_count;
             } else {
                 avgVal = s?.avg_yards;
                 medianVal = s?.median_yards;
+                stdDevVal = s?.std_dev;
+                minVal = s?.min_yards;
                 maxVal = s?.max_yards;
+                p10Val = s?.p10;
+                p90Val = s?.p90;
                 shotCount = s?.sample_count;
             }
 
@@ -2487,13 +2533,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? formatWithDelta(medianVal, w.median_yards, ' yds')
                 : (medianVal != null ? `${medianVal.toFixed(1)} yds` : '\u2014');
 
+            const stdDev = stdDevVal != null ? `\u00b1${stdDevVal.toFixed(1)}` : '\u2014';
+
             const shots = shotCount ?? '\u2014';
             const wShots = hasWindow && w ? ` <span style="color:var(--text-muted); font-size:0.8rem;">(${w.sample_count})</span>` : '';
 
             const srcLabel = { garmin: 'G', rapsodo_mlm2pro: 'R', trackman: 'T', manual: 'M' }[c.source] || 'M';
             const clubColor = c.color || getClubColor(c.club_type);
-            // Determine text color based on background brightness
             const textColor = _isLightColor(clubColor) ? '#000' : '#fff';
+
+            // Store box plot data on the element for later
+            c._boxData = { minVal, p10Val, medianVal, avgVal, p90Val, maxVal, color: clubColor };
 
             return `<tr>
                 <td style="width:28px;"><span class="source-badge" style="background:${clubColor}; color:${textColor}; cursor:pointer;" title="Click to change color" onclick="event.stopPropagation(); window._pickClubColor(${c.id})">${srcLabel}</span></td>
@@ -2501,10 +2551,301 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${avg}</td>
                 <td>${maxD}</td>
                 <td>${median}</td>
+                <td>${stdDev}</td>
                 <td>${shots}${wShots}</td>
                 <td style="width:60px;"><button class="btn btn-ghost btn-sm" onclick="window._mergeClub(${c.id})" title="Merge another club into this one" style="font-size:0.75rem;">Merge</button></td>
             </tr>`;
         }).join('');
+
+        // Render box plot
+        renderClubBoxPlot(sorted);
+    }
+
+    let _lastBoxPlotClubs = null;
+
+    function renderClubBoxPlot(clubs) {
+        const canvas = document.getElementById('club-boxplot-canvas');
+        if (!canvas) return;
+
+        _lastBoxPlotClubs = clubs; // Store for re-render on section visible
+
+        const W = canvas.parentElement.offsetWidth;
+        if (W < 10) return; // Not visible yet — will re-render when section shown
+
+        const validClubs = clubs.filter(c => c._boxData && c._boxData.minVal != null && c._boxData.maxVal != null && c.club_type !== 'Unknown' && c.club_type !== 'Putter');
+        if (validClubs.length === 0) {
+            canvas.parentElement.style.height = '60px';
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = W * dpr;
+            canvas.height = 60 * dpr;
+            ctx.scale(dpr, dpr);
+            ctx.fillStyle = '#666';
+            ctx.font = '13px system-ui';
+            ctx.textAlign = 'center';
+            ctx.fillText('No club data available', W / 2, 35);
+            return;
+        }
+
+        // Sort longest at top
+        validClubs.sort((a, b) => (b._boxData.avgVal || 0) - (a._boxData.avgVal || 0));
+
+        // Build comparison data for source comparisons
+        const isSourceCompare = clubWindow.startsWith('source:');
+        if (isSourceCompare) {
+            const cmpSrc = clubWindow.split(':')[1];
+            for (const c of validClubs) {
+                const s = c.stats;
+                if (!s) continue;
+                if (cmpSrc === 'range' && s.range_min_yards != null) {
+                    c._compareData = { minVal: s.range_min_yards, p10Val: s.range_p10, medianVal: s.range_median_yards, avgVal: s.range_avg_yards, p90Val: s.range_p90, maxVal: s.range_max_yards };
+                } else if (cmpSrc === 'course' && s.min_yards != null) {
+                    c._compareData = { minVal: s.min_yards, p10Val: s.p10, medianVal: s.median_yards, avgVal: s.avg_yards, p90Val: s.p90, maxVal: s.max_yards };
+                } else {
+                    c._compareData = null;
+                }
+            }
+        } else {
+            for (const c of validClubs) {
+                const ws = c.windowed_stats;
+                c._compareData = ws && ws.min_yards != null ? {
+                    minVal: ws.min_yards, p10Val: ws.p10, medianVal: ws.median_yards,
+                    avgVal: ws.avg_yards, p90Val: ws.p90, maxVal: ws.max_yards,
+                } : null;
+            }
+        }
+
+        // Build rows: each club = 1 row, plus comparison row if data exists
+        const hasComparison = clubWindow !== '' && validClubs.some(c => c._compareData);
+        const mainRowHeight = 36;
+        const compRowHeight = 28;
+        const rows = []; // { type: 'main'|'compare', club, y }
+        let y = 0;
+        for (const c of validClubs) {
+            rows.push({ type: 'main', club: c, y });
+            y += mainRowHeight;
+            if (hasComparison) {
+                rows.push({ type: 'compare', club: c, y });
+                y += compRowHeight;
+            }
+        }
+
+        const labelWidth = 150;
+        const padTop = 25;
+        const padBottom = 30;
+        const padRight = 20;
+        const totalHeight = padTop + y + padBottom;
+
+        canvas.parentElement.style.height = totalHeight + 'px';
+
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = W * dpr;
+        canvas.height = totalHeight * dpr;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, W, totalHeight);
+
+        // Find global range for x-axis
+        let globalMin = Infinity, globalMax = -Infinity;
+        for (const c of validClubs) {
+            const b = c._boxData;
+            if (b.minVal < globalMin) globalMin = b.minVal;
+            if (b.maxVal > globalMax) globalMax = b.maxVal;
+            const w = c.windowed_stats;
+            if (w && w.min_yards != null && w.min_yards < globalMin) globalMin = w.min_yards;
+            if (w && w.max_yards != null && w.max_yards > globalMax) globalMax = w.max_yards;
+        }
+        globalMin = Math.floor(globalMin / 10) * 10;
+        globalMax = Math.ceil(globalMax / 10) * 10;
+        const xRange = globalMax - globalMin || 1;
+
+        const plotLeft = labelWidth;
+        const plotRight = W - padRight;
+        const toX = (val) => plotLeft + ((val - globalMin) / xRange) * (plotRight - plotLeft);
+
+        // Grid lines
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'center';
+        const step = xRange > 200 ? 50 : xRange > 100 ? 25 : 10;
+        for (let v = globalMin; v <= globalMax; v += step) {
+            const x = toX(v);
+            ctx.strokeStyle = '#2a2d35';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, padTop);
+            ctx.lineTo(x, padTop + y);
+            ctx.stroke();
+            ctx.fillStyle = '#888';
+            ctx.fillText(v + '', x, padTop - 8);
+            ctx.fillText(v + '', x, padTop + y + 16);
+        }
+
+        // Yards label
+        ctx.fillStyle = '#666';
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText('Yards', (plotLeft + plotRight) / 2, totalHeight - 4);
+
+        // Get the compare-to label
+        const windowSelect = document.getElementById('club-window-select');
+        const compareLabel = windowSelect?.selectedOptions[0]?.textContent || '';
+
+        // Draw rows
+        for (const row of rows) {
+            const c = row.club;
+            const color = c._boxData.color;
+            const centerY = padTop + row.y + (row.type === 'main' ? mainRowHeight / 2 : compRowHeight / 2);
+
+            if (row.type === 'main') {
+                const b = c._boxData;
+                const boxHeight = 18;
+                const whiskerH = 8;
+
+                // Club name
+                ctx.fillStyle = color;
+                ctx.font = 'bold 11px system-ui';
+                ctx.textAlign = 'right';
+                ctx.fillText(c.club_type, labelWidth - 10, centerY + 4);
+
+                // Source label under name
+                const srcLabel = clubSource === 'range' ? 'Range' : clubSource === 'combined' ? 'Combined' : 'On-Course';
+                ctx.fillStyle = '#555';
+                ctx.font = '9px system-ui';
+                ctx.fillText(srcLabel, labelWidth - 10, centerY + 15);
+
+                const xMin = toX(b.minVal);
+                const xMax = toX(b.maxVal);
+                const xP10 = toX(b.p10Val ?? b.minVal);
+                const xP90 = toX(b.p90Val ?? b.maxVal);
+                const xMedian = toX(b.medianVal ?? b.avgVal);
+                const xAvg = toX(b.avgVal);
+
+                // Whisker line + caps
+                ctx.strokeStyle = color + '80';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(xMin, centerY);
+                ctx.lineTo(xMax, centerY);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(xMin, centerY - whiskerH / 2);
+                ctx.lineTo(xMin, centerY + whiskerH / 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(xMax, centerY - whiskerH / 2);
+                ctx.lineTo(xMax, centerY + whiskerH / 2);
+                ctx.stroke();
+
+                // Box (P10-P90)
+                const boxTop = centerY - boxHeight / 2;
+                ctx.fillStyle = color + '35';
+                ctx.fillRect(xP10, boxTop, xP90 - xP10, boxHeight);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(xP10, boxTop, xP90 - xP10, boxHeight);
+
+                // Median
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(xMedian, boxTop + 2);
+                ctx.lineTo(xMedian, boxTop + boxHeight - 2);
+                ctx.stroke();
+
+                // Avg dot
+                ctx.beginPath();
+                ctx.arc(xAvg, centerY, 3.5, 0, 2 * Math.PI);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+            } else if (row.type === 'compare') {
+                const cd = c._compareData;
+                if (cd && cd.minVal != null && cd.maxVal != null) {
+                    const boxH = 12;
+                    const whiskerH = 6;
+
+                    // Compare label
+                    ctx.fillStyle = '#555';
+                    ctx.font = '9px system-ui';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(compareLabel, labelWidth - 10, centerY + 3);
+
+                    const wMin = toX(cd.minVal);
+                    const wMax = toX(cd.maxVal);
+                    const wP10 = toX(cd.p10Val ?? cd.minVal);
+                    const wP90 = toX(cd.p90Val ?? cd.maxVal);
+                    const wMed = toX(cd.medianVal ?? cd.avgVal);
+                    const wAvg = toX(cd.avgVal);
+
+                    // Whisker
+                    ctx.setLineDash([3, 2]);
+                    ctx.strokeStyle = color + '50';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(wMin, centerY);
+                    ctx.lineTo(wMax, centerY);
+                    ctx.stroke();
+
+                    // Caps
+                    ctx.beginPath();
+                    ctx.moveTo(wMin, centerY - whiskerH / 2);
+                    ctx.lineTo(wMin, centerY + whiskerH / 2);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(wMax, centerY - whiskerH / 2);
+                    ctx.lineTo(wMax, centerY + whiskerH / 2);
+                    ctx.stroke();
+
+                    // Box
+                    ctx.strokeStyle = color + '80';
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeRect(wP10, centerY - boxH / 2, wP90 - wP10, boxH);
+                    ctx.setLineDash([]);
+
+                    // Median
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(wMed, centerY - boxH / 2);
+                    ctx.lineTo(wMed, centerY + boxH / 2);
+                    ctx.stroke();
+
+                    // Avg
+                    ctx.beginPath();
+                    ctx.arc(wAvg, centerY, 2.5, 0, 2 * Math.PI);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                } else {
+                    // No comparison data for this club
+                    ctx.fillStyle = '#333';
+                    ctx.font = '9px system-ui';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(compareLabel, labelWidth - 10, centerY + 3);
+                    ctx.textAlign = 'left';
+                    ctx.fillStyle = '#444';
+                    ctx.fillText('No data', plotLeft + 10, centerY + 3);
+                }
+
+                // Separator after compare row
+                const sepY = padTop + row.y + compRowHeight;
+                ctx.strokeStyle = '#222630';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, sepY);
+                ctx.lineTo(W, sepY);
+                ctx.stroke();
+            }
+        }
+
+        // Toggle comparison legend
+        const compareLegend = document.getElementById('boxplot-legend-compare');
+        if (compareLegend) {
+            compareLegend.style.display = hasComparison ? 'flex' : 'none';
+        }
     }
 
     // ========== Club Edit Modal ==========
@@ -3070,16 +3411,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateTableHighlights() {
         const hl = rangeState.highlightedShotIds;
         const hasHighlight = hl.size > 0;
+        const primaryId = rangeState.primaryShotId;
+        const compareId = rangeState.compareShotId;
         document.querySelectorAll('#range-club-sections tr[data-shot-id]').forEach(tr => {
             const id = tr.dataset.shotId;
-            if (!hasHighlight) {
-                tr.classList.remove('shot-highlighted', 'shot-dimmed');
-            } else if (hl.has(id)) {
+            tr.classList.remove('shot-highlighted', 'shot-compare', 'shot-dimmed');
+            if (!hasHighlight) return;
+            if (id === primaryId) {
                 tr.classList.add('shot-highlighted');
-                tr.classList.remove('shot-dimmed');
+            } else if (id === compareId) {
+                tr.classList.add('shot-compare');
             } else {
                 tr.classList.add('shot-dimmed');
-                tr.classList.remove('shot-highlighted');
             }
         });
     }
@@ -3723,71 +4066,169 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Floating Shot Detail Panel ──
 
-    let shotPanelPopout = null; // Reference to pop-out window
+    let shotPanelPopout = null;
+    rangeState.compareMode = false;
+    rangeState.primaryShotId = null;
+    rangeState.compareShotId = null;
 
-    function showShotPanel(shot) {
+    function _getPrimaryShot() {
+        return rangeState.allShots.find(s => s.id === rangeState.primaryShotId) || null;
+    }
+    function _getCompareShot() {
+        return rangeState.allShots.find(s => s.id === rangeState.compareShotId) || null;
+    }
+
+    function _delta(a, b) {
+        if (a == null || b == null) return null;
+        return a - b;
+    }
+
+    function _fmtDelta(d, dec = 1) {
+        if (d == null) return '';
+        const sign = d >= 0 ? '+' : '';
+        const cls = d > 0 ? 'delta-pos' : d < 0 ? 'delta-neg' : 'delta-zero';
+        return `<span class="compare-delta ${cls}">${sign}${d.toFixed(dec)}</span>`;
+    }
+
+    function _shotLabel(shot) {
+        const club = shot.club_name || shot.club_type_raw;
+        return `Shot ${shot._rowNum || shot.shot_number} — ${club}`;
+    }
+
+    function _sourceLabel(shot) {
+        return shot.source === 'trackman' ? 'Trackman' : shot.source === 'rapsodo_mlm2pro' ? 'MLM2PRO' : shot.source;
+    }
+
+    function _sessionDate(shot) {
+        const session = rangeState.sessions.find(s => s.id === shot.session_id);
+        return session ? new Date(session.session_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    }
+
+    // Data field definitions for the panel: [label, key, unit, decimals]
+    const PANEL_FIELDS = {
+        source: [['Device', '_source', ''], ['Session', '_session', '']],
+        flight: [
+            ['Carry', 'carry_yards', 'yds', 1], ['Total', 'total_yards', 'yds', 1],
+            ['Side', 'side_carry_yards', 'yds', 1], ['Side Tot', 'side_total_yards', 'yds', 1],
+            ['Apex', 'apex_yards', 'yds', 1], ['Curve', 'curve_yards', 'yds', 1],
+            ['Hang Time', 'hang_time_sec', 's', 1], ['Descent', 'descent_angle_deg', '\u00b0', 1],
+        ],
+        club: [
+            ['Club Spd', 'club_speed_mph', 'mph', 1], ['Ball Spd', 'ball_speed_mph', 'mph', 1],
+            ['Smash', 'smash_factor', '', 2], ['Attack', 'attack_angle_deg', '\u00b0', 1],
+            ['Club Path', 'club_path_deg', '\u00b0', 1], ['Face Ang', 'face_angle_deg', '\u00b0', 1],
+            ['F2P', 'face_to_path_deg', '\u00b0', 1], ['Dyn Loft', 'dynamic_loft_deg', '\u00b0', 1],
+            ['Spin Loft', 'spin_loft_deg', '\u00b0', 1], ['Swing Pl', 'swing_plane_deg', '\u00b0', 1],
+            ['Swing Dir', 'swing_direction_deg', '\u00b0', 1], ['Dyn Lie', 'dynamic_lie_deg', '\u00b0', 1],
+        ],
+        spin: [
+            ['Rate', 'spin_rate_rpm', 'rpm', 0], ['Axis', 'spin_axis_deg', '\u00b0', 1],
+            ['Launch', 'launch_angle_deg', '\u00b0', 1], ['Launch Dir', 'launch_direction_deg', '\u00b0', 1],
+        ],
+        impact: [
+            ['Offset', 'impact_offset_in', 'in', 1], ['Height', 'impact_height_in', 'in', 1],
+            ['Low Point', 'low_point_distance_in', 'in', 1],
+        ],
+    };
+
+    function showShotPanel(shot, compareShot = null) {
         const panel = document.getElementById('shot-panel');
         if (!panel) return;
         panel.style.display = 'flex';
 
         // Title
-        const clubName = shot.club_name || shot.club_type_raw;
-        document.getElementById('shot-panel-title').textContent = `Shot ${shot.shot_number} — ${clubName}`;
-
-        // Find session info
-        const session = rangeState.sessions.find(s => s.id === shot.session_id);
-        const sourceLabel = shot.source === 'trackman' ? 'Trackman' : shot.source === 'rapsodo_mlm2pro' ? 'MLM2PRO' : shot.source;
-        const sessionDate = session ? new Date(session.session_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-        const sessionTitle = session?.title || '';
-
-        // Data sections
-        const data = document.getElementById('shot-panel-data');
-        const sections = [
-            { title: 'Source', items: [
-                ['Device', sourceLabel, ''], ['Session', sessionDate, ''],
-            ]},
-            { title: 'Flight', items: [
-                ['Carry', _fmt(shot.carry_yards), 'yds'], ['Total', _fmt(shot.total_yards), 'yds'],
-                ['Side', _fmtSigned(shot.side_carry_yards), 'yds'], ['Side Tot', _fmtSigned(shot.side_total_yards), 'yds'],
-                ['Apex', _fmt(shot.apex_yards), 'yds'], ['Curve', _fmt(shot.curve_yards), 'yds'],
-                ['Hang Time', shot.hang_time_sec != null ? shot.hang_time_sec.toFixed(1) : '\u2014', 's'],
-                ['Descent', _fmtDeg(shot.descent_angle_deg), ''],
-            ]},
-            { title: 'Club & Swing', items: [
-                ['Club Spd', _fmt(shot.club_speed_mph), 'mph'], ['Ball Spd', _fmt(shot.ball_speed_mph), 'mph'],
-                ['Smash', _fmt2(shot.smash_factor), ''], ['Attack', _fmtDeg(shot.attack_angle_deg), ''],
-                ['Club Path', _fmtDeg(shot.club_path_deg), ''], ['Face Ang', _fmtDeg(shot.face_angle_deg), ''],
-                ['F2P', _fmtDeg(shot.face_to_path_deg), ''], ['Dyn Loft', _fmtDeg(shot.dynamic_loft_deg), ''],
-                ['Spin Loft', _fmtDeg(shot.spin_loft_deg), ''], ['Swing Pl', _fmtDeg(shot.swing_plane_deg), ''],
-                ['Swing Dir', _fmtDeg(shot.swing_direction_deg), ''], ['Dyn Lie', _fmtDeg(shot.dynamic_lie_deg), ''],
-            ]},
-            { title: 'Spin', items: [
-                ['Rate', _fmtInt(shot.spin_rate_rpm), 'rpm'], ['Axis', _fmtDeg(shot.spin_axis_deg), ''],
-                ['Launch', _fmtDeg(shot.launch_angle_deg), ''], ['Launch Dir', _fmtDeg(shot.launch_direction_deg), ''],
-            ]},
-            { title: 'Impact', items: [
-                ['Offset', _fmt(shot.impact_offset_in), 'in'], ['Height', _fmt(shot.impact_height_in), 'in'],
-                ['Low Point', _fmt(shot.low_point_distance_in), 'in'],
-            ]},
-        ];
-
-        function _renderItem([label, val, unit]) {
-            const unitSpan = unit && val !== '\u2014' ? ` <span style="color:var(--text-dim);font-size:0.7rem;">${unit}</span>` : '';
-            return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span><span class="shot-panel-item-value">${val}${unitSpan}</span></div>`;
+        const titleEl = document.getElementById('shot-panel-title');
+        if (compareShot) {
+            titleEl.textContent = `Comparing Shots`;
+        } else {
+            titleEl.textContent = _shotLabel(shot);
         }
 
-        data.innerHTML = sections.map(sec => `
+        // Toggle button states
+        const compareBtn = document.getElementById('btn-panel-compare');
+        const swapBtn = document.getElementById('btn-panel-swap');
+        if (compareBtn) {
+            compareBtn.classList.toggle('active', rangeState.compareMode);
+            compareBtn.title = rangeState.compareMode ? 'Exit compare mode' : 'Compare with another shot';
+        }
+        if (swapBtn) swapBtn.style.display = compareShot ? '' : 'none';
+
+        const data = document.getElementById('shot-panel-data');
+        const isCompare = !!compareShot;
+
+        function _fmtVal(v, dec = 1) {
+            if (v == null) return '\u2014';
+            return dec === 0 ? Math.round(v).toString() : v.toFixed(dec);
+        }
+
+        function _renderField([label, key, unit, dec]) {
+            if (key === '_source') {
+                if (isCompare) {
+                    return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span>
+                        <span class="shot-panel-item-value compare-vals">
+                            <span class="compare-primary">${_sourceLabel(shot)}</span>
+                            <span class="compare-secondary">${_sourceLabel(compareShot)}</span>
+                        </span></div>`;
+                }
+                return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span><span class="shot-panel-item-value">${_sourceLabel(shot)}</span></div>`;
+            }
+            if (key === '_session') {
+                if (isCompare) {
+                    return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span>
+                        <span class="shot-panel-item-value compare-vals">
+                            <span class="compare-primary">${_sessionDate(shot)}</span>
+                            <span class="compare-secondary">${_sessionDate(compareShot)}</span>
+                        </span></div>`;
+                }
+                return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span><span class="shot-panel-item-value">${_sessionDate(shot)}</span></div>`;
+            }
+
+            const v1 = shot[key];
+            const val1 = _fmtVal(v1, dec);
+            const u = unit && val1 !== '\u2014' ? `<span style="color:var(--text-dim);font-size:0.7rem;">${unit}</span>` : '';
+
+            if (!isCompare) {
+                return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span><span class="shot-panel-item-value">${val1} ${u}</span></div>`;
+            }
+
+            const v2 = compareShot[key];
+            const val2 = _fmtVal(v2, dec);
+            const d = _delta(v1, v2);
+            const deltaHtml = d != null ? _fmtDelta(d, dec) : '';
+
+            return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span>
+                <span class="shot-panel-item-value compare-vals">
+                    <span class="compare-primary">${val1}</span>
+                    <span class="compare-secondary">${val2}</span>
+                    ${deltaHtml}
+                </span></div>`;
+        }
+
+        // Section header with shot labels in compare mode
+        const headerHtml = isCompare ? `
+            <div class="compare-header">
+                <span class="compare-primary-label">${_shotLabel(shot)}</span>
+                <span class="compare-secondary-label">${_shotLabel(compareShot)}</span>
+            </div>` : '';
+
+        const sectionDefs = [
+            ['Source', 'source'], ['Flight', 'flight'], ['Club & Swing', 'club'], ['Spin', 'spin'], ['Impact', 'impact'],
+        ];
+
+        data.innerHTML = headerHtml + sectionDefs.map(([title, key]) => `
             <div class="shot-panel-section">
-                <div class="shot-panel-section-title">${sec.title}</div>
+                <div class="shot-panel-section-title">${title}</div>
                 <div class="shot-panel-grid">
-                    ${sec.items.map(_renderItem).join('')}
+                    ${PANEL_FIELDS[key].map(_renderField).join('')}
                 </div>
             </div>
         `).join('');
 
-        // Also update pop-out window if open
+        // Update pop-out
         if (shotPanelPopout && !shotPanelPopout.closed) {
-            updatePopoutPanel(shot);
+            const mainData = document.getElementById('shot-panel-data');
+            shotPanelPopout.document.getElementById('shot-panel-data').innerHTML = mainData.innerHTML;
+            shotPanelPopout.document.getElementById('popout-title').textContent = titleEl.textContent;
         }
     }
 
@@ -3798,9 +4239,52 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Close button
     document.getElementById('btn-panel-close')?.addEventListener('click', () => {
+        rangeState.compareMode = false;
+        rangeState.primaryShotId = null;
+        rangeState.compareShotId = null;
         hideShotPanel();
         clearHighlights();
     });
+
+    // Compare button
+    document.getElementById('btn-panel-compare')?.addEventListener('click', () => {
+        rangeState.compareMode = !rangeState.compareMode;
+        if (!rangeState.compareMode) {
+            // Exit compare mode — show primary shot only
+            rangeState.compareShotId = null;
+            const primary = _getPrimaryShot();
+            if (primary) {
+                highlightShots([rangeState.primaryShotId]);
+                showShotPanel(primary);
+            }
+        } else {
+            // Enter compare mode — update button state
+            const primary = _getPrimaryShot();
+            if (primary) showShotPanel(primary);
+        }
+    });
+
+    // Swap button
+    document.getElementById('btn-panel-swap')?.addEventListener('click', () => {
+        if (!rangeState.primaryShotId || !rangeState.compareShotId) return;
+        const tmp = rangeState.primaryShotId;
+        rangeState.primaryShotId = rangeState.compareShotId;
+        rangeState.compareShotId = tmp;
+        _updateComparePanel();
+    });
+
+    function _updateComparePanel() {
+        const primary = _getPrimaryShot();
+        const compare = _getCompareShot();
+        if (primary && compare) {
+            highlightShots([rangeState.primaryShotId, rangeState.compareShotId]);
+            showShotPanel(primary, compare);
+        } else if (primary) {
+            highlightShots([rangeState.primaryShotId]);
+            showShotPanel(primary);
+        }
+        updateTableHighlights();
+    }
 
     // Pop-out button
     document.getElementById('btn-panel-popout')?.addEventListener('click', () => {
@@ -4249,13 +4733,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Toggle shot highlight from table click
     window._toggleShotHighlight = function(shotId) {
-        const hl = rangeState.highlightedShotIds;
-        if (hl.size === 1 && hl.has(shotId)) {
+        if (rangeState.compareMode && rangeState.primaryShotId) {
+            // Compare mode: clicking sets the compare shot
+            if (shotId === rangeState.primaryShotId) return; // Can't compare to self
+            if (shotId === rangeState.compareShotId) {
+                // Deselect compare shot
+                rangeState.compareShotId = null;
+                const primary = _getPrimaryShot();
+                if (primary) {
+                    highlightShots([rangeState.primaryShotId]);
+                    showShotPanel(primary);
+                }
+                updateTableHighlights();
+                return;
+            }
+            // Set new compare shot (replaces previous)
+            rangeState.compareShotId = shotId;
+            _updateComparePanel();
+            return;
+        }
+
+        // Normal mode
+        if (rangeState.primaryShotId === shotId) {
+            // Deselect
+            rangeState.primaryShotId = null;
+            rangeState.compareShotId = null;
             clearHighlights();
             hideShotPanel();
         } else {
+            // Select new primary
+            rangeState.primaryShotId = shotId;
+            rangeState.compareShotId = null;
             highlightShots([shotId]);
-            // Show shot panel with this shot's data
             const shot = rangeState.allShots.find(s => s.id === shotId);
             if (shot) showShotPanel(shot);
         }

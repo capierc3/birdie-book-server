@@ -189,31 +189,40 @@
         <div class="hole-edit-toolbar" id="hole-edit-toolbar" style="display:none;">
             <div class="edit-tools">
                 <button class="btn btn-sm edit-tool active" data-tool="tee" id="tool-tee">Place Tee</button>
+                <select id="edit-tee-select" class="edit-input" style="width:auto; font-size:0.78rem; padding:2px 6px;" title="Select which tee box to place">
+                </select>
                 <button class="btn btn-sm edit-tool" data-tool="green" id="tool-green">Place Green</button>
+                <button class="btn btn-sm edit-tool" data-tool="green-boundary" id="tool-green-boundary">Draw Green</button>
                 <button class="btn btn-sm edit-tool" data-tool="fairway" id="tool-fairway">Draw Fairway</button>
                 <button class="btn btn-ghost btn-sm" id="tool-clear-fairway">Clear Path</button>
+                <button class="btn btn-ghost btn-sm" id="tool-clear-green">Clear Green</button>
+            </div>
+            <div class="edit-tools" style="width:100%;">
+                <button class="btn btn-sm edit-tool" data-tool="hazard" id="tool-hazard">Add Hazard</button>
+                <select id="edit-hazard-type" class="edit-input" style="width:auto; font-size:0.78rem; padding:2px 6px;">
+                    <option value="bunker">Bunker</option>
+                    <option value="water">Water</option>
+                    <option value="out_of_bounds">OB</option>
+                    <option value="trees">Trees</option>
+                    <option value="waste_area">Waste Area</option>
+                </select>
+                <button class="btn btn-primary btn-sm" id="tool-finish-hazard" style="display:none;">Done</button>
+                <button class="btn btn-ghost btn-sm" id="tool-cancel-hazard" style="display:none;">Discard</button>
             </div>
 
-            <div class="edit-tools" style="margin-left:8px;">
-                <button class="btn btn-sm edit-tool" data-tool="crop" id="tool-crop">Crop View</button>
-                <button class="btn btn-ghost btn-sm" id="tool-reset-image" title="Reset to original image">Reset Image</button>
-                <button class="btn btn-ghost btn-sm" id="tool-rotate-cw" title="Rotate 15° clockwise">↻</button>
-                <button class="btn btn-ghost btn-sm" id="tool-rotate-ccw" title="Rotate 15° counter-clockwise">↺</button>
-                <span id="edit-rotation-label" style="font-size:0.78rem; color:var(--text-muted); min-width:28px; text-align:center;">0°</span>
-            </div>
-
-            <div class="edit-fields">
+            <div class="edit-fields" style="width:100%; display:flex; align-items:center; gap:12px;">
                 <label>Par <input type="number" id="edit-par" min="3" max="6" class="edit-input"></label>
                 <label>Yards <input type="number" id="edit-yardage" min="50" max="700" class="edit-input"></label>
                 <label>HCP <input type="number" id="edit-handicap" min="1" max="18" class="edit-input"></label>
-            </div>
-            <div class="edit-actions">
-                <button class="btn btn-primary btn-sm" id="btn-save-hole">Save</button>
-                <button class="btn btn-secondary btn-sm" id="btn-cancel-edit">Cancel</button>
+                <div style="margin-left:auto; display:flex; gap:8px;">
+                    <button class="btn btn-primary btn-sm" id="btn-save-hole">Save</button>
+                    <button class="btn btn-secondary btn-sm" id="btn-cancel-edit">Cancel</button>
+                </div>
+                <div id="edit-fairway-guide" style="font-size:0.75rem; color:var(--text-muted);"></div>
             </div>
         </div>
 
-        <!-- Hole Map with Shot Overlay -->
+        <!-- Hole Map (Leaflet) -->
         <div class="hole-map-container" id="hole-map-container">
             <div class="hole-map-empty" id="hole-map-empty">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
@@ -222,10 +231,7 @@
                 </svg>
                 <p id="hole-map-message">Select a hole to view map</p>
             </div>
-            <div class="hole-map" id="hole-map" style="display:none;">
-                <img id="hole-map-img" alt="Hole satellite view" draggable="false" />
-                <canvas id="hole-map-canvas"></canvas>
-            </div>
+            <div id="hole-leaflet-map" style="display:none; height:500px; width:100%; border-radius:var(--radius);"></div>
         </div>
 
         <!-- Hole Stats + Round Selector on same row -->
@@ -734,5 +740,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.1.0"></script>
+<script src="/static/js/app.js?v=0.2.0"></script>
 {% endblock %}

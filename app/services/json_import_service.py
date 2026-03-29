@@ -379,5 +379,19 @@ def import_full_export(db: Session, parsed: dict, on_progress=None) -> dict:
             r.shots_tracked = db.query(Shot).filter(Shot.round_id == r.id).count()
     db.commit()
 
+    # 8. Match rounds to synced tees (by course rating + slope)
+    from app.services.golf_course_api import match_rounds_to_tees
+    course_ids = set()
+    for c in parsed["courses"]:
+        course = db.query(Course).filter(Course.garmin_snapshot_id == c.garmin_snapshot_id).first()
+        if course:
+            course_ids.add(course.id)
+    total_tee_matched = 0
+    for cid in course_ids:
+        total_tee_matched += match_rounds_to_tees(db, cid)
+    if total_tee_matched:
+        progress("finalizing", f"Matched {total_tee_matched} round(s) to tees")
+    results["rounds_matched_to_tees"] = total_tee_matched
+
     progress("done", "Import complete!")
     return results

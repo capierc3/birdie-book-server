@@ -1784,3 +1784,24 @@ tr[data-shot-id] {
     font-size: 0.75rem;
     color: var(--text-muted);
 }
+
+/* Leaflet hole map */
+#hole-leaflet-map {
+    z-index: 1;
+}
+
+.leaflet-flag-icon,
+.leaflet-shot-number,
+.leaflet-edit-tee,
+.leaflet-edit-flag,
+.leaflet-fairway-wp,
+.leaflet-dist-label {
+    background: none !important;
+    border: none !important;
+}
+
+/* Override Leaflet attribution to be subtle */
+.leaflet-control-attribution {
+    font-size: 9px !important;
+    opacity: 0.5;
+}

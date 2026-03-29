@@ -1133,205 +1133,231 @@ document.addEventListener('DOMContentLoaded', () => {
         return `hsl(${Math.abs(h) % 360}, 65%, 55%)`;
     }
 
-    function drawShotOverlay(canvas, shots, imageData, isHistoric, holeData) {
-        const ctx = canvas.getContext('2d');
-        const { center_lat, center_lng, zoom_level, width_px, height_px } = imageData;
-        // Canvas uses full scale=2 dimensions for crisp rendering
-        const canvasW = width_px || 1280;
-        const canvasH = height_px || 960;
-        canvas.width = canvasW;
-        canvas.height = canvasH;
-        ctx.clearRect(0, 0, canvasW, canvasH);
+    // ── Leaflet Hole Map ──
 
-        // GPS conversion uses base viewport (half of scale=2 pixels)
-        // because zoom level is calculated for the base viewport
-        const viewW = canvasW / 2;
-        const viewH = canvasH / 2;
+    let holeLeafletMap = null;
+    let holeShotLayers = null;  // L.LayerGroup for shot polylines
+    let holeMarkerLayers = null;  // L.LayerGroup for tee/flag/fairway
 
-        // Shot offset for alignment correction (from "Place Tee" anchoring)
-        const offX = holeData?.shot_offset_x || 0;
-        const offY = holeData?.shot_offset_y || 0;
+    function _calcBearing(lat1, lng1, lat2, lng2) {
+        const toRad = d => d * Math.PI / 180;
+        const toDeg = r => r * 180 / Math.PI;
+        const dLng = toRad(lng2 - lng1);
+        const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+        const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+        return (toDeg(Math.atan2(y, x)) + 360) % 360;
+    }
 
-        shots.forEach((shot, idx) => {
-            if (!shot.start_lat || !shot.end_lat) return;
-            // Convert GPS to base viewport pixels, then scale up 2x for canvas, then apply offset
-            const startBase = gpsToPixel(shot.start_lat, shot.start_lng, center_lat, center_lng, zoom_level, viewW, viewH);
-            const endBase = gpsToPixel(shot.end_lat, shot.end_lng, center_lat, center_lng, zoom_level, viewW, viewH);
-            const start = { x: startBase.x * 2 + offX, y: startBase.y * 2 + offY };
-            const end = { x: endBase.x * 2 + offX, y: endBase.y * 2 + offY };
+    function initLeafletMap() {
+        const container = document.getElementById('hole-leaflet-map');
+        if (!container) return null;
 
-            const color = getClubColor(shot.club);
-            ctx.strokeStyle = color;
-            ctx.lineWidth = isHistoric ? 2 : 3;
-            ctx.globalAlpha = isHistoric ? 0.5 : 0.9;
+        if (holeLeafletMap) {
+            holeLeafletMap.remove();
+            holeLeafletMap = null;
+        }
 
-            // Draw line
-            ctx.beginPath();
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(end.x, end.y);
-            ctx.stroke();
+        const map = L.map(container, {
+            zoomControl: true,
+            attributionControl: false,
+        }).setView([0, 0], 17);
 
-            // Draw arrowhead at end
-            const angle = Math.atan2(end.y - start.y, end.x - start.x);
-            const headLen = isHistoric ? 8 : 12;
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.moveTo(end.x, end.y);
-            ctx.lineTo(end.x - headLen * Math.cos(angle - 0.4), end.y - headLen * Math.sin(angle - 0.4));
-            ctx.lineTo(end.x - headLen * Math.cos(angle + 0.4), end.y - headLen * Math.sin(angle + 0.4));
-            ctx.closePath();
-            ctx.fill();
+        // ESRI satellite tiles
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 22,
+            maxNativeZoom: 19,
+        }).addTo(map);
 
-            // In round mode, draw shot number at start
-            if (!isHistoric) {
-                ctx.globalAlpha = 1;
-                ctx.fillStyle = '#000';
-                ctx.beginPath();
-                ctx.arc(start.x, start.y, 12, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = color;
-                ctx.beginPath();
-                ctx.arc(start.x, start.y, 10, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = '#000';
-                ctx.font = 'bold 14px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(idx + 1, start.x, start.y);
+        // Layer groups for organized rendering
+        holeMarkerLayers = L.layerGroup().addTo(map);
+        holeShotLayers = L.layerGroup().addTo(map);
+
+        holeLeafletMap = map;
+        return map;
+    }
+
+    function renderHoleMapLeaflet(shots, isHistoric, holeData) {
+        if (!holeLeafletMap) return;
+
+        // Clear previous overlays
+        holeShotLayers.clearLayers();
+        holeMarkerLayers.clearLayers();
+
+        const allLatLngs = [];
+        const hasShots = shots.some(s => s.start_lat && s.end_lat);
+
+        // Only show tee/flag/fairway when there are no shots (as reference) — otherwise just shots
+        if (!hasShots) {
+            // Draw fairway path as reference
+            if (holeData?.fairway_path) {
+                try {
+                    const path = typeof holeData.fairway_path === 'string'
+                        ? JSON.parse(holeData.fairway_path) : holeData.fairway_path;
+                    if (path.length >= 2) {
+                        L.polyline(path, {
+                            color: '#FFD700', weight: 2, dashArray: '8, 6', opacity: 0.4,
+                        }).addTo(holeMarkerLayers);
+                        path.forEach(p => allLatLngs.push(p));
+                    }
+                } catch (e) { /* ignore bad JSON */ }
             }
 
-            // Draw start dot
-            ctx.globalAlpha = isHistoric ? 0.6 : 1;
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(start.x, start.y, isHistoric ? 4 : 5, 0, Math.PI * 2);
-            ctx.fill();
-        });
+            // Tee marker
+            if (holeData?.tee_lat && holeData?.tee_lng) {
+                L.circleMarker([holeData.tee_lat, holeData.tee_lng], {
+                    radius: 7, color: '#4CAF50', fillColor: '#4CAF50', fillOpacity: 0.9, weight: 2,
+                }).bindTooltip('Tee', { permanent: false }).addTo(holeMarkerLayers);
+                allLatLngs.push([holeData.tee_lat, holeData.tee_lng]);
+            }
 
-        // Draw flag/pin at the last shot's end position (green location)
-        if (shots.length > 0 && !isHistoric) {
-            const lastShot = shots[shots.length - 1];
-            if (lastShot.end_lat && lastShot.end_lng) {
-                const flagBase = gpsToPixel(lastShot.end_lat, lastShot.end_lng, center_lat, center_lng, zoom_level, viewW, viewH);
-                const flag = { x: flagBase.x * 2 + offX, y: flagBase.y * 2 + offY };
-                ctx.globalAlpha = 1;
-                // Flag pole
-                ctx.strokeStyle = '#ff1744';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(flag.x, flag.y);
-                ctx.lineTo(flag.x, flag.y - 30);
-                ctx.stroke();
-                // Flag triangle
-                ctx.fillStyle = '#ff1744';
-                ctx.beginPath();
-                ctx.moveTo(flag.x, flag.y - 30);
-                ctx.lineTo(flag.x + 16, flag.y - 24);
-                ctx.lineTo(flag.x, flag.y - 18);
-                ctx.closePath();
-                ctx.fill();
-                // Base circle
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(flag.x, flag.y, 4, 0, Math.PI * 2);
-                ctx.fill();
+            // Flag/green marker
+            if (holeData?.flag_lat && holeData?.flag_lng) {
+                L.marker([holeData.flag_lat, holeData.flag_lng], {
+                    icon: L.divIcon({
+                        className: 'leaflet-flag-icon',
+                        html: '<svg width="16" height="24" viewBox="0 0 16 24"><line x1="2" y1="0" x2="2" y2="24" stroke="#ff1744" stroke-width="2"/><polygon points="2,0 16,4 2,8" fill="#ff1744"/></svg>',
+                        iconSize: [16, 24],
+                        iconAnchor: [2, 24],
+                    }),
+                }).addTo(holeMarkerLayers);
+                allLatLngs.push([holeData.flag_lat, holeData.flag_lng]);
             }
         }
 
-        ctx.globalAlpha = 1;
+        // Still use tee/flag positions for bounds calculation even when not showing markers
+        if (holeData?.tee_lat && holeData?.tee_lng) allLatLngs.push([holeData.tee_lat, holeData.tee_lng]);
+        if (holeData?.flag_lat && holeData?.flag_lng) allLatLngs.push([holeData.flag_lat, holeData.flag_lng]);
+
+        // Hazards only render in edit mode (handled by redrawEditOverlay)
+
+        // Draw shots
+        shots.forEach((shot, idx) => {
+            if (!shot.start_lat || !shot.end_lat) return;
+
+            const start = [shot.start_lat, shot.start_lng];
+            const end = [shot.end_lat, shot.end_lng];
+            const color = getClubColor(shot.club);
+            allLatLngs.push(start, end);
+
+            // Shot polyline
+            const line = L.polyline([start, end], {
+                color: color,
+                weight: isHistoric ? 2 : 3,
+                opacity: isHistoric ? 0.4 : 0.8,
+            }).addTo(holeShotLayers);
+
+            // End dot (landing position)
+            L.circleMarker(end, {
+                radius: isHistoric ? 3 : 5,
+                color: color,
+                fillColor: color,
+                fillOpacity: isHistoric ? 0.5 : 0.8,
+                weight: 1,
+            }).addTo(holeShotLayers);
+
+            // In round mode: shot number marker at start
+            if (!isHistoric) {
+                L.marker(start, {
+                    icon: L.divIcon({
+                        className: 'leaflet-shot-number',
+                        html: `<div style="background:${color}; color:#000; width:20px; height:20px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold; border:2px solid #000;">${idx + 1}</div>`,
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10],
+                    }),
+                }).addTo(holeShotLayers);
+
+                // Tooltip with shot info
+                const dist = shot.distance_yards ? `${shot.distance_yards.toFixed(0)} yds` : '';
+                const club = shot.club || '';
+                if (dist || club) {
+                    line.bindTooltip(`${club}${club && dist ? ' — ' : ''}${dist}`, { sticky: true });
+                }
+            }
+        });
+
+        // Calculate bearing from tee → green so hole plays left-to-right
+        let bearing = 0;
+        const teeLat = holeData?.tee_lat;
+        const teeLng = holeData?.tee_lng;
+        const flagLat = holeData?.flag_lat;
+        const flagLng = holeData?.flag_lng;
+
+        if (teeLat && teeLng && flagLat && flagLng) {
+            // Rotate so tee-to-green direction goes left→right (bearing - 90°)
+            bearing = -_calcBearing(teeLat, teeLng, flagLat, flagLng) + 90;
+        } else if (shots.length > 0) {
+            // Infer from first shot's start to last shot's end
+            const first = shots.find(s => s.start_lat);
+            const last = [...shots].reverse().find(s => s.end_lat);
+            if (first && last) {
+                bearing = -_calcBearing(first.start_lat, first.start_lng, last.end_lat, last.end_lng) + 90;
+            }
+        }
+
+        // Fit bounds first, then set bearing (order matters for rotate plugin)
+        if (allLatLngs.length >= 2) {
+            const bounds = L.latLngBounds(allLatLngs);
+            holeLeafletMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 19, animate: false });
+        } else if (allLatLngs.length === 1) {
+            holeLeafletMap.setView(allLatLngs[0], 18, { animate: false });
+        }
+
+        // Note: rotation disabled — leaflet-rotate plugin had click-shift bugs
+        // TODO: revisit with Mapbox GL JS or a fixed rotate plugin
     }
 
     async function renderHoleMap(holeNumber) {
-        const mapContainer = document.getElementById('hole-map');
+        const leafletContainer = document.getElementById('hole-leaflet-map');
         const emptyContainer = document.getElementById('hole-map-empty');
         const msgEl = document.getElementById('hole-map-message');
-        const mapImg = document.getElementById('hole-map-img');
-        const mapCanvas = document.getElementById('hole-map-canvas');
 
-        if (!mapContainer || !holeViewCourse) return;
+        if (!leafletContainer || !holeViewCourse) return;
 
-        // Find the CourseHole with image data
         const courseHoles = getCourseTeeHoles();
         const ch = courseHoles.find(h => h.hole_number === holeNumber);
 
-        if (ch && ch.image) {
-            // Image exists — show it
-            const imgUrl = `/static/images/holes/${ch.image.filename}?t=${Date.now()}`;
-
-            // Apply saved rotation
-            const rotation = ch.rotation_deg || 0;
-            applyHoleRotation(rotation);
-
-            mapImg.src = imgUrl;
-            mapImg.onload = () => {
-                mapContainer.style.display = 'block';
-                emptyContainer.style.display = 'none';
-
-                // Gather shots for this hole
-                let shots = [];
-                const isHistoric = holeViewMode === 'historic';
-                if (isHistoric && holeViewAllRoundDetails.length > 0) {
-                    shots = holeViewAllRoundDetails.flatMap(r =>
-                        (r.holes || [])
-                            .filter(h => h.hole_number === holeNumber)
-                            .flatMap(h => h.shots || [])
-                    );
-                } else if (holeViewRoundDetail) {
-                    const rh = holeViewRoundDetail.holes.find(h => h.hole_number === holeNumber);
-                    shots = rh ? (rh.shots || []) : [];
-                }
-
-                drawShotOverlay(mapCanvas, shots, ch.image, isHistoric, ch);
-            };
-        } else {
-            // No image — check if we have shots to generate one
-            mapContainer.style.display = 'none';
-            emptyContainer.style.display = 'flex';
-
-            if (!ch) {
-                msgEl.textContent = 'No hole data available';
-                return;
-            }
-
-            // Check if any round has shots for this hole
-            const hasShots = holeViewAllRoundDetails.some(r =>
-                (r.holes || []).some(h => h.hole_number === holeNumber && h.shots && h.shots.length > 0)
-            ) || (holeViewRoundDetail?.holes || []).some(h => h.hole_number === holeNumber && h.shots && h.shots.length > 0);
-
-            if (!hasShots) {
-                msgEl.textContent = 'No shot data for this hole — play a round with shot tracking';
-                return;
-            }
-
-            if (!ch.id) {
-                msgEl.textContent = 'Sync course data to enable hole maps';
-                return;
-            }
-
-            // Try to fetch the image
-            emptyContainer.innerHTML = '<div class="spinner"></div><p>Fetching satellite image\u2026</p>';
-            try {
-                const resp = await fetch(`/api/courses/${holeViewCourse.id}/holes/${ch.id}/fetch-image`, { method: 'POST' });
-                const data = await resp.json();
-                if (data.status === 'ok') {
-                    // Reload course detail to get updated image metadata
-                    const courseResp = await fetch(`/api/courses/${holeViewCourse.id}`);
-                    holeViewCourse = await courseResp.json();
-                    // Retry rendering with the new image
-                    renderHoleMap(holeNumber);
-                } else {
-                    emptyContainer.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
-                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                        <circle cx="12" cy="10" r="3"/>
-                    </svg><p>${data.reason || 'Could not load map'}</p>`;
-                }
-            } catch (e) {
-                emptyContainer.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
-                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                    <circle cx="12" cy="10" r="3"/>
-                </svg><p>Error loading map</p>`;
-            }
+        // Gather shots for this hole
+        let shots = [];
+        const isHistoric = holeViewMode === 'historic';
+        if (isHistoric && holeViewAllRoundDetails.length > 0) {
+            shots = holeViewAllRoundDetails.flatMap(r =>
+                (r.holes || [])
+                    .filter(h => h.hole_number === holeNumber)
+                    .flatMap(h => h.shots || [])
+            );
+        } else if (holeViewRoundDetail) {
+            const rh = holeViewRoundDetail.holes.find(h => h.hole_number === holeNumber);
+            shots = rh ? (rh.shots || []) : [];
         }
+
+        // Check if we have any GPS data to show (shots, tee, or flag positions)
+        const hasGPS = shots.some(s => s.start_lat && s.end_lat)
+            || (ch?.tee_lat && ch?.tee_lng)
+            || (ch?.flag_lat && ch?.flag_lng);
+
+        if (!hasGPS) {
+            leafletContainer.style.display = 'none';
+            emptyContainer.style.display = 'flex';
+            if (msgEl) msgEl.textContent = ch
+                ? 'No GPS data — play a round with shot tracking or place tee/green markers'
+                : 'No hole data available';
+            return;
+        }
+
+        // Show map, hide empty state
+        leafletContainer.style.display = 'block';
+        emptyContainer.style.display = 'none';
+
+        // Initialize Leaflet map if not yet created
+        if (!holeLeafletMap) {
+            initLeafletMap();
+        }
+
+        // Small delay to ensure container is visible before Leaflet measures it
+        setTimeout(() => {
+            holeLeafletMap.invalidateSize();
+            renderHoleMapLeaflet(shots, isHistoric, ch);
+        }, 50);
     }
 
     function renderHoleDetail() {
@@ -1565,17 +1591,33 @@ document.addEventListener('DOMContentLoaded', () => {
     // ========== Hole Edit Mode ==========
 
     let holeEditMode = false;
-    let editTool = 'tee';  // 'tee', 'green', 'fairway'
-    let editTeePos = null;   // {lat, lng}
+    let editTool = 'tee';  // 'tee', 'green', 'fairway', 'green-boundary'
+    let editTeePos = null;   // {lat, lng} — for the currently selected tee
+    let editTeeName = '';    // which tee box we're editing (e.g. "Blue", "White")
+    let editTeePositions = {};  // { teeName: {lat, lng}, ... } — all tees for this hole
     let editGreenPos = null; // {lat, lng}
     let editFairwayPath = []; // [{lat, lng}, ...]
+    let editGreenBoundary = []; // [{lat, lng}, ...] polygon points
+    let editHazards = []; // [{id?, hazard_type, name, boundary: [{lat, lng}], _new?}, ...]
+    let editCurrentHazard = []; // points for the hazard currently being drawn
     let editPar = null;
     let editYardage = null;
     let editHandicap = null;
-    let editRotation = 0;
-    let editZoom = null;  // null = auto
-    let editShotOffsetX = 0;
-    let editShotOffsetY = 0;
+    // Leaflet edit markers
+    let editTeeMarker = null;
+    let editGreenMarker = null;
+    let editFairwayLine = null;
+    let editFairwayMarkers = [];
+    let editGreenPolygon = null;
+    let editLayerGroup = null;
+
+    const HAZARD_COLORS = {
+        bunker: { fill: '#EDC967', stroke: '#C4A34D', label: 'Bunker' },
+        water: { fill: '#2196F3', stroke: '#1565C0', label: 'Water' },
+        out_of_bounds: { fill: '#f44336', stroke: '#c62828', label: 'OB' },
+        trees: { fill: '#2E7D32', stroke: '#1B5E20', label: 'Trees' },
+        waste_area: { fill: '#8D6E63', stroke: '#5D4037', label: 'Waste' },
+    };
 
     function getFirstShotForHole(holeNumber) {
         // Get first shot from any round for this hole
@@ -1618,11 +1660,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-edit-hole')?.addEventListener('click', () => {
         holeEditMode = true;
         editTool = 'tee';
+
+        // Load existing values from the primary tee's hole data
         const courseHoles = getCourseTeeHoles();
         const ch = courseHoles.find(h => h.hole_number === selectedHole);
 
-        // Load existing values
-        editTeePos = (ch?.tee_lat && ch?.tee_lng) ? { lat: ch.tee_lat, lng: ch.tee_lng } : null;
         editGreenPos = (ch?.flag_lat && ch?.flag_lng) ? { lat: ch.flag_lat, lng: ch.flag_lng } : null;
         editFairwayPath = [];
         if (ch?.fairway_path) {
@@ -1631,16 +1673,60 @@ document.addEventListener('DOMContentLoaded', () => {
                 editFairwayPath = pts.map(p => ({ lat: p[0], lng: p[1] }));
             } catch (e) {}
         }
+        editGreenBoundary = [];
+        if (ch?.green_boundary) {
+            try {
+                const pts = JSON.parse(ch.green_boundary);
+                editGreenBoundary = pts.map(p => ({ lat: p[0], lng: p[1] }));
+            } catch (e) {}
+        }
+        editHazards = (holeViewCourse?.hazards || []).map(h => {
+            try {
+                return {
+                    id: h.id,
+                    hazard_type: h.hazard_type,
+                    name: h.name,
+                    boundary: JSON.parse(h.boundary).map(p => ({ lat: p[0], lng: p[1] })),
+                };
+            } catch (e) { return null; }
+        }).filter(Boolean);
+        editCurrentHazard = [];
         editPar = ch?.par || null;
         editYardage = ch?.yardage || null;
         editHandicap = ch?.handicap || null;
-        editRotation = ch?.rotation_deg || 0;
-        editZoom = ch?.custom_zoom || null;
-        editCustomBounds = null;
-        editShotOffsetX = ch?.shot_offset_x || 0;
-        editShotOffsetY = ch?.shot_offset_y || 0;
-        cropStartPx = null;
-        cropEndPx = null;
+
+        // Build tee positions from ALL tees for this hole
+        editTeePositions = {};
+        const teeSelect = document.getElementById('edit-tee-select');
+        teeSelect.innerHTML = '';
+        if (holeViewCourse?.tees) {
+            for (const tee of holeViewCourse.tees) {
+                const teeHole = (tee.holes || []).find(h => h.hole_number === selectedHole);
+                if (teeHole?.tee_lat && teeHole?.tee_lng) {
+                    editTeePositions[tee.tee_name] = { lat: teeHole.tee_lat, lng: teeHole.tee_lng };
+                }
+                const opt = document.createElement('option');
+                opt.value = tee.tee_name;
+                opt.textContent = tee.tee_name;
+                teeSelect.appendChild(opt);
+            }
+        }
+        // Default to the tee the current round was played from, or first tee
+        let defaultTee = '';
+        if (holeViewRoundDetail && holeViewRoundDetail.tee_name) {
+            // Try to match round's tee name to a dropdown option
+            for (const opt of teeSelect.options) {
+                if (opt.value.toLowerCase() === holeViewRoundDetail.tee_name.toLowerCase()) {
+                    defaultTee = opt.value;
+                    break;
+                }
+            }
+        }
+        if (defaultTee) {
+            teeSelect.value = defaultTee;
+        }
+        editTeeName = teeSelect.value || '';
+        editTeePos = editTeePositions[editTeeName] || null;
 
         // Show toolbar
         const toolbar = document.getElementById('hole-edit-toolbar');
@@ -1648,466 +1734,624 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('edit-par').value = editPar || '';
         document.getElementById('edit-yardage').value = editYardage || '';
         document.getElementById('edit-handicap').value = editHandicap || '';
-        document.getElementById('edit-rotation-label').textContent = `${editRotation}\u00b0`;
 
-        // Make canvas interactive
-        const holeMap = document.getElementById('hole-map');
-        if (holeMap) holeMap.classList.add('editing');
+        // Show fairway guide based on par
+        updateFairwayGuide();
 
         // Set active tool
         document.querySelectorAll('.edit-tool[data-tool]').forEach(b => {
             b.classList.toggle('active', b.dataset.tool === 'tee');
         });
 
-        // Redraw with edit markers
+        // Create edit layer group on Leaflet map
+        if (holeLeafletMap) {
+            if (editLayerGroup) editLayerGroup.remove();
+            editLayerGroup = L.layerGroup().addTo(holeLeafletMap);
+
+            holeLeafletMap.off('click', onEditMapClick);
+            holeLeafletMap.on('click', onEditMapClick);
+            holeLeafletMap.off('dblclick');
+            holeLeafletMap.on('dblclick', (e) => {
+                L.DomEvent.stopPropagation(e);
+                L.DomEvent.preventDefault(e);
+                if (editTool === 'hazard' && editCurrentHazard.length >= 3) {
+                    finishCurrentHazard();
+                }
+            });
+            holeLeafletMap.doubleClickZoom.disable();
+            // Keep dragging enabled — Leaflet distinguishes click vs drag
+
+            holeShotLayers.eachLayer(l => { if (l.setStyle) l.setStyle({ opacity: 0.3, fillOpacity: 0.2 }); });
+        }
+
         redrawEditOverlay();
     });
+
+    // Tee selector change
+    document.getElementById('edit-tee-select')?.addEventListener('change', (e) => {
+        // Save current tee position before switching
+        if (editTeeName && editTeePos) {
+            editTeePositions[editTeeName] = editTeePos;
+        }
+        editTeeName = e.target.value;
+        editTeePos = editTeePositions[editTeeName] || null;
+        redrawEditOverlay();
+    });
+
+    // Phase 4: Smart fairway guide
+    function updateFairwayGuide() {
+        const guideEl = document.getElementById('edit-fairway-guide');
+        if (!guideEl) return;
+
+        const par = parseInt(document.getElementById('edit-par').value);
+        if (!par || par < 3 || par > 6) {
+            guideEl.style.display = 'none';
+            return;
+        }
+
+        const recommended = par === 3 ? '3-4' : par === 4 ? '7-8' : par === 5 ? '10-12' : '5-7';
+        const current = editFairwayPath.length;
+        const countColor = current >= parseInt(recommended) ? 'var(--accent)' : '#ff9800';
+
+        // Check for large gaps between consecutive points
+        let gapWarning = '';
+        if (current >= 2) {
+            const fullPath = [];
+            if (editTeePos) fullPath.push(editTeePos);
+            fullPath.push(...editFairwayPath);
+            if (editGreenPos) fullPath.push(editGreenPos);
+
+            let maxGap = 0;
+            let maxGapIdx = -1;
+            for (let i = 0; i < fullPath.length - 1; i++) {
+                const gap = _haversineYards(fullPath[i].lat, fullPath[i].lng, fullPath[i + 1].lat, fullPath[i + 1].lng);
+                if (gap > maxGap) { maxGap = gap; maxGapIdx = i; }
+            }
+            if (maxGap > 80) {
+                gapWarning = ` <span style="color:#f44336;">| ${Math.round(maxGap)} yd gap — add a point to improve accuracy</span>`;
+            }
+        }
+
+        guideEl.style.display = 'block';
+        guideEl.innerHTML = `Fairway: <strong style="color:${countColor}">${current}</strong> / ${recommended} recommended for par ${par}${gapWarning}`;
+    }
+
+    // Update guide when par changes
+    document.getElementById('edit-par')?.addEventListener('input', updateFairwayGuide);
 
     // Tool selection
     document.querySelectorAll('.edit-tool[data-tool]').forEach(btn => {
         btn.addEventListener('click', () => {
+            // Finish any in-progress hazard when switching tools
+            if (editTool === 'hazard' && editCurrentHazard.length >= 3 && btn.dataset.tool !== 'hazard') {
+                finishCurrentHazard();
+            } else if (editTool === 'hazard' && btn.dataset.tool !== 'hazard') {
+                editCurrentHazard = [];
+            }
             editTool = btn.dataset.tool;
             document.querySelectorAll('.edit-tool[data-tool]').forEach(b => {
                 b.classList.toggle('active', b.dataset.tool === editTool);
             });
-            const holeMap = document.getElementById('hole-map');
-            if (holeMap) holeMap.classList.toggle('crop-mode', editTool === 'crop');
+            updateHazardButtons();
         });
     });
+
+    // Leaflet map click handler for edit mode
+    function onEditMapClick(e) {
+        if (!holeEditMode) return;
+        L.DomEvent.stopPropagation(e);
+        const { lat, lng } = e.latlng;
+
+        // Save current view to prevent map shifting on redraw
+        const savedCenter = holeLeafletMap.getCenter();
+        const savedZoom = holeLeafletMap.getZoom();
+
+        if (editTool === 'tee') {
+            editTeePos = { lat, lng };
+            editTeePositions[editTeeName] = editTeePos;
+        } else if (editTool === 'green') {
+            editGreenPos = { lat, lng };
+        } else if (editTool === 'fairway') {
+            const newPt = { lat, lng };
+            if (editFairwayPath.length >= 2) {
+                // Find the closest segment in the fairway path and insert there
+                let bestDist = Infinity;
+                let bestIdx = editFairwayPath.length; // default: append
+
+                // Check each segment between consecutive fairway points
+                for (let i = 0; i < editFairwayPath.length - 1; i++) {
+                    const a = editFairwayPath[i];
+                    const b = editFairwayPath[i + 1];
+                    const d = _pointToSegmentDist(lat, lng, a.lat, a.lng, b.lat, b.lng);
+                    if (d < bestDist) {
+                        bestDist = d;
+                        bestIdx = i + 1;
+                    }
+                }
+
+                // Also check segment from tee to first point
+                if (editTeePos) {
+                    const d = _pointToSegmentDist(lat, lng, editTeePos.lat, editTeePos.lng, editFairwayPath[0].lat, editFairwayPath[0].lng);
+                    if (d < bestDist) { bestDist = d; bestIdx = 0; }
+                }
+
+                // Also check segment from last point to green
+                if (editGreenPos) {
+                    const last = editFairwayPath[editFairwayPath.length - 1];
+                    const d = _pointToSegmentDist(lat, lng, last.lat, last.lng, editGreenPos.lat, editGreenPos.lng);
+                    if (d < bestDist) { bestDist = d; bestIdx = editFairwayPath.length; }
+                }
+
+                editFairwayPath.splice(bestIdx, 0, newPt);
+            } else {
+                editFairwayPath.push(newPt);
+            }
+            updateFairwayGuide();
+        } else if (editTool === 'green-boundary') {
+            editGreenBoundary.push({ lat, lng });
+        } else if (editTool === 'hazard') {
+            editCurrentHazard.push({ lat, lng });
+            updateHazardButtons();
+        }
+
+        redrawEditOverlay();
+
+        // Restore exact view position to prevent shifting
+        holeLeafletMap.setView(savedCenter, savedZoom, { animate: false });
+    }
 
     // Clear fairway
     document.getElementById('tool-clear-fairway')?.addEventListener('click', () => {
         editFairwayPath = [];
+        updateFairwayGuide();
         redrawEditOverlay();
     });
 
-    // Reset image — clears crop bounds and re-fetches original
-    document.getElementById('tool-reset-image')?.addEventListener('click', async () => {
-        if (!currentCourseDetail || !selectedHole) return;
-        const courseHoles = getCourseTeeHoles();
-        const ch = courseHoles.find(h => h.hole_number === selectedHole);
-        if (!ch || !ch.id) return;
-
-        // Clear custom bounds and shot offset on server
-        const resp = await fetch(`/api/courses/${currentCourseDetail.id}/holes/${ch.id}`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ custom_bounds: '', custom_zoom: 0, shot_offset_x: 0, shot_offset_y: 0 }),
-        });
-        if (!resp.ok) return;
-
-        // Re-fetch fresh image (force=true via query param would be ideal, but just POST)
-        await fetch(`/api/courses/${currentCourseDetail.id}/holes/${ch.id}/fetch-image`, {
-            method: 'POST',
-        });
-
-        // Reset local state and exit edit mode
-        editCustomBounds = null;
-        editShotOffsetX = 0;
-        editShotOffsetY = 0;
-        cropStartPx = null;
-        cropEndPx = null;
-        holeEditMode = false;
-        document.getElementById('hole-edit-toolbar').style.display = 'none';
-        document.getElementById('btn-edit-hole').style.display = '';
-        const holeMap = document.getElementById('hole-map');
-        if (holeMap) {
-            holeMap.classList.remove('editing', 'crop-mode');
-        }
-
-        // Reload course data with fresh image metadata
-        await loadCourseDetail(currentCourseDetail.id);
-        // Update holeViewCourse to match refreshed data
-        holeViewCourse = currentCourseDetail;
-        renderHoleDetail(selectedHole);
-    });
-
-    // Crop selection state
-    let cropStartPx = null;  // {x, y} in canvas coords
-    let cropEndPx = null;
-    let cropDragging = false;
-    let editCustomBounds = null;  // {min_lat, max_lat, min_lng, max_lng}
-
-    // Handle crop drag on canvas
-    const mapCanvas = document.getElementById('hole-map-canvas');
-    if (mapCanvas) {
-        // Prevent browser image/element drag
-        mapCanvas.addEventListener('dragstart', (e) => e.preventDefault());
-        document.getElementById('hole-map-img')?.addEventListener('dragstart', (e) => e.preventDefault());
-
-        mapCanvas.addEventListener('mousedown', (e) => {
-            if (!holeEditMode || editTool !== 'crop') return;
-            const rect = mapCanvas.getBoundingClientRect();
-            const scaleX = mapCanvas.width / rect.width;
-            const scaleY = mapCanvas.height / rect.height;
-            cropStartPx = {
-                x: (e.clientX - rect.left) * scaleX,
-                y: (e.clientY - rect.top) * scaleY,
-            };
-            cropEndPx = null;
-            cropDragging = true;
-            e.preventDefault();
-        });
-
-        mapCanvas.addEventListener('mousemove', (e) => {
-            if (!cropDragging) return;
-            const rect = mapCanvas.getBoundingClientRect();
-            const scaleX = mapCanvas.width / rect.width;
-            const scaleY = mapCanvas.height / rect.height;
-            cropEndPx = {
-                x: (e.clientX - rect.left) * scaleX,
-                y: (e.clientY - rect.top) * scaleY,
-            };
-            redrawEditOverlay();
-            // Draw crop rectangle
-            const ctx = mapCanvas.getContext('2d');
-            ctx.strokeStyle = '#00e5ff';
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 4]);
-            const x = Math.min(cropStartPx.x, cropEndPx.x);
-            const y = Math.min(cropStartPx.y, cropEndPx.y);
-            const w = Math.abs(cropEndPx.x - cropStartPx.x);
-            const h = Math.abs(cropEndPx.y - cropStartPx.y);
-            ctx.strokeRect(x, y, w, h);
-            ctx.setLineDash([]);
-            // Dim area outside crop
-            ctx.fillStyle = 'rgba(0,0,0,0.4)';
-            ctx.fillRect(0, 0, mapCanvas.width, y); // top
-            ctx.fillRect(0, y + h, mapCanvas.width, mapCanvas.height - y - h); // bottom
-            ctx.fillRect(0, y, x, h); // left
-            ctx.fillRect(x + w, y, mapCanvas.width - x - w, h); // right
-        });
-
-        mapCanvas.addEventListener('mouseup', (e) => {
-            if (!cropDragging || !cropStartPx || !cropEndPx) {
-                cropDragging = false;
-                return;
-            }
-            cropDragging = false;
-
-            // Send crop as pixel ratios (0.0-1.0) relative to the canvas/image
-            // This avoids all GPS conversion issues — backend crops by pixel ratio
-            const canvasW = mapCanvas.width;
-            const canvasH = mapCanvas.height;
-
-            editCustomBounds = {
-                left: Math.min(cropStartPx.x, cropEndPx.x) / canvasW,
-                top: Math.min(cropStartPx.y, cropEndPx.y) / canvasH,
-                right: Math.max(cropStartPx.x, cropEndPx.x) / canvasW,
-                bottom: Math.max(cropStartPx.y, cropEndPx.y) / canvasH,
-            };
-
-            // Visual confirmation
-            redrawEditOverlay();
-        });
-    }
-
-    // Rotate controls
-    document.getElementById('tool-rotate-cw')?.addEventListener('click', () => {
-        editRotation = (editRotation + 15) % 360;
-        document.getElementById('edit-rotation-label').textContent = `${editRotation}\u00b0`;
-        applyHoleRotation(editRotation);
-    });
-
-    document.getElementById('tool-rotate-ccw')?.addEventListener('click', () => {
-        editRotation = (editRotation - 15 + 360) % 360;
-        document.getElementById('edit-rotation-label').textContent = `${editRotation}\u00b0`;
-        applyHoleRotation(editRotation);
-    });
-
-    function applyHoleRotation(deg) {
-        const mapEl = document.getElementById('hole-map');
-        if (!mapEl) return;
-        if (deg === 0) {
-            mapEl.style.transform = '';
-            mapEl.style.transformOrigin = '';
-        } else {
-            // Scale down slightly to prevent clipping at corners
-            const scale = deg % 90 === 0 ? 1 : 0.85;
-            mapEl.style.transform = `rotate(${deg}deg) scale(${scale})`;
-            mapEl.style.transformOrigin = 'center center';
-        }
-    }
-
-    // Canvas click handler for edit mode (tee, green, fairway — not crop)
-    document.getElementById('hole-map-canvas')?.addEventListener('click', (e) => {
-        if (!holeEditMode || editTool === 'crop') return;
-
-        const canvas = e.target;
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
-        const canvasX = (e.clientX - rect.left) * scaleX;
-        const canvasY = (e.clientY - rect.top) * scaleY;
-
-        // Get image metadata
-        const courseHoles = getCourseTeeHoles();
-        const ch = courseHoles.find(h => h.hole_number === selectedHole);
-        if (!ch?.image) return;
-
-        const { center_lat, center_lng, zoom_level, width_px, height_px } = ch.image;
-        const viewW = (width_px || 1280) / 2;
-        const viewH = (height_px || 960) / 2;
-
-        // Canvas coords are at scale=2, convert to base viewport
-        const baseX = canvasX / 2;
-        const baseY = canvasY / 2;
-
-        const gps = pixelToGps(baseX, baseY, center_lat, center_lng, zoom_level, viewW, viewH);
-
-        if (editTool === 'tee') {
-            editTeePos = gps;
-            // Compute shot offset: delta between where user clicked and where first shot renders
-            const firstShot = getFirstShotForHole(selectedHole);
-            if (firstShot) {
-                const firstShotPx = gpsToPixel(
-                    firstShot.start_lat, firstShot.start_lng,
-                    center_lat, center_lng, zoom_level, viewW, viewH
-                );
-                // Offset in canvas pixels (scale=2)
-                editShotOffsetX = canvasX - (firstShotPx.x * 2);
-                editShotOffsetY = canvasY - (firstShotPx.y * 2);
-            }
-        } else if (editTool === 'green') {
-            editGreenPos = gps;
-        } else if (editTool === 'fairway') {
-            editFairwayPath.push(gps);
-        }
-
+    // Clear green boundary
+    document.getElementById('tool-clear-green')?.addEventListener('click', () => {
+        editGreenBoundary = [];
         redrawEditOverlay();
     });
+
+    function updateHazardButtons() {
+        const finishBtn = document.getElementById('tool-finish-hazard');
+        const cancelBtn = document.getElementById('tool-cancel-hazard');
+        if (finishBtn) finishBtn.style.display = (editTool === 'hazard' && editCurrentHazard.length >= 3) ? '' : 'none';
+        if (cancelBtn) cancelBtn.style.display = (editTool === 'hazard' && editCurrentHazard.length >= 1) ? '' : 'none';
+    }
+
+    function finishCurrentHazard() {
+        if (editCurrentHazard.length >= 3) {
+            const hazardType = document.getElementById('edit-hazard-type')?.value || 'bunker';
+            const hc = HAZARD_COLORS[hazardType] || HAZARD_COLORS.bunker;
+            editHazards.push({
+                hazard_type: hazardType,
+                name: hc.label,
+                boundary: [...editCurrentHazard],
+                _new: true,
+            });
+        }
+        editCurrentHazard = [];
+        updateHazardButtons();
+        redrawEditOverlay();
+    }
+
+    document.getElementById('tool-finish-hazard')?.addEventListener('click', finishCurrentHazard);
+    document.getElementById('tool-cancel-hazard')?.addEventListener('click', () => {
+        editCurrentHazard = [];
+        updateHazardButtons();
+        redrawEditOverlay();
+    });
+
+    // (Old Canvas crop/rotation/click handlers removed — Leaflet handles all map interaction now)
+
+    function _pointToSegmentDist(pLat, pLng, aLat, aLng, bLat, bLng) {
+        // Distance from point P to line segment AB in yards
+        // Project P onto segment AB, find closest point, return haversine distance
+        // Apply cos(lat) correction to longitude so degrees are comparable
+        const cosLat = Math.cos(pLat * Math.PI / 180);
+        // Convert to flat coords (lat stays, lng scaled by cos)
+        const ax = aLng * cosLat, ay = aLat;
+        const bx = bLng * cosLat, by = bLat;
+        const px = pLng * cosLat, py = pLat;
+        const dx = bx - ax, dy = by - ay;
+        if (dx === 0 && dy === 0) return _haversineYards(pLat, pLng, aLat, aLng);
+        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+        // Interpolate back to GPS
+        const projLat = aLat + t * (bLat - aLat);
+        const projLng = aLng + t * (bLng - aLng);
+        return _haversineYards(pLat, pLng, projLat, projLng);
+    }
+
+    function _haversineYards(lat1, lng1, lat2, lng2) {
+        const R = 6371000; // Earth radius in meters
+        const toRad = d => d * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1);
+        const dLng = toRad(lng2 - lng1);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+        const c = 2 * Math.asin(Math.sqrt(a));
+        return R * c * 1.09361; // meters to yards
+    }
 
     function redrawEditOverlay() {
-        const canvas = document.getElementById('hole-map-canvas');
-        if (!canvas) return;
+        if (!holeLeafletMap || !editLayerGroup) return;
+        editLayerGroup.clearLayers();
 
-        const courseHoles = getCourseTeeHoles();
-        const ch = courseHoles.find(h => h.hole_number === selectedHole);
-        if (!ch?.image) return;
+        // Build full path: tee → fairway points → green (for distance calculations)
+        const fullPath = [];
+        if (editTeePos) fullPath.push(editTeePos);
+        fullPath.push(...editFairwayPath);
+        if (editGreenPos) fullPath.push(editGreenPos);
 
-        const { center_lat, center_lng, zoom_level, width_px, height_px } = ch.image;
-        const canvasW = width_px || 1280;
-        const canvasH = height_px || 960;
-        canvas.width = canvasW;
-        canvas.height = canvasH;
+        // Draw fairway path with draggable waypoints
+        if (editFairwayPath.length >= 1) {
+            // Draw line through all points (tee → waypoints → green)
+            const linePoints = fullPath.map(p => [p.lat, p.lng]);
+            if (linePoints.length >= 2) {
+                editFairwayLine = L.polyline(linePoints, {
+                    color: '#FFD700', weight: 3, dashArray: '10, 6', opacity: 0.7,
+                }).addTo(editLayerGroup);
+            }
 
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvasW, canvasH);
+            // Draggable waypoint markers with distance labels
+            editFairwayMarkers = editFairwayPath.map((wp, i) => {
+                const marker = L.marker([wp.lat, wp.lng], {
+                    draggable: true,
+                    icon: L.divIcon({
+                        className: 'leaflet-fairway-wp',
+                        html: `<div style="background:#FFD700; width:14px; height:14px; border-radius:50%; border:2px solid #fff; cursor:grab;"></div>`,
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7],
+                    }),
+                }).addTo(editLayerGroup);
 
-        const viewW = canvasW / 2;
-        const viewH = canvasH / 2;
+                // Tooltip with distance from tee
+                let distFromTee = 0;
+                if (editTeePos) {
+                    let prev = editTeePos;
+                    for (let j = 0; j <= i; j++) {
+                        distFromTee += _haversineYards(prev.lat, prev.lng, editFairwayPath[j].lat, editFairwayPath[j].lng);
+                        prev = editFairwayPath[j];
+                    }
+                }
+                marker.bindTooltip(`${Math.round(distFromTee)} yds from tee`, {
+                    permanent: false, direction: 'top', offset: [0, -10],
+                });
 
-        // Draw existing shots dimmed
-        let shots = [];
-        if (holeViewMode === 'historic') {
-            shots = (holeViewAllRoundDetails || []).flatMap(rd =>
-                (rd.holes.find(h => h.hole_number === selectedHole)?.shots || [])
-            );
-        } else if (holeViewRoundDetail) {
-            const rh = holeViewRoundDetail.holes.find(h => h.hole_number === selectedHole);
-            shots = rh?.shots || [];
+                marker.on('drag', (e) => {
+                    const pos = e.target.getLatLng();
+                    editFairwayPath[i] = { lat: pos.lat, lng: pos.lng };
+                    // Update the line without full redraw (smoother)
+                    if (editFairwayLine) {
+                        const pts = [];
+                        if (editTeePos) pts.push([editTeePos.lat, editTeePos.lng]);
+                        editFairwayPath.forEach(p => pts.push([p.lat, p.lng]));
+                        if (editGreenPos) pts.push([editGreenPos.lat, editGreenPos.lng]);
+                        editFairwayLine.setLatLngs(pts);
+                    }
+                });
+                marker.on('dragend', () => {
+                    redrawEditOverlay(); // Full redraw to update distances
+                });
+
+                // Right-click to remove waypoint
+                marker.on('contextmenu', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    editFairwayPath.splice(i, 1);
+                    redrawEditOverlay();
+                });
+
+                return marker;
+            });
+
+            // Distance labels between consecutive points
+            for (let i = 0; i < fullPath.length - 1; i++) {
+                const p1 = fullPath[i];
+                const p2 = fullPath[i + 1];
+                const dist = _haversineYards(p1.lat, p1.lng, p2.lat, p2.lng);
+                const midLat = (p1.lat + p2.lat) / 2;
+                const midLng = (p1.lng + p2.lng) / 2;
+
+                L.marker([midLat, midLng], {
+                    icon: L.divIcon({
+                        className: 'leaflet-dist-label',
+                        html: `<div style="background:rgba(0,0,0,0.7); color:#FFD700; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:bold; white-space:nowrap;">${Math.round(dist)} yds</div>`,
+                        iconSize: [0, 0],
+                        iconAnchor: [0, 8],
+                    }),
+                    interactive: false,
+                }).addTo(editLayerGroup);
+            }
+        } else if (editTeePos && editGreenPos) {
+            // Just tee and green — draw direct line
+            L.polyline([[editTeePos.lat, editTeePos.lng], [editGreenPos.lat, editGreenPos.lng]], {
+                color: '#FFD700', weight: 2, dashArray: '10, 6', opacity: 0.5,
+            }).addTo(editLayerGroup);
+
+            // Total distance label
+            const dist = _haversineYards(editTeePos.lat, editTeePos.lng, editGreenPos.lat, editGreenPos.lng);
+            const midLat = (editTeePos.lat + editGreenPos.lat) / 2;
+            const midLng = (editTeePos.lng + editGreenPos.lng) / 2;
+            L.marker([midLat, midLng], {
+                icon: L.divIcon({
+                    className: 'leaflet-dist-label',
+                    html: `<div style="background:rgba(0,0,0,0.7); color:#FFD700; padding:1px 5px; border-radius:3px; font-size:10px; font-weight:bold; white-space:nowrap;">${Math.round(dist)} yds</div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, 8],
+                }),
+                interactive: false,
+            }).addTo(editLayerGroup);
         }
 
-        // Apply shot offset (from "Place Tee" alignment)
-        const offX = editShotOffsetX || 0;
-        const offY = editShotOffsetY || 0;
-
-        ctx.globalAlpha = 0.7;
-        for (const s of shots) {
-            if (!s.start_lat || !s.end_lat) continue;
-            const startB = gpsToPixel(s.start_lat, s.start_lng, center_lat, center_lng, zoom_level, viewW, viewH);
-            const endB = gpsToPixel(s.end_lat, s.end_lng, center_lat, center_lng, zoom_level, viewW, viewH);
-            const start = { x: startB.x * 2 + offX, y: startB.y * 2 + offY };
-            const end = { x: endB.x * 2 + offX, y: endB.y * 2 + offY };
-            ctx.strokeStyle = getClubColor(s.club);
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(end.x, end.y);
-            ctx.stroke();
-            // Draw shot dots
-            ctx.fillStyle = getClubColor(s.club);
-            ctx.beginPath();
-            ctx.arc(start.x, start.y, 6, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        // Draw flag for last shot end point
-        if (shots.length > 0) {
-            const lastShot = shots[shots.length - 1];
-            if (lastShot.end_lat) {
-                const endB = gpsToPixel(lastShot.end_lat, lastShot.end_lng, center_lat, center_lng, zoom_level, viewW, viewH);
-                const ep = { x: endB.x * 2 + offX, y: endB.y * 2 + offY };
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(ep.x, ep.y);
-                ctx.lineTo(ep.x, ep.y - 20);
-                ctx.stroke();
-                ctx.fillStyle = '#ef5350';
-                ctx.beginPath();
-                ctx.moveTo(ep.x, ep.y - 20);
-                ctx.lineTo(ep.x + 12, ep.y - 15);
-                ctx.lineTo(ep.x, ep.y - 10);
-                ctx.fill();
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(ep.x, ep.y, 4, 0, Math.PI * 2);
-                ctx.fill();
+        // Total distance display (tee → green along path)
+        if (fullPath.length >= 2) {
+            let totalDist = 0;
+            for (let i = 0; i < fullPath.length - 1; i++) {
+                totalDist += _haversineYards(fullPath[i].lat, fullPath[i].lng, fullPath[i + 1].lat, fullPath[i + 1].lng);
+            }
+            // Update the yardage field if it's empty
+            const ydsInput = document.getElementById('edit-yardage');
+            if (ydsInput && !ydsInput.value) {
+                ydsInput.value = Math.round(totalDist);
             }
         }
-        ctx.globalAlpha = 1.0;
 
-        // Draw fairway path
-        if (editFairwayPath.length > 1) {
-            ctx.strokeStyle = '#ffeb3b';
-            ctx.lineWidth = 4;
-            ctx.setLineDash([12, 8]);
-            ctx.beginPath();
-            for (let i = 0; i < editFairwayPath.length; i++) {
-                const p = gpsToPixel(editFairwayPath[i].lat, editFairwayPath[i].lng, center_lat, center_lng, zoom_level, viewW, viewH);
-                const px = p.x * 2, py = p.y * 2;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.stroke();
-            ctx.setLineDash([]);
+        // All tee markers — show each tee position with its name
+        const teeColors = { 'Blue': '#2196F3', 'White': '#fff', 'Red': '#f44336', 'Gold': '#FFD700', 'Black': '#333', 'Green': '#4CAF50' };
+        for (const [teeName, pos] of Object.entries(editTeePositions)) {
+            const isActive = teeName === editTeeName;
+            const color = teeColors[teeName] || '#4CAF50';
+            const textColor = (teeName === 'White' || teeName === 'Gold') ? '#000' : '#fff';
+            const marker = L.marker([pos.lat, pos.lng], {
+                draggable: isActive,
+                icon: L.divIcon({
+                    className: 'leaflet-edit-tee',
+                    html: `<div style="background:${color}; color:${textColor}; width:${isActive ? 28 : 22}px; height:${isActive ? 28 : 22}px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:${isActive ? 10 : 8}px; border:2px solid ${isActive ? '#fff' : 'rgba(255,255,255,0.5)'}; cursor:${isActive ? 'grab' : 'default'}; opacity:${isActive ? 1 : 0.7};">${teeName.substring(0, 2)}</div>`,
+                    iconSize: [isActive ? 28 : 22, isActive ? 28 : 22],
+                    iconAnchor: [isActive ? 14 : 11, isActive ? 14 : 11],
+                }),
+            }).addTo(editLayerGroup);
 
-            // Draw waypoint dots
-            for (const wp of editFairwayPath) {
-                const p = gpsToPixel(wp.lat, wp.lng, center_lat, center_lng, zoom_level, viewW, viewH);
-                ctx.fillStyle = '#ffeb3b';
-                ctx.beginPath();
-                ctx.arc(p.x * 2, p.y * 2, 6, 0, Math.PI * 2);
-                ctx.fill();
+            if (isActive) {
+                editTeeMarker = marker;
+                marker.on('dragend', () => {
+                    const p = marker.getLatLng();
+                    editTeePos = { lat: p.lat, lng: p.lng };
+                    editTeePositions[editTeeName] = editTeePos;
+                    redrawEditOverlay();
+                });
             }
         }
 
-        // Draw tee marker
-        if (editTeePos) {
-            const p = gpsToPixel(editTeePos.lat, editTeePos.lng, center_lat, center_lng, zoom_level, viewW, viewH);
-            const px = p.x * 2, py = p.y * 2;
-            ctx.fillStyle = '#4caf50';
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(px, py, 14, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            ctx.fillStyle = '#000';
-            ctx.font = 'bold 16px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('T', px, py);
+        // If active tee has no position yet, still listen for placement
+        if (!editTeePositions[editTeeName] && editTeePos) {
+            editTeeMarker = L.marker([editTeePos.lat, editTeePos.lng], {
+                draggable: true,
+                icon: L.divIcon({
+                    className: 'leaflet-edit-tee',
+                    html: `<div style="background:#4CAF50; color:#000; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:10px; border:2px solid #fff; cursor:grab;">${editTeeName.substring(0, 2) || 'T'}</div>`,
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14],
+                }),
+            }).addTo(editLayerGroup);
+            editTeeMarker.on('dragend', () => {
+                const p = editTeeMarker.getLatLng();
+                editTeePos = { lat: p.lat, lng: p.lng };
+                editTeePositions[editTeeName] = editTeePos;
+                redrawEditOverlay();
+            });
         }
 
-        // Draw green/flag marker
+        // Green/flag marker (draggable)
         if (editGreenPos) {
-            const p = gpsToPixel(editGreenPos.lat, editGreenPos.lng, center_lat, center_lng, zoom_level, viewW, viewH);
-            const px = p.x * 2, py = p.y * 2;
-            // Flag pole
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(px, py);
-            ctx.lineTo(px, py - 30);
-            ctx.stroke();
-            // Flag
-            ctx.fillStyle = '#ef5350';
-            ctx.beginPath();
-            ctx.moveTo(px, py - 30);
-            ctx.lineTo(px + 18, py - 24);
-            ctx.lineTo(px, py - 18);
-            ctx.fill();
-            // Base circle
-            ctx.fillStyle = '#ef5350';
-            ctx.beginPath();
-            ctx.arc(px, py, 6, 0, Math.PI * 2);
-            ctx.fill();
+            editGreenMarker = L.marker([editGreenPos.lat, editGreenPos.lng], {
+                draggable: true,
+                icon: L.divIcon({
+                    className: 'leaflet-edit-flag',
+                    html: '<svg width="16" height="28" viewBox="0 0 16 28"><line x1="2" y1="0" x2="2" y2="28" stroke="#fff" stroke-width="3"/><line x1="2" y1="0" x2="2" y2="28" stroke="#ef5350" stroke-width="2"/><polygon points="2,0 16,5 2,10" fill="#ef5350"/><circle cx="2" cy="28" r="4" fill="#ef5350"/></svg>',
+                    iconSize: [16, 28],
+                    iconAnchor: [2, 28],
+                }),
+            }).addTo(editLayerGroup);
+            editGreenMarker.on('dragend', () => {
+                const pos = editGreenMarker.getLatLng();
+                editGreenPos = { lat: pos.lat, lng: pos.lng };
+                redrawEditOverlay();
+            });
         }
 
-        // Draw persistent crop rectangle if set
-        if (cropStartPx && cropEndPx && !cropDragging) {
-            const x = Math.min(cropStartPx.x, cropEndPx.x);
-            const y = Math.min(cropStartPx.y, cropEndPx.y);
-            const w = Math.abs(cropEndPx.x - cropStartPx.x);
-            const h = Math.abs(cropEndPx.y - cropStartPx.y);
-            // Dim outside
-            ctx.fillStyle = 'rgba(0,0,0,0.45)';
-            ctx.fillRect(0, 0, canvas.width, y);
-            ctx.fillRect(0, y + h, canvas.width, canvas.height - y - h);
-            ctx.fillRect(0, y, x, h);
-            ctx.fillRect(x + w, y, canvas.width - x - w, h);
-            // Border
-            ctx.strokeStyle = '#00e5ff';
-            ctx.lineWidth = 3;
-            ctx.setLineDash([8, 4]);
-            ctx.strokeRect(x, y, w, h);
-            ctx.setLineDash([]);
-            // Label
-            ctx.fillStyle = '#00e5ff';
-            ctx.font = 'bold 13px sans-serif';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'top';
-            ctx.fillText('Crop area — drag to adjust', x + 6, y + 6);
+        // Green boundary polygon
+        if (editGreenBoundary.length >= 3) {
+            editGreenPolygon = L.polygon(
+                editGreenBoundary.map(p => [p.lat, p.lng]),
+                { color: '#4CAF50', fillColor: '#4CAF50', fillOpacity: 0.25, weight: 2, dashArray: '6, 4' }
+            ).addTo(editLayerGroup);
+
+            // Draggable polygon corner markers
+            editGreenBoundary.forEach((wp, i) => {
+                const m = L.marker([wp.lat, wp.lng], {
+                    draggable: true,
+                    icon: L.divIcon({
+                        className: 'leaflet-fairway-wp',
+                        html: '<div style="background:#4CAF50; width:10px; height:10px; border-radius:50%; border:2px solid #fff; cursor:grab;"></div>',
+                        iconSize: [10, 10],
+                        iconAnchor: [5, 5],
+                    }),
+                }).addTo(editLayerGroup);
+                m.on('drag', (e) => {
+                    editGreenBoundary[i] = { lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng };
+                    if (editGreenPolygon) editGreenPolygon.setLatLngs(editGreenBoundary.map(p => [p.lat, p.lng]));
+                });
+                m.on('dragend', () => redrawEditOverlay());
+                m.on('contextmenu', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    editGreenBoundary.splice(i, 1);
+                    redrawEditOverlay();
+                });
+            });
+        } else if (editGreenBoundary.length >= 1) {
+            // Show partial boundary as dots
+            editGreenBoundary.forEach((wp) => {
+                L.circleMarker([wp.lat, wp.lng], {
+                    radius: 5, color: '#4CAF50', fillColor: '#4CAF50', fillOpacity: 0.9, weight: 2,
+                }).addTo(editLayerGroup);
+            });
+        }
+
+        // Render existing hazards
+        editHazards.forEach((h, hIdx) => {
+            const hc = HAZARD_COLORS[h.hazard_type] || HAZARD_COLORS.bunker;
+            if (h.boundary.length >= 3) {
+                const poly = L.polygon(h.boundary.map(p => [p.lat, p.lng]), {
+                    color: hc.stroke, fillColor: hc.fill, fillOpacity: 0.35, weight: 2,
+                }).addTo(editLayerGroup);
+
+                // Label
+                const center = poly.getBounds().getCenter();
+                L.marker(center, {
+                    icon: L.divIcon({
+                        className: 'leaflet-dist-label',
+                        html: `<div style="background:rgba(0,0,0,0.6); color:${hc.fill}; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:bold; white-space:nowrap;">${h.name || hc.label}</div>`,
+                        iconSize: [0, 0],
+                    }),
+                    interactive: false,
+                }).addTo(editLayerGroup);
+
+                // Right-click to delete hazard
+                poly.on('contextmenu', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    if (confirm(`Delete ${h.name || hc.label}?`)) {
+                        editHazards.splice(hIdx, 1);
+                        if (h.id) {
+                            // Mark for deletion on save
+                            editHazards._deletedIds = editHazards._deletedIds || [];
+                            editHazards._deletedIds.push(h.id);
+                        }
+                        redrawEditOverlay();
+                    }
+                });
+            }
+        });
+
+        // Render current hazard being drawn (in progress)
+        if (editCurrentHazard.length >= 1) {
+            const hazardType = document.getElementById('edit-hazard-type')?.value || 'bunker';
+            const hc = HAZARD_COLORS[hazardType] || HAZARD_COLORS.bunker;
+
+            if (editCurrentHazard.length >= 3) {
+                L.polygon(editCurrentHazard.map(p => [p.lat, p.lng]), {
+                    color: hc.stroke, fillColor: hc.fill, fillOpacity: 0.2, weight: 2, dashArray: '6, 4',
+                }).addTo(editLayerGroup);
+            } else if (editCurrentHazard.length >= 2) {
+                L.polyline(editCurrentHazard.map(p => [p.lat, p.lng]), {
+                    color: hc.stroke, weight: 2, dashArray: '6, 4',
+                }).addTo(editLayerGroup);
+            }
+
+            // Draw dots for each point
+            editCurrentHazard.forEach((wp) => {
+                L.circleMarker([wp.lat, wp.lng], {
+                    radius: 4, color: hc.stroke, fillColor: hc.fill, fillOpacity: 0.9, weight: 2,
+                }).addTo(editLayerGroup);
+            });
         }
     }
 
     // Save edits
     document.getElementById('btn-save-hole')?.addEventListener('click', async () => {
-        const courseHoles = getCourseTeeHoles();
-        const ch = courseHoles.find(h => h.hole_number === selectedHole);
-        if (!ch || !holeViewCourse) return;
+        if (!holeViewCourse) return;
 
-        const body = {};
+        // Save current tee pos to the map
+        if (editTeeName && editTeePos) {
+            editTeePositions[editTeeName] = editTeePos;
+        }
+
         const parVal = parseInt(document.getElementById('edit-par').value);
         const ydsVal = parseInt(document.getElementById('edit-yardage').value);
         const hcpVal = parseInt(document.getElementById('edit-handicap').value);
 
-        if (!isNaN(parVal)) body.par = parVal;
-        if (!isNaN(ydsVal)) body.yardage = ydsVal;
-        if (!isNaN(hcpVal)) body.handicap = hcpVal;
-        if (editTeePos) { body.tee_lat = editTeePos.lat; body.tee_lng = editTeePos.lng; }
-        if (editGreenPos) { body.flag_lat = editGreenPos.lat; body.flag_lng = editGreenPos.lng; }
-        if (editFairwayPath.length > 0) {
-            body.fairway_path = JSON.stringify(editFairwayPath.map(p => [p.lat, p.lng]));
-        }
-        if (editRotation !== null) body.rotation_deg = editRotation;
-        if (editZoom !== null) body.custom_zoom = editZoom;
-        if (editCustomBounds) body.custom_bounds = JSON.stringify(editCustomBounds);
-        if (editShotOffsetX !== 0 || editShotOffsetY !== 0) {
-            body.shot_offset_x = editShotOffsetX;
-            body.shot_offset_y = editShotOffsetY;
-        }
+        // Save to each tee's hole record
+        const allTees = holeViewCourse.tees || [];
+        let savedAny = false;
 
-        try {
-            const resp = await fetch(`/api/courses/${holeViewCourse.id}/holes/${ch.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-            const data = await resp.json();
+        for (const tee of allTees) {
+            const teeHole = (tee.holes || []).find(h => h.hole_number === selectedHole);
+            if (!teeHole) continue;
 
-            if (resp.ok) {
-                // If positions changed, re-fetch the image with new bounds
-                if (data.positions_changed) {
-                    await fetch(`/api/courses/${holeViewCourse.id}/holes/${ch.id}/fetch-image`, { method: 'POST' });
-                }
+            const body = {};
+            if (!isNaN(parVal)) body.par = parVal;
+            if (!isNaN(ydsVal)) body.yardage = ydsVal;
+            if (!isNaN(hcpVal)) body.handicap = hcpVal;
 
-                // Reload course data to get updated hole info + new image metadata
-                const courseResp = await fetch(`/api/courses/${holeViewCourse.id}`);
-                holeViewCourse = await courseResp.json();
+            // Tee position for this specific tee
+            const teePos = editTeePositions[tee.tee_name];
+            if (teePos) { body.tee_lat = teePos.lat; body.tee_lng = teePos.lng; }
 
-                exitEditMode();
-
-                // Force cache-bust on the hole map image
-                const mapImg = document.getElementById('hole-map-img');
-                if (mapImg) mapImg.src = '';
-
-                renderScorecard();
-                renderHoleDetail();
+            // Shared: green, fairway, green boundary (same for all tees)
+            if (editGreenPos) { body.flag_lat = editGreenPos.lat; body.flag_lng = editGreenPos.lng; }
+            if (editFairwayPath.length > 0) {
+                body.fairway_path = JSON.stringify(editFairwayPath.map(p => [p.lat, p.lng]));
             }
-        } catch (e) {
-            console.error('Failed to save hole:', e);
+            if (editGreenBoundary.length >= 3) {
+                body.green_boundary = JSON.stringify(editGreenBoundary.map(p => [p.lat, p.lng]));
+            }
+
+            try {
+                await fetch(`/api/courses/${holeViewCourse.id}/holes/${teeHole.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                savedAny = true;
+            } catch (e) {
+                console.error(`Failed to save hole for tee ${tee.tee_name}:`, e);
+            }
+        }
+
+        // Finish any in-progress hazard
+        if (editCurrentHazard.length >= 3) {
+            finishCurrentHazard();
+        }
+
+        // Save hazards — find the primary hole ID for hazard storage
+        const primaryHoles = getCourseTeeHoles();
+        const primaryHole = primaryHoles.find(h => h.hole_number === selectedHole);
+        if (primaryHole?.id) {
+            // Delete removed hazards
+            const deletedIds = editHazards._deletedIds || [];
+            for (const did of deletedIds) {
+                try {
+                    await fetch(`/api/courses/${holeViewCourse.id}/hazards/${did}`, { method: 'DELETE' });
+                } catch (e) { console.error('Failed to delete hazard:', e); }
+            }
+
+            // Create new hazards
+            for (const h of editHazards) {
+                if (h._new && h.boundary.length >= 3) {
+                    try {
+                        await fetch(`/api/courses/${holeViewCourse.id}/hazards`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                hazard_type: h.hazard_type,
+                                name: h.name,
+                                boundary: JSON.stringify(h.boundary.map(p => [p.lat, p.lng])),
+                            }),
+                        });
+                        savedAny = true;
+                    } catch (e) { console.error('Failed to save hazard:', e); }
+                }
+            }
+        }
+
+        if (savedAny) {
+            // Reload course data
+            const courseResp = await fetch(`/api/courses/${holeViewCourse.id}`);
+            holeViewCourse = await courseResp.json();
+
+            exitEditMode();
+            renderScorecard();
+            renderHoleDetail();
         }
     });
 
@@ -2120,11 +2364,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function exitEditMode() {
         holeEditMode = false;
         document.getElementById('hole-edit-toolbar').style.display = 'none';
-        const holeMap = document.getElementById('hole-map');
-        if (holeMap) {
-            holeMap.classList.remove('editing');
-            // Reset rotation — renderHoleDetail will re-apply saved rotation
-            holeMap.style.transform = '';
+
+        // Remove Leaflet edit layers and click handler
+        if (editLayerGroup) {
+            editLayerGroup.remove();
+            editLayerGroup = null;
+        }
+        if (holeLeafletMap) {
+            holeLeafletMap.off('click', onEditMapClick);
+            holeLeafletMap.off('dblclick');
+            holeLeafletMap.doubleClickZoom.enable();
+            // Restore shot layer opacity
+            holeShotLayers.eachLayer(l => { if (l.setStyle) l.setStyle({ opacity: 0.8, fillOpacity: 0.8 }); });
         }
     }
 
@@ -3091,18 +3342,31 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Check if there's ANY data at all — show get-started prompt if empty
+        const hasAnyData = roundsCache.length > 0 || rangeSessionsCache.length > 0 || clubsCache.length > 0;
+        if (!hasAnyData) {
+            const container = document.getElementById('dash-recent-rounds');
+            container.innerHTML = `<div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <p>Welcome to Birdie Book</p>
+                <p><a href="#import" class="nav-link" data-section="section-import" style="color:var(--accent);">Import your data</a> to get started</p>
+                <p style="font-size:0.78rem; color:var(--text-dim);">Supports Garmin, Trackman, and Rapsodo MLM2PRO</p>
+            </div>`;
+            document.getElementById('dash-courses').innerHTML = '';
+            return;
+        }
+
         // Recent rounds (top 5)
         const container = document.getElementById('dash-recent-rounds');
         const recent = roundsCache.slice(0, 5);
 
         if (recent.length === 0) {
             container.innerHTML = `<div class="empty-state">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                </svg>
                 <p>No rounds yet</p>
-                <p><a href="#import" class="nav-link" data-section="section-import" style="color:var(--accent);">Import your Garmin data</a> to get started</p>
             </div>`;
             return;
         }

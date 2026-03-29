@@ -91,7 +91,7 @@ def list_rounds(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
             garmin_id=r.garmin_id,
             course_id=r.course_id,
             course_name=r.course.display_name if r.course else None,
-            tee_name=None,
+            tee_name=r.tee.tee_name if r.tee_id and r.tee else None,
             date=r.date,
             holes_completed=r.holes_completed,
             total_strokes=r.total_strokes,

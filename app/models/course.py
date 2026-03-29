@@ -85,11 +85,25 @@ class CourseHole(Base):
     tee_lat = Column(Float)
     tee_lng = Column(Float)
     fairway_path = Column(Text)  # JSON array of [lat, lng] waypoints
-    rotation_deg = Column(Integer, default=0)  # CSS rotation in degrees
-    custom_zoom = Column(Integer)  # User-overridden zoom level (null = auto)
-    custom_bounds = Column(Text)  # JSON: {"min_lat":..,"max_lat":..,"min_lng":..,"max_lng":..}
-    shot_offset_x = Column(Float)  # Pixel offset to align shots with image after crop
+    green_boundary = Column(Text)  # JSON array of [lat, lng] polygon points defining green edge
+    rotation_deg = Column(Integer, default=0)  # deprecated — Leaflet handles rotation
+    custom_zoom = Column(Integer)  # deprecated — Leaflet auto-fits
+    custom_bounds = Column(Text)  # deprecated — no more cropping
+    shot_offset_x = Column(Float)  # deprecated — no more offset hacks
     shot_offset_y = Column(Float)
 
     tee = relationship("CourseTee", back_populates="holes")
     images = relationship("HoleImage", back_populates="hole")
+
+
+class CourseHazard(Base):
+    """A hazard on a course — bunker, water, OB, etc. Course-level, shared across holes."""
+    __tablename__ = "course_hazards"
+
+    id = Column(Integer, primary_key=True)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True)
+    hazard_type = Column(String(30), nullable=False)  # bunker, water, out_of_bounds, trees, waste_area
+    name = Column(String(100))  # e.g. "Left Fairway Bunker", "Pond"
+    boundary = Column(Text, nullable=False)  # JSON: [[lat, lng], ...]
+
+    course = relationship("Course")

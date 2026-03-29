@@ -5,9 +5,9 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.database import get_db
-from app.models import GolfClub, Course, CourseTee, CourseHole, HoleImage
+from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, HoleImage
 from app.services.image_service import fetch_all_hole_images
-from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses
+from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
 from app.services.places_service import fetch_club_photo
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -27,6 +27,16 @@ class HoleImageResponse(BaseModel):
         from_attributes = True
 
 
+class CourseHazardResponse(BaseModel):
+    id: int
+    hazard_type: str
+    name: Optional[str] = None
+    boundary: str  # JSON [[lat, lng], ...]
+
+    class Config:
+        from_attributes = True
+
+
 class CourseHoleResponse(BaseModel):
     id: int
     hole_number: int
@@ -38,6 +48,7 @@ class CourseHoleResponse(BaseModel):
     tee_lat: Optional[float] = None
     tee_lng: Optional[float] = None
     fairway_path: Optional[str] = None
+    green_boundary: Optional[str] = None
     rotation_deg: int = 0
     custom_zoom: Optional[int] = None
     custom_bounds: Optional[str] = None
@@ -88,6 +99,7 @@ class CourseResponse(BaseModel):
 
 class CourseDetailResponse(CourseResponse):
     tees: list[CourseTeeResponse] = []
+    hazards: list[CourseHazardResponse] = []
 
     class Config:
         from_attributes = True
@@ -174,10 +186,15 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
             holes=hole_responses,
         ))
 
+    # Course-level hazards
+    hazards = db.query(CourseHazard).filter(CourseHazard.course_id == course_id).all()
+    hazard_responses = [CourseHazardResponse.model_validate(h) for h in hazards]
+
     base = _build_course_response(db, course)
     return CourseDetailResponse(
         **base.model_dump(),
         tees=tee_responses,
+        hazards=hazard_responses,
     )
 
 
@@ -210,7 +227,12 @@ def apply_match(course_id: int, req: ApplyMatchRequest, db: Session = Depends(ge
     course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
-    return apply_golf_course_data(db, course, req.api_id)
+    result = apply_golf_course_data(db, course, req.api_id)
+    # After syncing tee data, try to match unlinked rounds to tees
+    matched = match_rounds_to_tees(db, course_id)
+    if matched:
+        result["rounds_matched_to_tees"] = matched
+    return result
 
 
 @router.post("/{course_id}/fetch-photo")
@@ -263,6 +285,7 @@ class HoleUpdateRequest(BaseModel):
     flag_lat: Optional[float] = None
     flag_lng: Optional[float] = None
     fairway_path: Optional[str] = None  # JSON string of [[lat, lng], ...]
+    green_boundary: Optional[str] = None  # JSON string of [[lat, lng], ...] polygon
     rotation_deg: Optional[int] = None
     custom_zoom: Optional[int] = None
     custom_bounds: Optional[str] = None  # JSON: {"min_lat":..,"max_lat":..,"min_lng":..,"max_lng":..}
@@ -298,6 +321,8 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
         positions_changed = True
     if req.fairway_path is not None:
         hole.fairway_path = req.fairway_path
+    if req.green_boundary is not None:
+        hole.green_boundary = req.green_boundary
     if req.rotation_deg is not None:
         hole.rotation_deg = req.rotation_deg
     if req.custom_zoom is not None:
@@ -325,3 +350,67 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
     db.commit()
     db.refresh(hole)
     return {"status": "ok", "hole_id": hole.id, "positions_changed": positions_changed}
+
+
+# ── Hazard Endpoints ──
+
+class HazardCreateRequest(BaseModel):
+    hazard_type: str  # bunker, water, out_of_bounds, trees, waste_area
+    name: Optional[str] = None
+    boundary: str  # JSON [[lat, lng], ...]
+
+
+class HazardUpdateRequest(BaseModel):
+    hazard_type: Optional[str] = None
+    name: Optional[str] = None
+    boundary: Optional[str] = None
+
+
+@router.post("/{course_id}/hazards")
+def create_hazard(course_id: int, req: HazardCreateRequest, db: Session = Depends(get_db)):
+    """Add a hazard to a course."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    hazard = CourseHazard(
+        course_id=course_id,
+        hazard_type=req.hazard_type,
+        name=req.name,
+        boundary=req.boundary,
+    )
+    db.add(hazard)
+    db.commit()
+    db.refresh(hazard)
+    return CourseHazardResponse.model_validate(hazard)
+
+
+@router.put("/{course_id}/hazards/{hazard_id}")
+def update_hazard(course_id: int, hazard_id: int, req: HazardUpdateRequest, db: Session = Depends(get_db)):
+    """Update a hazard."""
+    hazard = db.query(CourseHazard).filter(CourseHazard.id == hazard_id).first()
+    if not hazard:
+        raise HTTPException(status_code=404, detail="Hazard not found")
+
+    if req.hazard_type is not None:
+        hazard.hazard_type = req.hazard_type
+    if req.name is not None:
+        hazard.name = req.name
+    if req.boundary is not None:
+        hazard.boundary = req.boundary
+
+    db.commit()
+    db.refresh(hazard)
+    return CourseHazardResponse.model_validate(hazard)
+
+
+@router.delete("/{course_id}/hazards/{hazard_id}")
+def delete_hazard(course_id: int, hazard_id: int, db: Session = Depends(get_db)):
+    """Delete a hazard."""
+    hazard = db.query(CourseHazard).filter(CourseHazard.id == hazard_id).first()
+    if not hazard:
+        raise HTTPException(status_code=404, detail="Hazard not found")
+
+    db.delete(hazard)
+    db.commit()
+    return {"status": "deleted", "hazard_id": hazard_id}

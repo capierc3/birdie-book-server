@@ -62,6 +62,7 @@ class Round(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     course = relationship("Course", back_populates="rounds")
+    tee = relationship("CourseTee")
     holes = relationship("RoundHole", back_populates="round", cascade="all, delete-orphan")
     player = relationship("Player")
 

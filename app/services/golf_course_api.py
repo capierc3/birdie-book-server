@@ -595,10 +595,15 @@ def _find_or_create_course_by_name(db: Session, club: GolfClub, course_name: str
 
 def _clear_non_inferred_tees(db: Session, course: Course):
     """Remove inferred tees from a course (to replace with API data)."""
+    from app.models import Round
     tees = db.query(CourseTee).filter(
         CourseTee.course_id == course.id, CourseTee.inferred == True
     ).all()
     for t in tees:
+        # Nullify any round references to this tee before deleting
+        db.query(Round).filter(Round.tee_id == t.id).update(
+            {"tee_id": None}, synchronize_session="fetch"
+        )
         db.query(CourseHole).filter(CourseHole.tee_id == t.id).delete()
         db.delete(t)
     db.flush()
@@ -949,3 +954,55 @@ def sync_club_courses(db: Session, club: GolfClub) -> dict:
         "courses_synced": total_synced,
         "details": details,
     }
+
+
+def match_rounds_to_tees(db: Session, course_id: int) -> int:
+    """
+    After a course sync, match rounds with tee_id=None to synced tees
+    by closest course_rating + slope_rating.
+    Returns count of rounds matched.
+    """
+    from app.models import Round, CourseTee
+
+    # Get rounds without a tee
+    rounds = db.query(Round).filter(
+        Round.course_id == course_id,
+        Round.tee_id.is_(None),
+        Round.course_rating.isnot(None),
+    ).all()
+
+    if not rounds:
+        return 0
+
+    # Get synced tees
+    tees = db.query(CourseTee).filter(
+        CourseTee.course_id == course_id,
+        CourseTee.course_rating.isnot(None),
+    ).all()
+
+    if not tees:
+        return 0
+
+    matched = 0
+    for r in rounds:
+        # Find closest tee by combined rating+slope distance
+        best_tee = None
+        best_dist = float('inf')
+        for t in tees:
+            if t.course_rating is None or t.slope_rating is None:
+                continue
+            # Normalize: rating diff + slope diff / 10 (slope is on a larger scale)
+            dist = abs((r.course_rating or 0) - t.course_rating) + abs((r.slope_rating or 0) - t.slope_rating) / 10
+            if dist < best_dist:
+                best_dist = dist
+                best_tee = t
+
+        if best_tee and best_dist < 3.0:  # Reasonable threshold
+            r.tee_id = best_tee.id
+            matched += 1
+            log.info("Matched round %d to tee '%s' (dist=%.2f)", r.id, best_tee.tee_name, best_dist)
+
+    if matched:
+        db.commit()
+
+    return matched

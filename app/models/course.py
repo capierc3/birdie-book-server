@@ -15,6 +15,7 @@ class GolfClub(Base):
     lng = Column(Float)
     google_place_id = Column(String(200))
     photo_url = Column(String(500))
+    osm_id = Column(Integer, index=True)  # OSM relation/way ID for the whole club facility
     user_rating = Column(Float)
     user_notes = Column(String(2000))
     created_at = Column(DateTime, server_default=func.now())
@@ -30,6 +31,8 @@ class Course(Base):
     id = Column(Integer, primary_key=True)
     golf_club_id = Column(Integer, ForeignKey("golf_clubs.id", ondelete="CASCADE"), nullable=False)
     garmin_snapshot_id = Column(Integer, unique=True, index=True)
+    osm_id = Column(Integer, index=True)  # OSM relation/way ID for this specific course
+    osm_boundary = Column(Text)  # JSON: [[lat, lng], ...] course boundary polygon from OSM
     name = Column(String(200))  # NULL for single-course clubs
     holes = Column(Integer, default=18)
     par = Column(Integer)
@@ -76,6 +79,7 @@ class CourseHole(Base):
 
     id = Column(Integer, primary_key=True)
     tee_id = Column(Integer, ForeignKey("course_tees.id", ondelete="CASCADE"), nullable=False)
+    osm_hole_id = Column(Integer, ForeignKey("osm_holes.id", ondelete="SET NULL"), nullable=True, index=True)
     hole_number = Column(Integer, nullable=False)
     par = Column(Integer, nullable=False)
     yardage = Column(Integer)
@@ -93,17 +97,38 @@ class CourseHole(Base):
     shot_offset_y = Column(Float)
 
     tee = relationship("CourseTee", back_populates="holes")
+    osm_hole = relationship("OSMHole")
     images = relationship("HoleImage", back_populates="hole")
 
 
+class OSMHole(Base):
+    """Raw OSM hole data — stored at club level, linked to CourseHoles by user or auto-match."""
+    __tablename__ = "osm_holes"
+
+    id = Column(Integer, primary_key=True)
+    golf_club_id = Column(Integer, ForeignKey("golf_clubs.id", ondelete="CASCADE"), nullable=False, index=True)
+    osm_id = Column(Integer, index=True)  # OSM way/relation ID
+    hole_number = Column(Integer)  # from OSM ref tag
+    par = Column(Integer)
+    tee_lat = Column(Float)
+    tee_lng = Column(Float)
+    green_lat = Column(Float)
+    green_lng = Column(Float)
+    waypoints = Column(Text)  # JSON: [[lat, lng], ...] centerline
+    green_boundary = Column(Text)  # JSON: [[lat, lng], ...] if OSM has green polygon
+    created_at = Column(DateTime, server_default=func.now())
+
+    club = relationship("GolfClub")
+
+
 class CourseHazard(Base):
-    """A hazard on a course — bunker, water, OB, etc. Course-level, shared across holes."""
+    """A hazard at a golf club — bunker, water, OB, etc. Club-level, shared across all courses."""
     __tablename__ = "course_hazards"
 
     id = Column(Integer, primary_key=True)
-    course_id = Column(Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True)
+    golf_club_id = Column(Integer, ForeignKey("golf_clubs.id", ondelete="CASCADE"), nullable=False, index=True)
     hazard_type = Column(String(30), nullable=False)  # bunker, water, out_of_bounds, trees, waste_area
     name = Column(String(100))  # e.g. "Left Fairway Bunker", "Pond"
     boundary = Column(Text, nullable=False)  # JSON: [[lat, lng], ...]
 
-    course = relationship("Course")
+    club = relationship("GolfClub")

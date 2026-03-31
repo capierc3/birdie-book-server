@@ -502,6 +502,13 @@ def apply_golf_course_data(db: Session, course: Course, api_id: int) -> dict:
         club.lng = location["longitude"]
 
     # Remove existing tees (both inferred and API) before inserting fresh data
+    # First nullify any round references to these tees
+    existing_tee_ids = [t[0] for t in db.query(CourseTee.id).filter(CourseTee.course_id == course.id).all()]
+    if existing_tee_ids:
+        from app.models.round import Round
+        db.query(Round).filter(Round.tee_id.in_(existing_tee_ids)).update(
+            {"tee_id": None}, synchronize_session="fetch"
+        )
     existing_tees = db.query(CourseTee).filter(CourseTee.course_id == course.id).all()
     for t in existing_tees:
         db.query(CourseHole).filter(CourseHole.tee_id == t.id).delete()
@@ -578,18 +585,67 @@ def apply_golf_course_data(db: Session, course: Course, api_id: int) -> dict:
 # ========== Club-Level Sync ==========
 
 
+def _normalize_course_name(name: str) -> str:
+    """Normalize a course name for fuzzy matching — strip 'The ', lowercase."""
+    n = name.strip()
+    if n.lower().startswith("the "):
+        n = n[4:]
+    return n.lower()
+
+
+def _fuzzy_course_match(name_a: str, name_b: str) -> bool:
+    """
+    Check if two course names likely refer to the same course.
+    Handles: 'Royal' vs 'Royal Canadian' vs 'The Royal'
+    Never matches combo courses (containing '/') to non-combo courses.
+    """
+    # Never match a combo name to a non-combo name
+    # "Falcon/Eagle" should NOT match "Falcon" or "Eagle"
+    has_slash_a = "/" in name_a
+    has_slash_b = "/" in name_b
+    if has_slash_a != has_slash_b:
+        return False
+
+    a = _normalize_course_name(name_a)
+    b = _normalize_course_name(name_b)
+    if a == b:
+        return True
+    # Substring: 'royal' in 'royal canadian'
+    if a in b or b in a:
+        return True
+    # Check word overlap — if all words in shorter name appear in longer name
+    words_a = set(a.split())
+    words_b = set(b.split())
+    shorter, longer = (words_a, words_b) if len(words_a) <= len(words_b) else (words_b, words_a)
+    if shorter and shorter.issubset(longer):
+        return True
+    return False
+
+
 def _find_or_create_course_by_name(db: Session, club: GolfClub, course_name: str) -> Course:
-    """Find a course by name under a club, or create it."""
+    """Find a course by name under a club (with fuzzy matching), or create it."""
+    # Exact match first
     course = (
         db.query(Course)
         .filter(Course.golf_club_id == club.id, Course.name == course_name)
         .first()
     )
-    if not course:
-        course = Course(golf_club_id=club.id, name=course_name, holes=9)
-        db.add(course)
-        db.flush()
-        log.info("Created new course '%s' under club '%s'", course_name, club.name)
+    if course:
+        return course
+
+    # Fuzzy match against all courses at this club
+    all_courses = db.query(Course).filter(Course.golf_club_id == club.id).all()
+    for c in all_courses:
+        if c.name and _fuzzy_course_match(course_name, c.name):
+            log.info("Fuzzy matched API course '%s' to existing course '%s' (id=%d)",
+                     course_name, c.name, c.id)
+            return c
+
+    # No match — create new
+    course = Course(golf_club_id=club.id, name=course_name, holes=9)
+    db.add(course)
+    db.flush()
+    log.info("Created new course '%s' under club '%s'", course_name, club.name)
     return course
 
 

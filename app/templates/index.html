@@ -88,10 +88,13 @@
 <div class="content-section" id="section-courses">
     <div class="page-header">
         <h1>Courses</h1>
-        <p>Golf courses in your database</p>
+        <p>Golf clubs and courses in your database</p>
     </div>
 
-    <div class="card">
+    <div id="clubs-list-container"></div>
+
+    <!-- Hidden legacy table for backward compat -->
+    <div style="display:none;">
         <div class="table-wrap">
             <table id="courses-table">
                 <thead>
@@ -117,7 +120,7 @@
     <div class="course-hero" id="course-hero">
         <div class="course-hero-overlay"></div>
         <div class="course-hero-content">
-            <a href="#courses" class="btn btn-ghost btn-sm nav-link course-back-link" data-section="section-courses">&larr; All Courses</a>
+            <a href="#courses" class="btn btn-ghost btn-sm nav-link course-back-link" data-section="section-courses">&larr; All Clubs</a>
             <h1 id="course-detail-name">Course</h1>
             <p id="course-detail-subtitle"></p>
         </div>
@@ -126,28 +129,49 @@
     <!-- Course Info -->
     <div class="stats-row" id="course-detail-stats"></div>
 
-    <!-- Sync + View Holes -->
-    <div class="card">
-        <div class="card-header">
-            <h2>Course Data</h2>
-            <div style="display:flex; gap:8px;">
-                <button class="btn btn-primary btn-sm" id="btn-view-holes">View Holes</button>
-                <button class="btn btn-secondary btn-sm" id="btn-course-sync">Sync Course Data</button>
-            </div>
-        </div>
-        <div id="course-sync-status" class="status" style="display:none;"></div>
-
-        <!-- Tees -->
-        <div id="course-detail-tees"></div>
-    </div>
-
-    <!-- Rounds at this course -->
+    <!-- Rounds at this club -->
     <div class="card">
         <div class="card-header">
             <h2>Rounds Played Here</h2>
             <span class="badge" id="course-rounds-count">0</span>
         </div>
         <div id="course-detail-rounds"></div>
+    </div>
+
+    <!-- Courses at this club -->
+    <div id="course-detail-courses"></div>
+
+    <!-- Club-level actions -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Club Actions</h2>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-course-sync">Sync All Courses</button>
+            </div>
+        </div>
+        <div id="course-sync-status" class="status" style="display:none;"></div>
+    </div>
+
+    <!-- OSM Course Data (collapsible) -->
+    <div class="card">
+        <div class="card-header" id="osm-card-toggle" style="cursor:pointer;">
+            <h2>OSM Course Data</h2>
+            <span id="osm-card-arrow" style="color:var(--text-muted); font-size:0.9rem;">&#9654;</span>
+        </div>
+        <div id="osm-data-section" style="padding:0 20px 20px; display:none;">
+            <!-- Club-level search -->
+            <div style="margin-bottom:16px;">
+                <label style="font-size:0.78rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Search by Club</label>
+                <div style="display:flex; gap:8px; margin-top:4px;">
+                    <input type="text" id="osm-club-search" class="edit-input" placeholder="e.g. Pine Knob Golf" style="flex:1;">
+                    <button class="btn btn-secondary btn-sm" id="btn-osm-club-search">Search</button>
+                </div>
+                <div id="osm-club-results" style="margin-top:8px;"></div>
+            </div>
+
+            <!-- Per-course OSM status -->
+            <div id="osm-course-links" style="margin-top:12px;"></div>
+        </div>
     </div>
 </div>
 
@@ -208,6 +232,14 @@
                 </select>
                 <button class="btn btn-primary btn-sm" id="tool-finish-hazard" style="display:none;">Done</button>
                 <button class="btn btn-ghost btn-sm" id="tool-cancel-hazard" style="display:none;">Discard</button>
+            </div>
+
+            <div class="edit-tools" style="width:100%;">
+                <label style="font-size:0.78rem; color:var(--text-muted);">OSM Hole:</label>
+                <select id="edit-osm-hole-select" class="edit-input" style="width:auto; font-size:0.78rem; padding:2px 6px;">
+                    <option value="">Not linked</option>
+                </select>
+                <button class="btn btn-ghost btn-sm" id="btn-apply-osm-hole" style="font-size:0.75rem;">Apply GPS</button>
             </div>
 
             <div class="edit-fields" style="width:100%; display:flex; align-items:center; gap:12px;">

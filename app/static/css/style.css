@@ -1805,3 +1805,17 @@ tr[data-shot-id] {
     font-size: 9px !important;
     opacity: 0.5;
 }
+
+/* OSM hole preview tooltip */
+.osm-preview-tooltip {
+    background: rgba(0, 0, 0, 0.8) !important;
+    border: 1px solid #FFD700 !important;
+    color: #FFD700 !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+}
+.osm-preview-tooltip::before {
+    border-top-color: #FFD700 !important;
+}

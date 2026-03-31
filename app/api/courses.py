@@ -1,14 +1,19 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc
 from pydantic import BaseModel
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 from app.database import get_db
-from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, HoleImage
+from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, HoleImage, Round, RoundHole, Shot
 from app.services.image_service import fetch_all_hole_images
 from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
 from app.services.places_service import fetch_club_photo
+from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -49,12 +54,27 @@ class CourseHoleResponse(BaseModel):
     tee_lng: Optional[float] = None
     fairway_path: Optional[str] = None
     green_boundary: Optional[str] = None
+    osm_hole_id: Optional[int] = None
     rotation_deg: int = 0
     custom_zoom: Optional[int] = None
     custom_bounds: Optional[str] = None
     shot_offset_x: Optional[float] = None
     shot_offset_y: Optional[float] = None
     image: Optional[HoleImageResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+class OSMHoleResponse(BaseModel):
+    id: int
+    osm_id: Optional[int] = None
+    hole_number: Optional[int] = None
+    par: Optional[int] = None
+    tee_lat: Optional[float] = None
+    tee_lng: Optional[float] = None
+    green_lat: Optional[float] = None
+    green_lng: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -92,6 +112,8 @@ class CourseResponse(BaseModel):
     slope_max: Optional[float] = None
     tee_count: int = 0
     golf_club_id: int = 0
+    osm_id: Optional[int] = None
+    osm_boundary: Optional[str] = None  # JSON boundary polygon if available
 
     class Config:
         from_attributes = True
@@ -100,6 +122,7 @@ class CourseResponse(BaseModel):
 class CourseDetailResponse(CourseResponse):
     tees: list[CourseTeeResponse] = []
     hazards: list[CourseHazardResponse] = []
+    osm_holes: list[OSMHoleResponse] = []
 
     class Config:
         from_attributes = True
@@ -140,10 +163,83 @@ def _build_course_response(db: Session, course: Course) -> CourseResponse:
         slope_max=slope_max,
         tee_count=tee_count,
         golf_club_id=club.id if club else 0,
+        osm_id=course.osm_id,
+        osm_boundary=course.osm_boundary,
     )
 
 
 # --- Endpoints ---
+
+class ClubCourseSummary(BaseModel):
+    id: int
+    name: Optional[str] = None
+    holes: Optional[int] = None
+    par: Optional[int] = None
+    tee_count: int = 0
+    slope_min: Optional[float] = None
+    slope_max: Optional[float] = None
+    rounds_played: int = 0
+
+class ClubSummary(BaseModel):
+    id: int
+    name: str
+    address: Optional[str] = None
+    photo_url: Optional[str] = None
+    course_count: int = 0
+    total_rounds: int = 0
+    courses: list[ClubCourseSummary] = []
+
+
+@router.get("/clubs", response_model=list[ClubSummary])
+def list_clubs(db: Session = Depends(get_db)):
+    """List all golf clubs with their courses grouped."""
+    clubs = (
+        db.query(GolfClub)
+        .options(joinedload(GolfClub.courses))
+        .order_by(GolfClub.name)
+        .all()
+    )
+    result = []
+    for club in clubs:
+        courses_data = []
+        total_rounds = 0
+        for c in sorted(club.courses, key=lambda x: (x.holes or 18, x.name or "")):
+            # Get tee count and slope range
+            tee_stats = (
+                db.query(
+                    sqlfunc.count(CourseTee.id),
+                    sqlfunc.min(CourseTee.slope_rating),
+                    sqlfunc.max(CourseTee.slope_rating),
+                )
+                .filter(CourseTee.course_id == c.id)
+                .first()
+            )
+            tee_count, slope_min, slope_max = tee_stats or (0, None, None)
+            rounds_count = db.query(Round).filter(Round.course_id == c.id).count()
+            total_rounds += rounds_count
+
+            courses_data.append(ClubCourseSummary(
+                id=c.id,
+                name=c.name,
+                holes=c.holes,
+                par=c.par,
+                tee_count=tee_count,
+                slope_min=slope_min,
+                slope_max=slope_max,
+                rounds_played=rounds_count,
+            ))
+
+        result.append(ClubSummary(
+            id=club.id,
+            name=club.name,
+            address=club.address,
+            photo_url=club.photo_url,
+            course_count=len(club.courses),
+            total_rounds=total_rounds,
+            courses=courses_data,
+        ))
+    return result
+
 
 @router.get("/", response_model=list[CourseResponse])
 def list_courses(db: Session = Depends(get_db)):
@@ -186,15 +282,20 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
             holes=hole_responses,
         ))
 
-    # Course-level hazards
-    hazards = db.query(CourseHazard).filter(CourseHazard.course_id == course_id).all()
+    # Club-level hazards (shared across all courses at this club, filtered by viewport on frontend)
+    hazards = db.query(CourseHazard).filter(CourseHazard.golf_club_id == course.golf_club_id).all()
     hazard_responses = [CourseHazardResponse.model_validate(h) for h in hazards]
+
+    # OSM holes at club level (for linking UI)
+    osm_holes = db.query(OSMHole).filter(OSMHole.golf_club_id == course.golf_club_id).order_by(OSMHole.hole_number).all()
+    osm_responses = [OSMHoleResponse.model_validate(oh) for oh in osm_holes]
 
     base = _build_course_response(db, course)
     return CourseDetailResponse(
         **base.model_dump(),
         tees=tee_responses,
         hazards=hazard_responses,
+        osm_holes=osm_responses,
     )
 
 
@@ -352,7 +453,697 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
     return {"status": "ok", "hole_id": hole.id, "positions_changed": positions_changed}
 
 
+class LinkOSMHoleRequest(BaseModel):
+    osm_hole_id: Optional[int] = None  # None = unlink
+    apply_gps: bool = True  # Populate tee/green/fairway from OSM data
+
+
+@router.post("/{course_id}/holes/{hole_id}/link-osm")
+def link_osm_hole(
+    course_id: int, hole_id: int, req: LinkOSMHoleRequest, db: Session = Depends(get_db),
+):
+    """Link or unlink an OSM hole to a CourseHole. Optionally apply GPS data."""
+    hole = db.query(CourseHole).filter(CourseHole.id == hole_id).first()
+    if not hole:
+        raise HTTPException(status_code=404, detail="Hole not found")
+
+    # Verify hole belongs to this course
+    tee = db.query(CourseTee).filter(CourseTee.id == hole.tee_id).first()
+    if not tee or tee.course_id != course_id:
+        raise HTTPException(status_code=400, detail="Hole does not belong to this course")
+
+    if req.osm_hole_id is None:
+        # Unlink
+        hole.osm_hole_id = None
+        db.commit()
+        return {"status": "unlinked", "hole_id": hole.id}
+
+    osm_hole = db.query(OSMHole).filter(OSMHole.id == req.osm_hole_id).first()
+    if not osm_hole:
+        raise HTTPException(status_code=404, detail="OSM hole not found")
+
+    # Link this hole
+    hole.osm_hole_id = osm_hole.id
+
+    # Apply GPS data from OSM if requested
+    if req.apply_gps:
+        hole.tee_lat = osm_hole.tee_lat
+        hole.tee_lng = osm_hole.tee_lng
+        hole.flag_lat = osm_hole.green_lat
+        hole.flag_lng = osm_hole.green_lng
+        if osm_hole.green_boundary and not hole.green_boundary:
+            hole.green_boundary = osm_hole.green_boundary
+        if osm_hole.waypoints and not hole.fairway_path:
+            hole.fairway_path = osm_hole.waypoints
+
+    # Also apply to all other tees for this hole number at this course
+    all_tees = db.query(CourseTee).filter(CourseTee.course_id == course_id).all()
+    for t in all_tees:
+        if t.id == hole.tee_id:
+            continue
+        sibling = db.query(CourseHole).filter(
+            CourseHole.tee_id == t.id,
+            CourseHole.hole_number == hole.hole_number,
+        ).first()
+        if sibling:
+            sibling.osm_hole_id = osm_hole.id
+            if req.apply_gps:
+                if not sibling.tee_lat:
+                    sibling.tee_lat = osm_hole.tee_lat
+                    sibling.tee_lng = osm_hole.tee_lng
+                if not sibling.flag_lat:
+                    sibling.flag_lat = osm_hole.green_lat
+                    sibling.flag_lng = osm_hole.green_lng
+
+    db.commit()
+    return {"status": "linked", "hole_id": hole.id, "osm_hole_id": osm_hole.id}
+
+
+# ── OSM Auto-Detect ──
+
+@router.post("/{course_id}/detect-features")
+def detect_features(course_id: int, db: Session = Depends(get_db)):
+    """
+    Query OpenStreetMap for golf course features (bunkers, greens, tees, water).
+    Returns detected features for preview — does NOT auto-import.
+    """
+    from app.services.osm_golf_service import fetch_golf_features
+
+    course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Get course center GPS from club or from hole data
+    lat, lng = None, None
+    if course.club and course.club.lat and course.club.lng:
+        lat, lng = course.club.lat, course.club.lng
+    else:
+        # Try to get from first hole with GPS data
+        hole = db.query(CourseHole).join(CourseTee).filter(
+            CourseTee.course_id == course_id,
+            CourseHole.tee_lat.isnot(None),
+        ).first()
+        if hole:
+            lat, lng = hole.tee_lat, hole.tee_lng
+
+    if not lat or not lng:
+        raise HTTPException(status_code=400, detail="Course has no GPS coordinates. Sync course data first.")
+
+    try:
+        data = fetch_golf_features(lat, lng)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {
+        "summary": data.summary(),
+        "bunkers": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "hole": f.hole_number} for f in data.bunkers],
+        "greens": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "center": [f.center_lat, f.center_lng], "hole": f.hole_number} for f in data.greens],
+        "tees": [{"osm_id": f.osm_id, "name": f.name, "center": [f.center_lat, f.center_lng] if f.center_lat else f.boundary[0] if f.boundary else None, "boundary": f.boundary, "hole": f.hole_number} for f in data.tees],
+        "fairways": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "hole": f.hole_number} for f in data.fairways],
+        "water": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary} for f in data.water],
+        "pins": [{"osm_id": f.osm_id, "name": f.name, "center": [f.center_lat, f.center_lng], "hole": f.hole_number} for f in data.pins],
+        "holes": [{"osm_id": h.osm_id, "hole_number": h.hole_number, "par": h.par,
+                   "tee": [h.tee_lat, h.tee_lng], "green": [h.green_lat, h.green_lng],
+                   "waypoints": h.waypoints} for h in data.holes],
+    }
+
+
+class ImportFeaturesRequest(BaseModel):
+    bunkers: list[dict] = []
+    water: list[dict] = []
+    greens: list[dict] = []
+    holes: list[dict] = []
+
+
+@router.post("/{course_id}/import-features")
+def import_features(course_id: int, features: ImportFeaturesRequest, db: Session = Depends(get_db)):
+    """
+    Import selected OSM features into the course.
+    Imports hazards, and uses hole centerlines to populate tee/green/fairway on course holes.
+    """
+    import json as jsonlib
+    import math
+
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    imported = {"bunkers": 0, "water": 0, "holes_enriched": 0, "greens_set": 0}
+
+    # Import bunkers and water as club-level hazards (shared across all courses at this club)
+    golf_club_id = course.golf_club_id
+
+    # Clear existing hazards for this club to avoid duplicates on re-import
+    if features.bunkers or features.water:
+        existing_count = db.query(CourseHazard).filter(CourseHazard.golf_club_id == golf_club_id).count()
+        if existing_count > 0:
+            db.query(CourseHazard).filter(CourseHazard.golf_club_id == golf_club_id).delete()
+            db.flush()
+
+    for b in features.bunkers:
+        if b.get("boundary") and len(b["boundary"]) >= 3:
+            hazard = CourseHazard(
+                golf_club_id=golf_club_id,
+                hazard_type="bunker",
+                name=b.get("name"),
+                boundary=jsonlib.dumps(b["boundary"]),
+            )
+            db.add(hazard)
+            imported["bunkers"] += 1
+
+    # Import water hazards
+    for w in features.water:
+        if w.get("boundary") and len(w["boundary"]) >= 3:
+            hazard = CourseHazard(
+                golf_club_id=golf_club_id,
+                hazard_type="water",
+                name=w.get("name"),
+                boundary=jsonlib.dumps(w["boundary"]),
+            )
+            db.add(hazard)
+            imported["water"] += 1
+
+    # Use hole centerlines to enrich CourseHoles with tee/green/fairway positions
+    if features.holes:
+        # For multi-course facilities (like Pine Knob with Eagle/Falcon/Hawk),
+        # we need to figure out which OSM holes belong to THIS course.
+        # Strategy: find the course's geographic center, then only use OSM holes
+        # that are within a reasonable distance of it.
+
+        # Get course center from actual shot GPS data (most reliable for multi-course facilities)
+        course_lat, course_lng = None, None
+
+        # First: use first-shot GPS positions from rounds played on this course
+        round_ids = [r.id for r in db.query(Round).filter(Round.course_id == course_id).all()]
+        if round_ids:
+            shot_center = (
+                db.query(
+                    sqlfunc.avg(Shot.start_lat),
+                    sqlfunc.avg(Shot.start_lng),
+                )
+                .filter(
+                    Shot.round_id.in_(round_ids),
+                    Shot.start_lat.isnot(None),
+                    Shot.shot_number == 1,  # First shot per hole = tee shots
+                )
+                .first()
+            )
+            if shot_center[0]:
+                course_lat, course_lng = shot_center[0], shot_center[1]
+
+        # Fallback: existing hole positions on this course
+        if not course_lat:
+            tees_check = db.query(CourseTee).filter(CourseTee.course_id == course_id).all()
+            all_hole_lats, all_hole_lngs = [], []
+            for tee_obj in tees_check:
+                for h in db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all():
+                    if h.tee_lat and h.tee_lng:
+                        all_hole_lats.append(h.tee_lat)
+                        all_hole_lngs.append(h.tee_lng)
+            if all_hole_lats:
+                course_lat = sum(all_hole_lats) / len(all_hole_lats)
+                course_lng = sum(all_hole_lngs) / len(all_hole_lngs)
+
+        # Last fallback: club GPS
+        if not course_lat:
+            club = course.club
+            if club and club.lat and club.lng:
+                course_lat, course_lng = club.lat, club.lng
+
+        # Filter OSM holes to those near this course's center
+        # Use tight radius (~0.005 degrees ≈ 500m) for multi-course facilities
+        filtered_osm_holes = features.holes
+        if course_lat and course_lng:
+            def _hole_dist_to_course(h):
+                t = h.get("tee", [0, 0])
+                return math.sqrt((t[0] - course_lat) ** 2 + (t[1] - course_lng) ** 2)
+
+            # Sort by distance, take only holes within tight radius
+            sorted_holes = sorted(features.holes, key=_hole_dist_to_course)
+
+            # For a 9-hole course, take the 9 closest; for 18, take 18 closest
+            # But also cap by distance
+            num_holes = course.holes or 9
+            close_holes = [h for h in sorted_holes if _hole_dist_to_course(h) < 0.005]
+
+            # If we got enough close holes, use them; otherwise widen the radius
+            if len(close_holes) >= num_holes:
+                filtered_osm_holes = close_holes
+            else:
+                # Widen to 0.01 degrees (~1km)
+                filtered_osm_holes = [h for h in sorted_holes if _hole_dist_to_course(h) < 0.01]
+
+        tees_db = db.query(CourseTee).filter(CourseTee.course_id == course_id).all()
+
+        # For 9-hole courses, OSM may number holes 10-18 (back nine).
+        # Build a mapping: our hole number -> OSM hole number, trying direct match first,
+        # then offset by 9 or 18, then fallback to proximity matching.
+        num_course_holes = course.holes or 9
+
+        for tee_obj in tees_db:
+            holes = db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all()
+
+            for hole in holes:
+                # Try matching by hole number: direct, +9, +18
+                osm_matches = []
+                for offset in [0, 9, 18]:
+                    target_num = hole.hole_number + offset
+                    matches = [h for h in filtered_osm_holes if h.get("hole_number") == target_num]
+                    if matches:
+                        osm_matches = matches
+                        break
+
+                # Fallback: if no number match, find closest OSM hole by GPS proximity
+                # (use first shot GPS from rounds if available)
+                if not osm_matches and round_ids:
+                    first_shot = (
+                        db.query(Shot)
+                        .join(RoundHole)
+                        .filter(
+                            Shot.round_id.in_(round_ids),
+                            RoundHole.hole_number == hole.hole_number,
+                            Shot.shot_number == 1,
+                            Shot.start_lat.isnot(None),
+                        )
+                        .first()
+                    )
+                    if first_shot:
+                        # Find OSM hole whose tee is closest to this shot's start
+                        def _dist_to_shot(h):
+                            t = h.get("tee", [0, 0])
+                            return math.sqrt((t[0] - first_shot.start_lat)**2 + (t[1] - first_shot.start_lng)**2)
+                        closest = min(filtered_osm_holes, key=_dist_to_shot, default=None)
+                        if closest and _dist_to_shot(closest) < 0.003:  # ~300m
+                            osm_matches = [closest]
+
+                if not osm_matches:
+                    continue
+
+                # Pick best match
+                best = osm_matches[0]
+                if len(osm_matches) > 1:
+                    # Pick by par match first
+                    par_matches = [h for h in osm_matches if h.get("par") == hole.par]
+                    if par_matches:
+                        best = par_matches[0]
+
+                tee_pos = best.get("tee")
+                if tee_pos and not hole.tee_lat:
+                    hole.tee_lat = tee_pos[0]
+                    hole.tee_lng = tee_pos[1]
+
+                green_pos = best.get("green")
+                if green_pos and not hole.flag_lat:
+                    hole.flag_lat = green_pos[0]
+                    hole.flag_lng = green_pos[1]
+
+                waypoints = best.get("waypoints", [])
+                if waypoints and len(waypoints) >= 2 and not hole.fairway_path:
+                    hole.fairway_path = jsonlib.dumps(waypoints)
+
+                imported["holes_enriched"] += 1
+
+    # Match green boundaries to holes by proximity to flag position
+    if features.greens:
+        tees = db.query(CourseTee).filter(CourseTee.course_id == course_id).all()
+        for tee in tees:
+            holes = db.query(CourseHole).filter(CourseHole.tee_id == tee.id).all()
+            for hole in holes:
+                if hole.green_boundary or not hole.flag_lat:
+                    continue
+
+                # Find the green closest to this hole's flag position
+                best_green = None
+                best_dist = float("inf")
+                for g in features.greens:
+                    center = g.get("center", [0, 0])
+                    if not center or len(center) < 2:
+                        continue
+                    d = math.sqrt((center[0] - hole.flag_lat) ** 2 + (center[1] - hole.flag_lng) ** 2)
+                    if d < best_dist and d < 0.001:  # ~100m max distance
+                        best_dist = d
+                        best_green = g
+
+                if best_green and best_green.get("boundary"):
+                    hole.green_boundary = jsonlib.dumps(best_green["boundary"])
+                    imported["greens_set"] += 1
+
+    db.commit()
+    return {"status": "imported", **imported}
+
+
 # ── Hazard Endpoints ──
+
+@router.post("/club/{golf_club_id}/detect-features")
+def detect_features_club(golf_club_id: int, db: Session = Depends(get_db)):
+    """Detect OSM features for all courses at a golf club."""
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+
+    # Get the club's GPS center from any source
+    lat, lng = club.lat, club.lng
+    if not lat or not lng:
+        # Try to get from shot data across all courses
+        courses = db.query(Course).filter(Course.golf_club_id == golf_club_id).all()
+        for c in courses:
+            round_ids = [r.id for r in db.query(Round).filter(Round.course_id == c.id).all()]
+            if round_ids:
+                shot_center = (
+                    db.query(sqlfunc.avg(Shot.start_lat), sqlfunc.avg(Shot.start_lng))
+                    .filter(Shot.round_id.in_(round_ids), Shot.start_lat.isnot(None))
+                    .first()
+                )
+                if shot_center[0]:
+                    lat, lng = shot_center[0], shot_center[1]
+                    break
+
+    if not lat or not lng:
+        raise HTTPException(status_code=400, detail="No GPS data available for this club. Play a round or set club coordinates first.")
+
+    from app.services.osm_golf_service import fetch_golf_features
+    try:
+        features = fetch_golf_features(lat, lng)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=f"OSM detection failed: {e}")
+
+    # Return with summary for the frontend
+    summary = features.summary()
+    summary["total"] = features.total_count
+    return {
+        "summary": summary,
+        "bunkers": [{"osm_id": b.osm_id, "boundary": b.boundary, "name": b.name} for b in features.bunkers],
+        "water": [{"osm_id": w.osm_id, "boundary": w.boundary, "name": w.name} for w in features.water],
+        "greens": [{"osm_id": g.osm_id, "boundary": g.boundary, "center": [g.center_lat, g.center_lng]} for g in features.greens],
+        "holes": [{"hole_number": h.hole_number, "par": h.par, "tee": [h.tee_lat, h.tee_lng], "green": [h.green_lat, h.green_lng], "waypoints": h.waypoints} for h in features.holes],
+    }
+
+
+class ClubImportFeaturesRequest(BaseModel):
+    import_hazards: bool = True
+    import_holes: bool = True
+
+
+@router.post("/club/{golf_club_id}/import-features")
+def import_features_club(golf_club_id: int, req: ClubImportFeaturesRequest, db: Session = Depends(get_db)):
+    """Import OSM features for all courses at a golf club — hazards go to club, holes matched to courses."""
+    import math
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+
+    # Get GPS center
+    lat, lng = club.lat, club.lng
+    if not lat or not lng:
+        courses = db.query(Course).filter(Course.golf_club_id == golf_club_id).all()
+        for c in courses:
+            round_ids = [r.id for r in db.query(Round).filter(Round.course_id == c.id).all()]
+            if round_ids:
+                shot_center = (
+                    db.query(sqlfunc.avg(Shot.start_lat), sqlfunc.avg(Shot.start_lng))
+                    .filter(Shot.round_id.in_(round_ids), Shot.start_lat.isnot(None))
+                    .first()
+                )
+                if shot_center[0]:
+                    lat, lng = shot_center[0], shot_center[1]
+                    break
+
+    if not lat or not lng:
+        raise HTTPException(status_code=400, detail="No GPS data available")
+
+    from app.services.osm_golf_service import fetch_golf_features
+
+    # Check if courses are spread out (>1km apart) — if so, query per-course
+    courses_all = db.query(Course).filter(Course.golf_club_id == golf_club_id).all()
+    course_centers: dict[int, tuple[float, float]] = {}
+    for c in courses_all:
+        round_ids = [r.id for r in db.query(Round).filter(Round.course_id == c.id).all()]
+        if round_ids:
+            shot_center = (
+                db.query(sqlfunc.avg(Shot.start_lat), sqlfunc.avg(Shot.start_lng))
+                .filter(Shot.round_id.in_(round_ids), Shot.start_lat.isnot(None))
+                .first()
+            )
+            if shot_center[0]:
+                course_centers[c.id] = (shot_center[0], shot_center[1])
+
+    # Determine if spread out
+    is_spread = False
+    if len(course_centers) >= 2:
+        centers = list(course_centers.values())
+        for i in range(len(centers)):
+            for j in range(i + 1, len(centers)):
+                import math as _math
+                dlat = centers[i][0] - centers[j][0]
+                dlng = centers[i][1] - centers[j][1]
+                approx_km = _math.sqrt(dlat**2 + dlng**2) * 111  # rough km
+                if approx_km > 1.0:
+                    is_spread = True
+                    break
+
+    # Fetch OSM features — single query for clustered, per-course for spread
+    if is_spread and course_centers:
+        import logging as _logging
+        _logging.getLogger(__name__).info(
+            "Club '%s' has spread-out courses (>1km apart), querying OSM per-course", club.name)
+        # Merge features from per-course queries
+        from app.services.osm_golf_service import OSMCourseData
+        features = OSMCourseData()
+        seen_osm_ids = set()
+        import time as _time
+        for i, (cid, (clat, clng)) in enumerate(course_centers.items()):
+            if i > 0:
+                _time.sleep(2)  # Rate limit: 2s between Overpass requests
+            try:
+                cf = fetch_golf_features(clat, clng, radius_km=1.0)
+                # Merge, deduplicating by OSM ID
+                for b in cf.bunkers:
+                    if b.osm_id not in seen_osm_ids:
+                        features.bunkers.append(b)
+                        seen_osm_ids.add(b.osm_id)
+                for w in cf.water:
+                    if w.osm_id not in seen_osm_ids:
+                        features.water.append(w)
+                        seen_osm_ids.add(w.osm_id)
+                for h in cf.holes:
+                    if h.osm_id not in seen_osm_ids:
+                        features.holes.append(h)
+                        seen_osm_ids.add(h.osm_id)
+                for g in cf.greens:
+                    if g.osm_id not in seen_osm_ids:
+                        features.greens.append(g)
+                        seen_osm_ids.add(g.osm_id)
+                for t in cf.tees:
+                    if t.osm_id not in seen_osm_ids:
+                        features.tees.append(t)
+                        seen_osm_ids.add(t.osm_id)
+                for f in cf.fairways:
+                    if f.osm_id not in seen_osm_ids:
+                        features.fairways.append(f)
+                        seen_osm_ids.add(f.osm_id)
+                for p in cf.pins:
+                    if p.osm_id not in seen_osm_ids:
+                        features.pins.append(p)
+                        seen_osm_ids.add(p.osm_id)
+            except Exception as e:
+                _logging.getLogger(__name__).warning(
+                    "OSM query failed for course %d at (%s,%s): %s", cid, clat, clng, e)
+    else:
+        features = fetch_golf_features(lat, lng)
+
+    result = {"bunkers": 0, "water": 0, "holes_enriched": 0, "greens_set": 0, "osm_holes_saved": 0}
+
+    def _haversine_yards(lat1, lng1, lat2, lng2):
+        R = 6371000
+        dlat = math.radians(lat2 - lat1)
+        dlng = math.radians(lng2 - lng1)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng/2)**2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a)) * 1.09361
+
+    # Import hazards at club level (if requested)
+    if req.import_hazards:
+        import json as _json
+        for b in features.bunkers:
+            boundary_json = _json.dumps(b.boundary)
+            # Check for duplicate by OSM ID
+            existing = db.query(CourseHazard).filter(
+                CourseHazard.golf_club_id == golf_club_id,
+                CourseHazard.boundary == boundary_json,
+            ).first()
+            if not existing:
+                db.add(CourseHazard(
+                    golf_club_id=golf_club_id,
+                    hazard_type="bunker",
+                    name=b.name,
+                    boundary=boundary_json,
+                ))
+                result["bunkers"] += 1
+
+        for w in features.water:
+            boundary_json = _json.dumps(w.boundary)
+            existing = db.query(CourseHazard).filter(
+                CourseHazard.golf_club_id == golf_club_id,
+                CourseHazard.boundary == boundary_json,
+            ).first()
+            if not existing:
+                db.add(CourseHazard(
+                    golf_club_id=golf_club_id,
+                    hazard_type="water",
+                    name=w.name,
+                    boundary=boundary_json,
+                ))
+                result["water"] += 1
+
+    # ── Save raw OSM holes to OSMHole table (club-level, no matching needed) ──
+    if features.holes:
+        import json as _json2
+        osm_holes_saved = 0
+        for osm_h in features.holes:
+            # Dedup by osm_id at this club
+            existing_osm = db.query(OSMHole).filter(
+                OSMHole.golf_club_id == golf_club_id,
+                OSMHole.osm_id == osm_h.osm_id,
+            ).first()
+            if not existing_osm:
+                # Find matching green boundary from features.greens
+                green_boundary_json = None
+                for g in features.greens:
+                    if g.center_lat and g.center_lng:
+                        dist_to_green = _haversine_yards(g.center_lat, g.center_lng, osm_h.green_lat, osm_h.green_lng)
+                        if dist_to_green < 30:
+                            green_boundary_json = _json2.dumps(g.boundary)
+                            break
+
+                db.add(OSMHole(
+                    golf_club_id=golf_club_id,
+                    osm_id=osm_h.osm_id,
+                    hole_number=osm_h.hole_number,
+                    par=osm_h.par,
+                    tee_lat=osm_h.tee_lat,
+                    tee_lng=osm_h.tee_lng,
+                    green_lat=osm_h.green_lat,
+                    green_lng=osm_h.green_lng,
+                    waypoints=_json2.dumps(osm_h.waypoints) if osm_h.waypoints else None,
+                    green_boundary=green_boundary_json,
+                ))
+                osm_holes_saved += 1
+        db.flush()
+        result["osm_holes_saved"] = osm_holes_saved
+
+    # ── Auto-match OSM holes to CourseHoles ──
+    if req.import_holes:
+        courses = courses_all
+
+        # Get all unlinked OSM holes for this club
+        all_osm_holes = db.query(OSMHole).filter(OSMHole.golf_club_id == golf_club_id).all()
+        # Track which OSM holes have been assigned
+        assigned_osm_ids = set()
+
+        for course in courses:
+            tees = db.query(CourseTee).filter(CourseTee.course_id == course.id).all()
+            if not tees:
+                continue
+
+            round_ids = [r.id for r in db.query(Round).filter(Round.course_id == course.id).all()]
+
+            ref_tee = None
+            for t in tees:
+                if not getattr(t, 'inferred', False):
+                    ref_tee = t
+                    break
+            if not ref_tee:
+                ref_tee = tees[0]
+
+            ref_holes = db.query(CourseHole).filter(CourseHole.tee_id == ref_tee.id).order_by(CourseHole.hole_number).all()
+            if not ref_holes:
+                continue
+
+            remaining_osm = [oh for oh in all_osm_holes if oh.id not in assigned_osm_ids]
+
+            for hole in ref_holes:
+                if hole.osm_hole_id:
+                    # Already linked
+                    assigned_osm_ids.add(hole.osm_hole_id)
+                    continue
+
+                # Try to match: 1) Garmin tee shot GPS, 2) hole number, 3) yardage
+                best_osm = None
+                best_score = float('inf')
+
+                # Get Garmin tee shot GPS
+                garmin_tee_lat, garmin_tee_lng = None, None
+                if round_ids:
+                    tee_shot = (
+                        db.query(Shot)
+                        .join(RoundHole)
+                        .filter(
+                            Shot.round_id.in_(round_ids),
+                            RoundHole.hole_number == hole.hole_number,
+                            Shot.shot_number == 1,
+                            Shot.start_lat.isnot(None),
+                        )
+                        .first()
+                    )
+                    if tee_shot:
+                        garmin_tee_lat = tee_shot.start_lat
+                        garmin_tee_lng = tee_shot.start_lng
+
+                for osm_h in remaining_osm:
+                    if osm_h.id in assigned_osm_ids:
+                        continue
+
+                    score = 0
+
+                    if garmin_tee_lat:
+                        # GPS proximity (best signal)
+                        dist = _haversine_yards(garmin_tee_lat, garmin_tee_lng, osm_h.tee_lat, osm_h.tee_lng)
+                        if dist > 200:
+                            continue  # Too far
+                        score = dist
+                    elif hole.yardage and osm_h.tee_lat and osm_h.green_lat:
+                        # Yardage matching (fallback)
+                        osm_dist = _haversine_yards(osm_h.tee_lat, osm_h.tee_lng, osm_h.green_lat, osm_h.green_lng)
+                        yard_diff = abs(osm_dist - hole.yardage)
+                        par_penalty = 0 if osm_h.par == hole.par else 50
+                        score = yard_diff + par_penalty
+                        if score > 60:
+                            continue
+                    elif osm_h.hole_number == hole.hole_number:
+                        # Hole number match (last resort)
+                        score = 0
+                    else:
+                        continue
+
+                    if score < best_score:
+                        best_score = score
+                        best_osm = osm_h
+
+                if best_osm:
+                    assigned_osm_ids.add(best_osm.id)
+                    # Link all tees' holes to this OSM hole and populate GPS
+                    for t in tees:
+                        h = db.query(CourseHole).filter(
+                            CourseHole.tee_id == t.id,
+                            CourseHole.hole_number == hole.hole_number,
+                        ).first()
+                        if h:
+                            h.osm_hole_id = best_osm.id
+                            if not h.tee_lat:
+                                h.tee_lat = best_osm.tee_lat
+                                h.tee_lng = best_osm.tee_lng
+                            if not h.flag_lat:
+                                h.flag_lat = best_osm.green_lat
+                                h.flag_lng = best_osm.green_lng
+                            if best_osm.green_boundary and not h.green_boundary:
+                                h.green_boundary = best_osm.green_boundary
+                            if best_osm.waypoints and not h.fairway_path:
+                                h.fairway_path = best_osm.waypoints
+
+                    result["holes_enriched"] += 1
+
+    db.commit()
+    return result
+
 
 class HazardCreateRequest(BaseModel):
     hazard_type: str  # bunker, water, out_of_bounds, trees, waste_area
@@ -368,13 +1159,13 @@ class HazardUpdateRequest(BaseModel):
 
 @router.post("/{course_id}/hazards")
 def create_hazard(course_id: int, req: HazardCreateRequest, db: Session = Depends(get_db)):
-    """Add a hazard to a course."""
+    """Add a hazard to this course's club (shared across all courses at the club)."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
 
     hazard = CourseHazard(
-        course_id=course_id,
+        golf_club_id=course.golf_club_id,
         hazard_type=req.hazard_type,
         name=req.name,
         boundary=req.boundary,
@@ -414,3 +1205,403 @@ def delete_hazard(course_id: int, hazard_id: int, db: Session = Depends(get_db))
     db.delete(hazard)
     db.commit()
     return {"status": "deleted", "hazard_id": hazard_id}
+
+
+# ── OSM Search & Link Endpoints ──
+
+class OSMSearchRequest(BaseModel):
+    query: str
+    near_lat: Optional[float] = None
+    near_lng: Optional[float] = None
+
+
+class OSMSearchResultResponse(BaseModel):
+    osm_id: int
+    osm_type: str
+    name: str
+    display_name: str
+    lat: float
+    lng: float
+    distance_miles: Optional[float] = None
+
+
+class OSMPreviewResponse(BaseModel):
+    osm_id: int
+    name: str
+    bunkers: int = 0
+    water: int = 0
+    holes: int = 0
+    greens: int = 0
+    tees: int = 0
+    fairways: int = 0
+    total: int = 0
+
+
+class OSMLinkRequest(BaseModel):
+    osm_id: int
+    osm_type: str = "relation"
+    import_features: bool = True
+
+
+@router.post("/osm/search", response_model=list[OSMSearchResultResponse])
+def osm_search(body: OSMSearchRequest):
+    """Search OSM for golf courses by name."""
+    try:
+        results = search_golf_courses(
+            body.query,
+            near_lat=body.near_lat,
+            near_lng=body.near_lng,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return [
+        OSMSearchResultResponse(
+            osm_id=r.osm_id,
+            osm_type=r.osm_type,
+            name=r.name,
+            display_name=r.display_name,
+            lat=r.lat,
+            lng=r.lng,
+            distance_miles=r.distance_miles,
+        )
+        for r in results
+    ]
+
+
+@router.post("/osm/preview/{osm_id}")
+def osm_preview(osm_id: int, osm_type: str = "relation"):
+    """Preview what features are available for an OSM course without importing."""
+    try:
+        data = fetch_features_by_osm_id(osm_id, osm_type)
+    except ValueError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return OSMPreviewResponse(
+        osm_id=osm_id,
+        name="",
+        **data.summary(),
+    )
+
+
+@router.post("/{course_id}/osm/link")
+def link_course_to_osm(course_id: int, body: OSMLinkRequest, db: Session = Depends(get_db)):
+    """Link a course to a specific OSM course and optionally import features."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Save the OSM link
+    course.osm_id = body.osm_id
+
+    # Fetch and save boundary polygon
+    import json as jsonlib
+    try:
+        boundary = fetch_osm_boundary(body.osm_id, body.osm_type)
+        if boundary:
+            course.osm_boundary = jsonlib.dumps(boundary)
+    except Exception as e:
+        logger.warning("Failed to fetch boundary for OSM %d: %s", body.osm_id, e)
+
+    db.commit()
+
+    result = {"status": "linked", "course_id": course_id, "osm_id": body.osm_id, "boundary_saved": course.osm_boundary is not None}
+
+    if body.import_features:
+        try:
+            features = fetch_features_by_osm_id(body.osm_id, body.osm_type)
+            import_result = _import_osm_features_to_course(db, course, features)
+            result.update(import_result)
+        except ValueError as e:
+            result["import_error"] = str(e)
+
+    return result
+
+
+@router.post("/club/{golf_club_id}/osm/link")
+def link_club_to_osm(golf_club_id: int, body: OSMLinkRequest, db: Session = Depends(get_db)):
+    """Link a whole club to an OSM course and import features for all courses."""
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club not found")
+
+    club.osm_id = body.osm_id
+    db.commit()
+
+    result = {"status": "linked", "golf_club_id": golf_club_id, "osm_id": body.osm_id}
+
+    if body.import_features:
+        try:
+            features = fetch_features_by_osm_id(body.osm_id, body.osm_type)
+            import_result = _import_osm_features_to_club(db, club, features)
+            result.update(import_result)
+        except ValueError as e:
+            result["import_error"] = str(e)
+
+    return result
+
+
+def _import_osm_features_to_course(db: Session, course: Course, features) -> dict:
+    """Import OSM features into a specific course."""
+    import json as jsonlib
+    import math
+
+    golf_club_id = course.golf_club_id
+    result = {"bunkers": 0, "water": 0, "holes_enriched": 0, "greens_set": 0, "osm_holes_saved": 0}
+
+    # Import hazards at club level
+    for bunker in features.bunkers:
+        db.add(CourseHazard(
+            golf_club_id=golf_club_id,
+            hazard_type="bunker",
+            name=bunker.name,
+            boundary=jsonlib.dumps(bunker.boundary),
+        ))
+        result["bunkers"] += 1
+
+    for water in features.water:
+        db.add(CourseHazard(
+            golf_club_id=golf_club_id,
+            hazard_type="water",
+            name=water.name,
+            boundary=jsonlib.dumps(water.boundary),
+        ))
+        result["water"] += 1
+
+    # Save OSM holes at club level
+    for h in features.holes:
+        existing = db.query(OSMHole).filter(
+            OSMHole.golf_club_id == golf_club_id,
+            OSMHole.osm_id == h.osm_id,
+        ).first()
+        if not existing:
+            db.add(OSMHole(
+                golf_club_id=golf_club_id,
+                osm_id=h.osm_id,
+                hole_number=h.hole_number,
+                par=h.par,
+                tee_lat=h.tee_lat,
+                tee_lng=h.tee_lng,
+                green_lat=h.green_lat,
+                green_lng=h.green_lng,
+                waypoints=jsonlib.dumps(h.waypoints),
+            ))
+            result["osm_holes_saved"] += 1
+
+    db.commit()
+
+    # Auto-match OSM holes to course holes
+    _auto_match_osm_holes(db, course)
+
+    return result
+
+
+def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
+    """Import OSM features at club level, auto-match holes to all courses."""
+    import json as jsonlib
+
+    result = {"bunkers": 0, "water": 0, "osm_holes_saved": 0, "courses_matched": 0}
+
+    # Import hazards
+    for bunker in features.bunkers:
+        db.add(CourseHazard(
+            golf_club_id=club.id,
+            hazard_type="bunker",
+            name=bunker.name,
+            boundary=jsonlib.dumps(bunker.boundary),
+        ))
+        result["bunkers"] += 1
+
+    for water in features.water:
+        db.add(CourseHazard(
+            golf_club_id=club.id,
+            hazard_type="water",
+            name=water.name,
+            boundary=jsonlib.dumps(water.boundary),
+        ))
+        result["water"] += 1
+
+    # Save OSM holes
+    for h in features.holes:
+        existing = db.query(OSMHole).filter(
+            OSMHole.golf_club_id == club.id,
+            OSMHole.osm_id == h.osm_id,
+        ).first()
+        if not existing:
+            db.add(OSMHole(
+                golf_club_id=club.id,
+                osm_id=h.osm_id,
+                hole_number=h.hole_number,
+                par=h.par,
+                tee_lat=h.tee_lat,
+                tee_lng=h.tee_lng,
+                green_lat=h.green_lat,
+                green_lng=h.green_lng,
+                waypoints=jsonlib.dumps(h.waypoints),
+            ))
+            result["osm_holes_saved"] += 1
+
+    db.commit()
+
+    # Auto-match holes to each course at the club
+    courses = db.query(Course).filter(Course.golf_club_id == club.id).all()
+    for course in courses:
+        matched = _auto_match_osm_holes(db, course)
+        if matched > 0:
+            result["courses_matched"] += 1
+
+    return result
+
+
+def _auto_match_osm_holes(db: Session, course: Course) -> int:
+    """
+    Auto-match OSM holes to course holes using yardage + GPS proximity.
+    Returns number of holes matched.
+    """
+    import math
+
+    osm_holes = db.query(OSMHole).filter(
+        OSMHole.golf_club_id == course.golf_club_id
+    ).all()
+
+    if not osm_holes:
+        return 0
+
+    tees = db.query(CourseTee).filter(CourseTee.course_id == course.id).all()
+    if not tees:
+        return 0
+
+    matched = 0
+    num_holes = course.holes or 9
+
+    # Get shot GPS for this course (first shots = tee positions)
+    from app.models.round import Round, Shot
+    round_ids = [r.id for r in db.query(Round).filter(Round.course_id == course.id).all()]
+
+    shot_tee_positions = {}  # hole_number -> (lat, lng)
+    if round_ids:
+        from app.models.round import RoundHole
+        for rh in db.query(RoundHole).filter(RoundHole.round_id.in_(round_ids)).all():
+            if rh.hole_number in shot_tee_positions:
+                continue
+            s1 = db.query(Shot).filter(
+                Shot.round_hole_id == rh.id,
+                Shot.shot_number == 1,
+                Shot.start_lat.isnot(None),
+            ).first()
+            if s1:
+                shot_tee_positions[rh.hole_number] = (s1.start_lat, s1.start_lng)
+
+    for tee_obj in tees:
+        holes = db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all()
+
+        for hole in holes:
+            # Skip if already linked
+            if hole.osm_hole_id:
+                continue
+
+            best_osm = None
+            best_score = 999
+
+            for oh in osm_holes:
+                if not oh.tee_lat:
+                    continue
+
+                score = 0
+
+                # 1. GPS proximity match (best signal)
+                garmin_pos = shot_tee_positions.get(hole.hole_number)
+                if garmin_pos:
+                    dist = _haversine_yards_simple(garmin_pos[0], garmin_pos[1], oh.tee_lat, oh.tee_lng)
+                    if dist > 200:
+                        continue  # Too far — wrong hole
+                    score = dist / 200  # 0-1 normalized
+
+                # 2. Yardage match (secondary signal)
+                if hole.yardage and oh.tee_lat and oh.green_lat:
+                    osm_dist = _haversine_yards_simple(oh.tee_lat, oh.tee_lng, oh.green_lat, oh.green_lng)
+                    yard_diff = abs(osm_dist - hole.yardage)
+                    if yard_diff > 100:
+                        continue
+                    score += yard_diff / 100 * 0.5
+
+                # 3. Par match (weak signal)
+                if hole.par and oh.par and hole.par != oh.par:
+                    score += 1
+
+                if score < best_score:
+                    best_score = score
+                    best_osm = oh
+
+            if best_osm and best_score < 2:
+                hole.osm_hole_id = best_osm.id
+                # Apply GPS from OSM
+                if best_osm.tee_lat and not hole.tee_lat:
+                    hole.tee_lat = best_osm.tee_lat
+                    hole.tee_lng = best_osm.tee_lng
+                if best_osm.green_lat and not hole.flag_lat:
+                    hole.flag_lat = best_osm.green_lat
+                    hole.flag_lng = best_osm.green_lng
+                if best_osm.waypoints and not hole.fairway_path:
+                    hole.fairway_path = best_osm.waypoints
+                if best_osm.green_boundary and not hole.green_boundary:
+                    hole.green_boundary = best_osm.green_boundary
+                matched += 1
+
+    db.commit()
+    return matched
+
+
+@router.post("/{target_id}/merge/{source_id}")
+def merge_courses(target_id: int, source_id: int, db: Session = Depends(get_db)):
+    """Merge source course into target: moves rounds & tees, then deletes source."""
+    if target_id == source_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a course into itself")
+
+    target = db.query(Course).filter(Course.id == target_id).first()
+    source = db.query(Course).filter(Course.id == source_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target course not found")
+    if not source:
+        raise HTTPException(status_code=404, detail="Source course not found")
+    if target.golf_club_id != source.golf_club_id:
+        raise HTTPException(status_code=400, detail="Courses must belong to the same club")
+
+    # Move rounds from source to target
+    rounds_moved = db.query(Round).filter(Round.course_id == source_id).update(
+        {Round.course_id: target_id}, synchronize_session="fetch"
+    )
+
+    # Move tees from source to target (re-parent them)
+    tees_moved = db.query(CourseTee).filter(CourseTee.course_id == source_id).update(
+        {CourseTee.course_id: target_id}, synchronize_session="fetch"
+    )
+
+    # Update target holes/par if source had better data
+    if source.holes and (not target.holes or target.holes < source.holes):
+        target.holes = source.holes
+    if source.par and not target.par:
+        target.par = source.par
+
+    # Delete the now-empty source course
+    db.delete(source)
+    db.commit()
+
+    logger.info(f"Merged course {source_id} into {target_id}: {rounds_moved} rounds, {tees_moved} tees moved")
+    return {
+        "status": "merged",
+        "target_id": target_id,
+        "source_id": source_id,
+        "rounds_moved": rounds_moved,
+        "tees_moved": tees_moved,
+    }
+
+
+def _haversine_yards_simple(lat1, lng1, lat2, lng2):
+    """Quick haversine distance in yards."""
+    import math
+    R = 6371000
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.09361

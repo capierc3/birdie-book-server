@@ -8,6 +8,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const navItems = document.querySelectorAll('.nav-item[data-section]');
 
     function navigateTo(sectionId) {
+        // Exit hole edit mode when navigating away
+        if (typeof holeEditMode !== 'undefined' && holeEditMode && sectionId !== 'section-hole-view') {
+            exitEditMode();
+        }
+
         sections.forEach(s => s.classList.remove('active'));
         navItems.forEach(n => n.classList.remove('active'));
 
@@ -88,7 +93,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Course detail route: course/123
+        // Club detail route: club/123
+        const clubMatch = hash.match(/^club\/(\d+)$/);
+        if (clubMatch) {
+            navigateTo('section-course-detail');
+            loadClubDetail(parseInt(clubMatch[1]));
+            return;
+        }
+
+        // Course detail route: course/123 (legacy — redirect to club view)
         const courseMatch = hash.match(/^course\/(\d+)$/);
         if (courseMatch) {
             navigateTo('section-course-detail');
@@ -576,50 +589,94 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
     }
 
+    let clubsListCache = [];
+
     async function loadCourses() {
         try {
-            const resp = await fetch('/api/courses/');
-            coursesCache = await resp.json();
-            renderCoursesTable();
+            // Load both: clubs list (for courses page) and flat courses (for rounds linkage)
+            const [clubsResp, coursesResp] = await Promise.all([
+                fetch('/api/courses/clubs'),
+                fetch('/api/courses/'),
+            ]);
+            clubsListCache = await clubsResp.json();
+            coursesCache = await coursesResp.json();
+            renderClubsList();
         } catch (e) {
             console.error('Failed to load courses:', e);
         }
     }
 
-    function renderCoursesTable() {
-        const tbody = document.getElementById('courses-body');
-        if (coursesCache.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No courses yet.</td></tr>';
+    function renderClubsList() {
+        const container = document.getElementById('clubs-list-container');
+        if (!container) return;
+
+        if (clubsListCache.length === 0) {
+            container.innerHTML = `<div class="card"><div class="empty-state" style="padding:24px;"><p>No courses yet. Import Garmin data to get started.</p></div></div>`;
             return;
         }
 
-        tbody.innerHTML = coursesCache.map(c => {
-            let slopeStr = '\u2014';
-            if (c.slope_min != null && c.slope_max != null) {
-                slopeStr = c.slope_min === c.slope_max
-                    ? `${c.slope_min}`
-                    : `${c.slope_min}\u2013${c.slope_max}`;
-            }
+        container.innerHTML = clubsListCache.map(club => {
+            const courseRows = club.courses.map(c => {
+                let slopeStr = '\u2014';
+                if (c.slope_min != null && c.slope_max != null) {
+                    slopeStr = c.slope_min === c.slope_max
+                        ? `${c.slope_min}`
+                        : `${c.slope_min}\u2013${c.slope_max}`;
+                }
+                return `<tr class="clickable" onclick="location.hash='course/${c.id}/holes'">
+                    <td>${c.name || '(Main)'}</td>
+                    <td>${c.holes || '\u2014'}</td>
+                    <td>${c.par || '\u2014'}</td>
+                    <td>${c.tee_count || '\u2014'}</td>
+                    <td>${slopeStr}</td>
+                    <td>${c.rounds_played || 0}</td>
+                </tr>`;
+            }).join('');
 
-            return `<tr class="clickable" onclick="location.hash='course/${c.id}'">
-                <td>${c.display_name}</td>
-                <td>${c.holes || '\u2014'}</td>
-                <td>${c.par || '\u2014'}</td>
-                <td>${c.tee_count || '\u2014'}</td>
-                <td>${slopeStr}</td>
-            </tr>`;
+            return `<div class="card" style="cursor:pointer;" onclick="location.hash='club/${club.id}'">
+                <div class="card-header">
+                    <h2>${club.name}</h2>
+                    <div style="display:flex; gap:12px; align-items:center;">
+                        <span style="color:var(--text-muted); font-size:0.84rem;">${club.course_count} course${club.course_count !== 1 ? 's' : ''}</span>
+                        <span class="badge">${club.total_rounds} round${club.total_rounds !== 1 ? 's' : ''}</span>
+                    </div>
+                </div>
+                ${club.address ? `<p style="color:var(--text-muted); font-size:0.84rem; margin-bottom:12px;">${club.address}</p>` : ''}
+                <div class="table-wrap" onclick="event.stopPropagation();">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Course</th>
+                                <th>Holes</th>
+                                <th>Par</th>
+                                <th>Tees</th>
+                                <th>Slope</th>
+                                <th>Rounds</th>
+                            </tr>
+                        </thead>
+                        <tbody>${courseRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
         }).join('');
     }
+
+    // Keep legacy renderCoursesTable for anything that still calls it
+    function renderCoursesTable() { renderClubsList(); }
 
     // ========== Course Detail ==========
 
     let currentCourseDetail = null;
+    let currentClubDetail = null;  // { club data + all course details }
+    let currentClubCourses = [];   // array of CourseDetailResponse
 
     async function loadCourseDetail(courseId) {
         try {
             const resp = await fetch(`/api/courses/${courseId}`);
             if (!resp.ok) throw new Error('Course not found');
             currentCourseDetail = await resp.json();
+            // Load as a single-course club view
+            currentClubCourses = [currentCourseDetail];
             renderCourseDetail();
         } catch (e) {
             console.error('Failed to load course detail:', e);
@@ -627,37 +684,65 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function loadClubDetail(clubId) {
+        try {
+            // Find all courses for this club
+            const club = clubsListCache.find(c => c.id === clubId);
+            if (!club) {
+                // Fallback: load clubs list first
+                const clubsResp = await fetch('/api/courses/clubs');
+                clubsListCache = await clubsResp.json();
+            }
+            const clubData = clubsListCache.find(c => c.id === clubId);
+            if (!clubData) throw new Error('Club not found');
+
+            currentClubDetail = clubData;
+
+            // Load detail for each course
+            const coursePromises = clubData.courses.map(c =>
+                fetch(`/api/courses/${c.id}`).then(r => r.json())
+            );
+            currentClubCourses = await Promise.all(coursePromises);
+            currentCourseDetail = currentClubCourses[0] || null;
+
+            renderCourseDetail();
+        } catch (e) {
+            console.error('Failed to load club detail:', e);
+            document.getElementById('course-detail-name').textContent = 'Club not found';
+        }
+    }
+
     function renderCourseDetail() {
         const c = currentCourseDetail;
         if (!c) return;
 
-        // Hero banner — course-specific photo overrides the CSS default image
+        const clubName = currentClubDetail?.name || c.club_name || c.display_name;
+        const clubId = currentClubDetail?.id || c.golf_club_id;
+
+        // Hero banner
         const hero = document.getElementById('course-hero');
         if (c.photo_url) {
             hero.style.backgroundImage = `url(${c.photo_url})`;
         } else {
-            hero.style.backgroundImage = '';  // falls back to CSS default-course.jpg
+            hero.style.backgroundImage = '';
         }
 
-        document.getElementById('course-detail-name').textContent = c.club_name || c.display_name;
-        const subtitle = [c.course_name, c.address].filter(Boolean).join(' \u2014 ') || `${c.holes || 18} holes`;
+        document.getElementById('course-detail-name').textContent = clubName;
+        const subtitle = c.address || `${currentClubCourses.length} course${currentClubCourses.length !== 1 ? 's' : ''}`;
         document.getElementById('course-detail-subtitle').textContent = subtitle;
 
-        // Stats cards
+        // Stats cards — aggregated across all courses
+        const totalCourses = currentClubCourses.length;
+        const totalTees = currentClubCourses.reduce((sum, cc) => sum + (cc.tee_count || 0), 0);
         const statsRow = document.getElementById('course-detail-stats');
-        const hasTees = c.tees && c.tees.length > 0;
         statsRow.innerHTML = `
             <div class="stat-card">
-                <div class="stat-label">Holes</div>
-                <div class="stat-value">${c.holes || 18}</div>
+                <div class="stat-label">Courses</div>
+                <div class="stat-value">${totalCourses}</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Par</div>
-                <div class="stat-value">${c.par || (hasTees ? c.tees[0].par_total : '\u2014')}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-label">Tees</div>
-                <div class="stat-value">${c.tee_count || 0}</div>
+                <div class="stat-label">Tee Sets</div>
+                <div class="stat-value">${totalTees}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">Slope Range</div>
@@ -667,22 +752,17 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
 
-        // Tees table
-        const teesContainer = document.getElementById('course-detail-tees');
-        if (hasTees) {
-            teesContainer.innerHTML = `
+        // Courses section — one card per course with tees table and View Holes button
+        const coursesContainer = document.getElementById('course-detail-courses');
+        coursesContainer.innerHTML = currentClubCourses.map(cc => {
+            const hasTees = cc.tees && cc.tees.length > 0;
+            const teesHtml = hasTees ? `
                 <table class="tees-table">
                     <thead>
-                        <tr>
-                            <th>Tee</th>
-                            <th>Par</th>
-                            <th>Yards</th>
-                            <th>Rating</th>
-                            <th>Slope</th>
-                        </tr>
+                        <tr><th>Tee</th><th>Par</th><th>Yards</th><th>Rating</th><th>Slope</th></tr>
                     </thead>
                     <tbody>
-                        ${c.tees.map(t => `<tr>
+                        ${cc.tees.map(t => `<tr>
                             <td><strong>${t.tee_name}</strong></td>
                             <td>${t.par_total || '\u2014'}</td>
                             <td>${t.total_yards ? t.total_yards.toLocaleString() : '\u2014'}</td>
@@ -691,37 +771,54 @@ document.addEventListener('DOMContentLoaded', () => {
                         </tr>`).join('')}
                     </tbody>
                 </table>
-            `;
-        } else {
-            teesContainer.innerHTML = `
-                <div class="empty-state" style="padding:24px;">
-                    <p style="color:var(--text-muted);">No tee data available.</p>
-                    <p style="color:var(--text-dim); font-size:0.84rem;">Click "Sync Course Data" to fetch from the golf course database.</p>
+            ` : `<div class="empty-state" style="padding:16px;">
+                <p style="color:var(--text-muted);">No tee data. Click "Sync All Courses" above.</p>
+            </div>`;
+
+            // Build merge dropdown options (other courses in same club)
+            const otherCourses = currentClubCourses.filter(oc => oc.id !== cc.id);
+            const mergeHtml = otherCourses.length > 0 ? `
+                <select class="merge-target-select" data-source-id="${cc.id}" style="font-size:0.8rem; padding:4px 8px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:6px;">
+                    <option value="">Merge into...</option>
+                    ${otherCourses.map(oc => `<option value="${oc.id}">${oc.course_name || '(Main Course)'} (${oc.holes || 18}h)</option>`).join('')}
+                </select>
+            ` : '';
+
+            return `<div class="card">
+                <div class="card-header">
+                    <h2>${cc.course_name || '(Main Course)'} <span style="color:var(--text-muted); font-size:0.84rem;">${cc.holes || 18} holes \u00b7 Par ${cc.par || '\u2014'}</span></h2>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        ${mergeHtml}
+                        <button class="btn btn-primary btn-sm" onclick="location.hash='course/${cc.id}/holes'">View Holes</button>
+                    </div>
                 </div>
-            `;
-        }
+                ${teesHtml}
+            </div>`;
+        }).join('');
 
-        // Rounds played at this course
-        const courseRounds = roundsCache.filter(r => r.course_id === c.id);
+        // Rounds played — across all courses at this club
+        const courseIds = currentClubCourses.map(cc => cc.id);
+        const clubRounds = roundsCache.filter(r => courseIds.includes(r.course_id));
         const roundsContainer = document.getElementById('course-detail-rounds');
-        document.getElementById('course-rounds-count').textContent = courseRounds.length;
+        document.getElementById('course-rounds-count').textContent = clubRounds.length;
 
-        if (courseRounds.length === 0) {
+        if (clubRounds.length === 0) {
             roundsContainer.innerHTML = `
                 <div class="empty-state" style="padding:24px;">
-                    <p style="color:var(--text-muted);">No rounds recorded at this course.</p>
+                    <p style="color:var(--text-muted);">No rounds recorded at this club.</p>
                 </div>
             `;
         } else {
-            roundsContainer.innerHTML = courseRounds.map(r => {
+            roundsContainer.innerHTML = clubRounds.map(r => {
                 const vsPar = r.score_vs_par || 0;
                 const vsParStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
                 const scoreClass = vsPar < 0 ? 'under' : vsPar === 0 ? 'even' : 'over';
                 const colorClass = vsPar < 0 ? 'score-birdie' : vsPar === 0 ? 'score-par' : 'score-bogey';
+                const courseName = coursesCache.find(cc => cc.id === r.course_id)?.course_name || '';
                 return `<div class="recent-round" onclick="location.hash='round/${r.id}'">
                     <div class="round-score ${scoreClass}">${r.total_strokes || '\u2014'}</div>
                     <div class="round-info">
-                        <div class="round-course">${r.date}</div>
+                        <div class="round-course">${r.date}${courseName ? ` \u2014 ${courseName}` : ''}</div>
                         <div class="round-meta">${r.holes_completed || 18} holes \u00b7 ${r.shots_tracked || 0} shots \u00b7 ${r.source || 'unknown'}</div>
                     </div>
                     <div class="round-detail">
@@ -730,6 +827,151 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>`;
             }).join('');
         }
+
+        // Store club ID for sync buttons
+        const syncBtn = document.getElementById('btn-course-sync');
+        if (syncBtn) syncBtn.dataset.clubId = clubId;
+
+        // Pre-fill OSM search with club name
+        const osmSearch = document.getElementById('osm-club-search');
+        if (osmSearch) osmSearch.value = clubName.replace(/Country Club|Golf Course|Golf Club|GC/gi, '').trim();
+
+        // Render per-course OSM link status
+        renderOSMCourseLinks();
+    }
+
+    function renderOSMCourseLinks() {
+        const container = document.getElementById('osm-course-links');
+        if (!container || !currentClubCourses) return;
+
+        // Count data per course from loaded course details
+        function getCourseDataCounts(cc) {
+            const tees = cc.tees || [];
+            let holesWithTee = 0, holesWithGreen = 0, holesWithFairway = 0;
+            for (const t of tees) {
+                for (const h of (t.holes || [])) {
+                    if (h.tee_lat) holesWithTee++;
+                    if (h.green_boundary) holesWithGreen++;
+                    if (h.fairway_path) holesWithFairway++;
+                }
+                break; // Only count first tee set
+            }
+            const hazards = (cc.hazards || []).length;
+            const osmHoles = (cc.osm_holes || []).length;
+            return { holesWithTee, holesWithGreen, holesWithFairway, hazards, osmHoles };
+        }
+
+        // Club-level hazard count (shared across all courses)
+        const clubHazards = (currentClubCourses[0]?.hazards || []).length;
+
+        // Club-level status line
+        const clubStatusParts = [];
+        if (clubHazards > 0) clubStatusParts.push(`${clubHazards} hazards`);
+
+        // Determine if any course has data (for default collapse state)
+        const anyData = currentClubCourses.some(cc => {
+            const counts = getCourseDataCounts(cc);
+            return counts.holesWithTee > 0 || counts.osmHoles > 0 || cc.osm_id;
+        });
+        const collapsed = anyData;  // Collapse if data exists, expand if empty
+
+        container.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;" id="osm-section-toggle">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <label style="font-size:0.78rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px; cursor:pointer;">Per-Course Data</label>
+                    ${clubStatusParts.length > 0 ? `<span style="font-size:0.82rem; color:var(--accent);">Club: ${clubStatusParts.join(' \u00b7 ')}</span>` : ''}
+                </div>
+                <span id="osm-section-arrow" style="color:var(--text-muted); font-size:0.8rem;">${collapsed ? '\u25B6' : '\u25BC'}</span>
+            </div>
+            <div id="osm-section-body" style="${collapsed ? 'display:none;' : ''} margin-top:8px;">
+                ${currentClubCourses.map(cc => {
+                    const linked = cc.osm_id ? true : false;
+                    const synced = cc.tee_count > 0 || (cc.tees && cc.tees.length > 0 && cc.tees.some(t => !t.inferred));
+                    const counts = getCourseDataCounts(cc);
+                    const hasBoundary = cc.osm_boundary ? true : false;
+
+                    // Build status icon (reflects OSM status only)
+                    let statusIcon, statusColor;
+                    if (linked && counts.holesWithTee > 0) {
+                        statusIcon = '&#10003;&#10003;'; // double check - OSM linked + GPS data
+                        statusColor = 'var(--accent)';
+                    } else if (linked) {
+                        statusIcon = '&#10003;'; // single check - OSM linked
+                        statusColor = 'var(--accent)';
+                    } else if (counts.holesWithTee > 0 || hasBoundary) {
+                        statusIcon = '&#9679;'; // dot - has some data but not OSM linked
+                        statusColor = '#FFB74D';
+                    } else {
+                        statusIcon = '&#8211;'; // dash - no OSM data
+                        statusColor = 'var(--text-dim)';
+                    }
+
+                    // Build OSM-specific status tags
+                    const tags = [];
+                    if (linked) {
+                        tags.push('<span style="color:var(--accent); font-size:0.75rem; background:rgba(76,175,80,0.15); padding:1px 6px; border-radius:3px;">Synced</span>');
+                    } else if (counts.holesWithTee > 0 || hasBoundary) {
+                        tags.push('<span style="color:var(--accent); font-size:0.75rem; background:rgba(76,175,80,0.15); padding:1px 6px; border-radius:3px;">Synced</span>');
+                    } else {
+                        tags.push('<span style="color:var(--text-dim); font-size:0.75rem; background:rgba(255,255,255,0.05); padding:1px 6px; border-radius:3px;">Not synced</span>');
+                    }
+
+                    // Data counts line — always show all categories
+                    const numHoles = cc.holes || '?';
+                    const dataParts = [];
+                    dataParts.push(`${counts.holesWithTee}/${numHoles} tees`);
+                    dataParts.push(`${counts.holesWithGreen}/${numHoles} greens`);
+                    dataParts.push(`${counts.holesWithFairway}/${numHoles} fairways`);
+                    if (counts.osmHoles > 0) dataParts.push(`${counts.osmHoles} OSM holes`);
+                    const hasAnyData = counts.holesWithTee > 0 || counts.holesWithGreen > 0 || counts.holesWithFairway > 0 || counts.osmHoles > 0;
+                    const dataStr = hasAnyData
+                        ? `<span style="color:var(--text-muted); font-size:0.78rem;">${dataParts.join(' \u00b7 ')}</span>`
+                        : `<span style="color:var(--text-dim); font-size:0.78rem;">No GPS data</span>`;
+
+                    return `<div style="display:flex; align-items:center; gap:8px; padding:10px 0; border-bottom:1px solid var(--border);">
+                        <span style="flex:0 0 24px; text-align:center; color:${statusColor}; font-size:0.9rem;">${statusIcon}</span>
+                        <div style="flex:1;">
+                            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                                <strong>${cc.course_name || cc.display_name}</strong>
+                                <span style="color:var(--text-dim); font-size:0.84rem;">${cc.holes}h</span>
+                                ${tags.join('')}
+                            </div>
+                            <div style="margin-top:3px;">${dataStr}</div>
+                        </div>
+                        <div style="display:flex; gap:4px; align-items:center;">
+                            <input type="text" class="edit-input osm-course-search-input" data-course-id="${cc.id}"
+                                value="${cc.course_name || cc.display_name || ''}" placeholder="Search course..." style="width:180px; font-size:0.82rem;">
+                            <button class="btn btn-ghost btn-sm osm-course-search-btn" data-course-id="${cc.id}" style="font-size:0.75rem;">Search</button>
+                        </div>
+                    </div>`;
+                }).join('')}
+                <div id="osm-course-search-results" style="margin-top:8px;"></div>
+            </div>
+        `;
+
+        // Toggle handler for collapsible section
+        document.getElementById('osm-section-toggle')?.addEventListener('click', () => {
+            const body = document.getElementById('osm-section-body');
+            const arrow = document.getElementById('osm-section-arrow');
+            if (body.style.display === 'none') {
+                body.style.display = '';
+                arrow.textContent = '\u25BC';
+            } else {
+                body.style.display = 'none';
+                arrow.textContent = '\u25B6';
+            }
+        });
+
+        // Attach per-course search handlers
+        container.querySelectorAll('.osm-course-search-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const courseId = parseInt(btn.dataset.courseId);
+                const input = container.querySelector(`.osm-course-search-input[data-course-id="${courseId}"]`);
+                if (input && input.value.trim()) {
+                    searchOSMForCourse(courseId, input.value.trim());
+                }
+            });
+        });
     }
 
     // ========== View Holes Button ==========
@@ -817,6 +1059,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function onRoundSelect(value) {
+        // Exit edit mode when switching rounds
+        if (holeEditMode) exitEditMode();
+
         if (value === 'historic') {
             holeViewMode = 'historic';
             holeViewRoundDetail = null;
@@ -1138,6 +1383,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let holeLeafletMap = null;
     let holeShotLayers = null;  // L.LayerGroup for shot polylines
     let holeMarkerLayers = null;  // L.LayerGroup for tee/flag/fairway
+    let osmPreviewLayers = null;  // L.LayerGroup for OSM hole preview markers
 
     function _calcBearing(lat1, lng1, lat2, lng2) {
         const toRad = d => d * Math.PI / 180;
@@ -1171,6 +1417,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Layer groups for organized rendering
         holeMarkerLayers = L.layerGroup().addTo(map);
         holeShotLayers = L.layerGroup().addTo(map);
+        osmPreviewLayers = L.layerGroup().addTo(map);
 
         holeLeafletMap = map;
         return map;
@@ -1361,6 +1608,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderHoleDetail() {
+        // Always exit edit mode when switching holes
+        if (holeEditMode) exitEditMode();
+
         const titleEl = document.getElementById('hole-detail-title');
         const statsEl = document.getElementById('hole-detail-stats');
         const shotListEl = document.getElementById('hole-shot-list');
@@ -1657,7 +1907,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Enter edit mode
-    document.getElementById('btn-edit-hole')?.addEventListener('click', () => {
+    document.getElementById('btn-edit-hole')?.addEventListener('click', async () => {
+        // Refresh course data before entering edit mode to pick up any new OSM/sync data
+        if (holeViewCourse?.id) {
+            try {
+                const resp = await fetch(`/api/courses/${holeViewCourse.id}`);
+                if (resp.ok) {
+                    holeViewCourse = await resp.json();
+                }
+            } catch (e) {
+                console.warn('Failed to refresh course data:', e);
+            }
+        }
+
         holeEditMode = true;
         editTool = 'tee';
 
@@ -1734,6 +1996,26 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('edit-par').value = editPar || '';
         document.getElementById('edit-yardage').value = editYardage || '';
         document.getElementById('edit-handicap').value = editHandicap || '';
+
+        // Populate OSM hole dropdown
+        const osmSelect = document.getElementById('edit-osm-hole-select');
+        osmSelect.innerHTML = '<option value="">Not linked</option>';
+        if (holeViewCourse?.osm_holes) {
+            // Sort by hole number
+            const sorted = [...holeViewCourse.osm_holes].sort((a, b) => (a.hole_number || 99) - (b.hole_number || 99));
+            for (const oh of sorted) {
+                const opt = document.createElement('option');
+                opt.value = oh.id;
+                const label = oh.hole_number ? `Hole ${oh.hole_number}` : `OSM #${oh.osm_id}`;
+                const parStr = oh.par ? ` (Par ${oh.par})` : '';
+                opt.textContent = `${label}${parStr}`;
+                osmSelect.appendChild(opt);
+            }
+        }
+        // Set current link
+        if (ch?.osm_hole_id) {
+            osmSelect.value = String(ch.osm_hole_id);
+        }
 
         // Show fairway guide based on par
         updateFairwayGuide();
@@ -2361,9 +2643,108 @@ document.addEventListener('DOMContentLoaded', () => {
         renderHoleDetail();
     });
 
+    // OSM hole linking
+    document.getElementById('edit-osm-hole-select')?.addEventListener('change', async (e) => {
+        const osmHoleId = e.target.value ? parseInt(e.target.value) : null;
+        const courseHoles = getCourseTeeHoles();
+        const ch = courseHoles.find(h => h.hole_number === selectedHole);
+        if (!ch) return;
+
+        // Show preview markers on the map for the selected OSM hole
+        if (osmPreviewLayers) osmPreviewLayers.clearLayers();
+        if (osmHoleId && holeViewCourse?.osm_holes && holeLeafletMap) {
+            const osmHole = holeViewCourse.osm_holes.find(oh => oh.id === osmHoleId);
+            if (osmHole) {
+                const bounds = [];
+                // Tee preview marker (green diamond)
+                if (osmHole.tee_lat && osmHole.tee_lng) {
+                    const teeIcon = L.divIcon({
+                        className: 'osm-preview-marker',
+                        html: '<div style="width:14px;height:14px;background:#4CAF50;border:2px solid #fff;border-radius:2px;transform:rotate(45deg);box-shadow:0 0 6px rgba(76,175,80,0.8);"></div>',
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7],
+                    });
+                    L.marker([osmHole.tee_lat, osmHole.tee_lng], { icon: teeIcon })
+                        .bindTooltip('OSM Tee', { permanent: true, direction: 'top', offset: [0, -10], className: 'osm-preview-tooltip' })
+                        .addTo(osmPreviewLayers);
+                    bounds.push([osmHole.tee_lat, osmHole.tee_lng]);
+                }
+                // Green preview marker (red diamond)
+                if (osmHole.green_lat && osmHole.green_lng) {
+                    const greenIcon = L.divIcon({
+                        className: 'osm-preview-marker',
+                        html: '<div style="width:14px;height:14px;background:#f44336;border:2px solid #fff;border-radius:2px;transform:rotate(45deg);box-shadow:0 0 6px rgba(244,67,54,0.8);"></div>',
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7],
+                    });
+                    L.marker([osmHole.green_lat, osmHole.green_lng], { icon: greenIcon })
+                        .bindTooltip('OSM Green', { permanent: true, direction: 'top', offset: [0, -10], className: 'osm-preview-tooltip' })
+                        .addTo(osmPreviewLayers);
+                    bounds.push([osmHole.green_lat, osmHole.green_lng]);
+                }
+                // Dashed line between tee and green
+                if (osmHole.tee_lat && osmHole.green_lat) {
+                    L.polyline(
+                        [[osmHole.tee_lat, osmHole.tee_lng], [osmHole.green_lat, osmHole.green_lng]],
+                        { color: '#FFD700', weight: 2, dashArray: '8, 6', opacity: 0.8 }
+                    ).addTo(osmPreviewLayers);
+                }
+                // Zoom to show both markers if they're outside current view
+                if (bounds.length > 0) {
+                    const mapBounds = holeLeafletMap.getBounds();
+                    const allVisible = bounds.every(b => mapBounds.contains(b));
+                    if (!allVisible) {
+                        holeLeafletMap.fitBounds(L.latLngBounds(bounds).pad(0.3));
+                    }
+                }
+            }
+        }
+
+        try {
+            const resp = await fetch(`/api/courses/${holeViewCourse.id}/holes/${ch.id}/link-osm`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ osm_hole_id: osmHoleId, apply_gps: false }),
+            });
+            if (!resp.ok) throw new Error((await resp.json()).detail);
+        } catch (err) {
+            console.error('Failed to link OSM hole:', err);
+        }
+    });
+
+    document.getElementById('btn-apply-osm-hole')?.addEventListener('click', async () => {
+        const osmSelect = document.getElementById('edit-osm-hole-select');
+        const osmHoleId = osmSelect.value ? parseInt(osmSelect.value) : null;
+        if (!osmHoleId) return alert('Select an OSM hole first');
+
+        const courseHoles = getCourseTeeHoles();
+        const ch = courseHoles.find(h => h.hole_number === selectedHole);
+        if (!ch) return;
+
+        try {
+            const resp = await fetch(`/api/courses/${holeViewCourse.id}/holes/${ch.id}/link-osm`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ osm_hole_id: osmHoleId, apply_gps: true }),
+            });
+            if (!resp.ok) throw new Error((await resp.json()).detail);
+
+            // Reload course data and re-render
+            const courseResp = await fetch(`/api/courses/${holeViewCourse.id}`);
+            holeViewCourse = await courseResp.json();
+            exitEditMode();
+            renderHoleDetail();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    });
+
     function exitEditMode() {
         holeEditMode = false;
         document.getElementById('hole-edit-toolbar').style.display = 'none';
+
+        // Clear OSM preview markers
+        if (osmPreviewLayers) osmPreviewLayers.clearLayers();
 
         // Remove Leaflet edit layers and click handler
         if (editLayerGroup) {
@@ -2441,137 +2822,325 @@ document.addEventListener('DOMContentLoaded', () => {
             autoDismiss(courseSyncStatus, 5000);
         } finally {
             btnCourseSync.disabled = false;
-            btnCourseSync.textContent = 'Sync Course Data';
+            btnCourseSync.textContent = 'Sync All Courses';
         }
     }
 
     if (btnCourseSync) {
         btnCourseSync.addEventListener('click', async () => {
-            if (!currentCourseDetail) return;
+            const clubId = btnCourseSync.dataset.clubId || (currentCourseDetail && currentCourseDetail.golf_club_id);
+            if (!clubId) return;
+
+            const clubName = currentClubDetail?.name || currentCourseDetail?.club_name || 'this club';
+            if (!confirm(`Sync all courses for "${clubName}"? This will fetch course data from the golf database.`)) return;
+
             btnCourseSync.disabled = true;
-            btnCourseSync.textContent = 'Searching\u2026';
-            courseSyncStatus.style.display = 'none';
+            btnCourseSync.textContent = 'Syncing\u2026';
+            showCourseStatus('Syncing courses from golf database...', 'progress');
 
             try {
-                const resp = await fetch(`/api/courses/${currentCourseDetail.id}/search-matches`, { method: 'POST' });
+                // Step 1: Sync courses from golf API
+                const syncResp = await fetch(`/api/courses/club/${clubId}/sync`, { method: 'POST' });
+                const syncResult = await syncResp.json();
+
+                if (syncResp.ok && syncResult.status === 'ok') {
+                    const details = syncResult.details || [];
+                    const synced = details.filter(d => d.status && d.status.includes('synced')).length;
+                    showCourseStatus(`Synced ${synced} course(s). Use per-course OSM search below to add GPS features.`, 'success');
+                } else {
+                    showCourseStatus(syncResult.reason || 'Sync failed', 'error');
+                }
+
+                await loadAllData();
+                if (currentClubDetail) {
+                    loadClubDetail(currentClubDetail.id);
+                } else if (currentCourseDetail) {
+                    loadCourseDetail(currentCourseDetail.id);
+                }
+            } catch (e) {
+                showCourseStatus('Error: ' + e.message, 'error');
+            } finally {
+                btnCourseSync.disabled = false;
+                btnCourseSync.textContent = 'Sync All Courses';
+            }
+
+        });
+    }
+
+    // ========== Course Merge ==========
+    document.getElementById('course-detail-courses')?.addEventListener('change', async (e) => {
+        const sel = e.target.closest('.merge-target-select');
+        if (!sel) return;
+
+        const sourceId = sel.dataset.sourceId;
+        const targetId = sel.value;
+        if (!targetId) return;
+
+        const sourceName = currentClubCourses.find(c => c.id == sourceId)?.course_name || '(Main Course)';
+        const targetName = currentClubCourses.find(c => c.id == targetId)?.course_name || '(Main Course)';
+
+        if (!confirm(`Merge "${sourceName}" into "${targetName}"?\n\nThis will move all rounds and tees, then delete "${sourceName}".`)) {
+            sel.value = '';
+            return;
+        }
+
+        sel.disabled = true;
+        showCourseStatus(`Merging "${sourceName}" into "${targetName}"...`, 'progress');
+
+        try {
+            const resp = await fetch(`/api/courses/${targetId}/merge/${sourceId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (resp.ok && data.status === 'merged') {
+                showCourseStatus(`Merged: ${data.rounds_moved} round(s), ${data.tees_moved} tee set(s) moved.`, 'success');
+                await loadAllData();
+                loadClubDetail(currentClubDetail.id);
+            } else {
+                showCourseStatus(data.detail || 'Merge failed', 'error');
+                sel.value = '';
+                sel.disabled = false;
+            }
+        } catch (e) {
+            showCourseStatus('Error: ' + e.message, 'error');
+            sel.value = '';
+            sel.disabled = false;
+        }
+    });
+
+    // ========== OSM Feature Detection ==========
+    const btnDetectFeatures = document.getElementById('btn-detect-features');
+    if (btnDetectFeatures) {
+        btnDetectFeatures.addEventListener('click', async () => {
+            const clubId = btnDetectFeatures.dataset.clubId || (currentCourseDetail && currentCourseDetail.golf_club_id);
+            if (!clubId) return;
+            btnDetectFeatures.disabled = true;
+            btnDetectFeatures.textContent = 'Searching OSM\u2026';
+            showCourseStatus('Querying OpenStreetMap for course features...', 'progress');
+
+            try {
+                const resp = await fetch(`/api/courses/club/${clubId}/detect-features`, { method: 'POST' });
                 const data = await resp.json();
 
                 if (!resp.ok) {
-                    courseSyncStatus.textContent = data.detail || 'Search failed';
-                    courseSyncStatus.className = 'status status-error';
-                    courseSyncStatus.style.display = 'block';
-                    autoDismiss(courseSyncStatus, 5000);
+                    showCourseStatus(data.detail || 'Detection failed', 'error');
                     return;
                 }
 
-                const candidates = data.candidates || [];
+                const s = data.summary;
+                if (s.total === 0) {
+                    showCourseStatus('No golf features found in OpenStreetMap for this area. Features must be mapped by OSM contributors.', 'error');
+                    return;
+                }
 
-                if (candidates.length === 0) {
-                    const errorMsg = data.error || 'No matching courses found in the database.';
-                    showCourseStatus(errorMsg, 'error');
+                // Show confirmation
+                const parts = [];
+                if (s.bunkers) parts.push(`${s.bunkers} bunker(s)`);
+                if (s.water) parts.push(`${s.water} water hazard(s)`);
+                if (s.greens) parts.push(`${s.greens} green(s)`);
+                if (s.tees) parts.push(`${s.tees} tee(s)`);
+                if (s.fairways) parts.push(`${s.fairways} fairway(s)`);
+                if (s.pins) parts.push(`${s.pins} pin(s)`);
 
-                    // Try fetching a photo anyway
-                    if (!currentCourseDetail.photo_url) {
-                        try { await fetch(`/api/courses/${currentCourseDetail.id}/fetch-photo`, { method: 'POST' }); } catch (e) {}
+                if (s.holes) parts.push(`${s.holes} hole centerline(s)`);
+
+                const msg = `Found ${s.total} features: ${parts.join(', ')}. Import hazards, hole positions, and green boundaries?`;
+                if (!confirm(msg)) {
+                    showCourseStatus('Detection cancelled.', 'error');
+                    return;
+                }
+
+                // Import everything
+                const importResp = await fetch(`/api/courses/club/${clubId}/import-features`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bunkers: data.bunkers,
+                        water: data.water,
+                        greens: data.greens,
+                        holes: data.holes,
+                    }),
+                });
+                const importData = await importResp.json();
+
+                if (importResp.ok) {
+                    const details = [];
+                    if (importData.bunkers) details.push(`${importData.bunkers} bunker(s)`);
+                    if (importData.water) details.push(`${importData.water} water hazard(s)`);
+                    if (importData.holes_enriched) details.push(`${importData.holes_enriched} hole(s) enriched with tee/green/fairway`);
+                    if (importData.greens_set) details.push(`${importData.greens_set} green boundary(s)`);
+                    showCourseStatus(`Imported from OSM: ${details.join(', ')}.`, 'success');
+                    // Reload club or course view
+                    if (currentClubDetail) {
+                        await loadClubDetail(currentClubDetail.id);
+                    } else if (currentCourseDetail) {
                         await loadCourseDetail(currentCourseDetail.id);
                     }
-                    return;
+                } else {
+                    showCourseStatus(importData.detail || 'Import failed', 'error');
                 }
-
-                // Show modal with candidates
-                const placesName = data.places_name;
-                modalSearchInfo.textContent = placesName
-                    ? `Google Places identified this as "${placesName}". Select the correct course:`
-                    : `Select the correct course for "${currentCourseDetail.display_name}":`;
-
-                // Build candidate list — optionally with a "Sync All" option at top
-                let html = '';
-                if (data.club_sync_available) {
-                    const clubName = data.golf_club_name || currentCourseDetail.club_name;
-                    const count = data.nearby_course_count || 0;
-                    const comboNote = data.has_combo_courses ? ' (includes combo 9-hole splits)' : '';
-                    html += `<div class="candidate-card best" data-club-sync="${data.golf_club_id}">
-                        <div class="candidate-info">
-                            <div class="candidate-name">Sync All ${clubName} Courses</div>
-                            <div class="candidate-address">${count} courses found${comboNote}</div>
-                        </div>
-                        <div class="candidate-meta">
-                            <span class="candidate-badge">Recommended</span>
-                        </div>
-                    </div>
-                    <div style="border-top:1px solid var(--border); margin:8px 0; padding-top:4px;">
-                        <span style="font-size:0.78rem; color:var(--text-dim);">Or pick a single course:</span>
-                    </div>`;
-                }
-
-                html += candidates.map((c, i) => {
-                    const distStr = c.distance_miles != null ? `${c.distance_miles} mi` : '';
-                    const bestClass = !data.club_sync_available && i === 0 ? ' best' : '';
-                    const bestBadge = !data.club_sync_available && i === 0 ? '<span class="candidate-badge">Best Match</span>' : '';
-                    return `<div class="candidate-card${bestClass}" data-api-id="${c.api_id}">
-                        <div class="candidate-info">
-                            <div class="candidate-name">${c.club_name}${c.course_name && c.course_name !== c.club_name ? ' \u2014 ' + c.course_name : ''}</div>
-                            <div class="candidate-address">${c.address || [c.city, c.state].filter(Boolean).join(', ') || 'No address'}</div>
-                        </div>
-                        <div class="candidate-meta">
-                            ${distStr ? `<div class="candidate-distance">${distStr}</div>` : ''}
-                            ${bestBadge}
-                        </div>
-                    </div>`;
-                }).join('');
-
-                modalCandidates.innerHTML = html;
-
-                // Club sync option handler
-                const clubSyncCard = modalCandidates.querySelector('[data-club-sync]');
-                if (clubSyncCard) {
-                    clubSyncCard.addEventListener('click', async () => {
-                        closeModal();
-                        const clubId = parseInt(clubSyncCard.dataset.clubSync);
-                        btnCourseSync.disabled = true;
-                        btnCourseSync.textContent = 'Syncing\u2026';
-                        showCourseStatus('Syncing all courses\u2026 This may take a moment.', 'progress');
-                        try {
-                            const resp = await fetch(`/api/courses/club/${clubId}/sync`, { method: 'POST' });
-                            const result = await resp.json();
-                            if (resp.ok && result.status === 'ok') {
-                                const details = result.details || [];
-                                const synced = details.filter(d => d.status && d.status.includes('synced')).length;
-                                showCourseStatus(`Synced ${synced} course(s). Found ${result.api_courses_found} in API.`, 'success');
-                                await loadAllData();
-                                loadCourseDetail(currentCourseDetail.id);
-                            } else {
-                                showCourseStatus(result.reason || 'Sync failed', 'error');
-                            }
-                        } catch (e) {
-                            showCourseStatus('Error: ' + e.message, 'error');
-                        } finally {
-                            btnCourseSync.disabled = false;
-                            btnCourseSync.textContent = 'Sync Course Data';
-                        }
-                    });
-                }
-
-                // Individual course candidate handlers
-                modalCandidates.querySelectorAll('.candidate-card[data-api-id]').forEach(card => {
-                    card.addEventListener('click', () => {
-                        const apiId = parseInt(card.dataset.apiId);
-                        applyCandidate(apiId);
-                    });
-                });
-
-                matchModal.style.display = 'flex';
             } catch (e) {
-                courseSyncStatus.textContent = 'Error: ' + e.message;
-                courseSyncStatus.className = 'status status-error';
-                courseSyncStatus.style.display = 'block';
-                autoDismiss(courseSyncStatus, 5000);
+                showCourseStatus('Error: ' + e.message, 'error');
             } finally {
-                btnCourseSync.disabled = false;
-                btnCourseSync.textContent = 'Sync Course Data';
+                btnDetectFeatures.disabled = false;
+                btnDetectFeatures.textContent = 'Detect Features (OSM)';
             }
         });
     }
+
+    // ========== OSM Card Toggle ==========
+    document.getElementById('osm-card-toggle')?.addEventListener('click', () => {
+        const body = document.getElementById('osm-data-section');
+        const arrow = document.getElementById('osm-card-arrow');
+        if (body.style.display === 'none') {
+            body.style.display = '';
+            arrow.innerHTML = '&#9660;';
+        } else {
+            body.style.display = 'none';
+            arrow.innerHTML = '&#9654;';
+        }
+    });
+
+    // ========== OSM Search & Link ==========
+    const btnOsmClubSearch = document.getElementById('btn-osm-club-search');
+    if (btnOsmClubSearch) {
+        btnOsmClubSearch.addEventListener('click', () => {
+            const query = document.getElementById('osm-club-search').value.trim();
+            if (query) searchOSMClub(query);
+        });
+        // Enter key
+        document.getElementById('osm-club-search')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnOsmClubSearch.click();
+        });
+    }
+
+    async function searchOSMClub(query) {
+        const resultsEl = document.getElementById('osm-club-results');
+        resultsEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.84rem;">Searching...</p>';
+
+        const clubLat = currentClubDetail?.lat || currentCourseDetail?.lat;
+        const clubLng = currentClubDetail?.lng || currentCourseDetail?.lng;
+
+        try {
+            const resp = await fetch('/api/courses/osm/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, near_lat: clubLat, near_lng: clubLng }),
+            });
+            const results = await resp.json();
+
+            if (!resp.ok) throw new Error(results.detail || 'Search failed');
+            if (results.length === 0) {
+                resultsEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.84rem;">No golf courses found. Try a different search term.</p>';
+                return;
+            }
+
+            resultsEl.innerHTML = results.map(r => `
+                <div class="recent-round" style="cursor:pointer; padding:8px 12px;" onclick="window._linkOsmToClub(${r.osm_id}, '${r.osm_type}', '${r.name.replace(/'/g, "\\'")}')">
+                    <div class="round-info">
+                        <div class="round-course">${r.name}</div>
+                        <div class="round-meta">${r.display_name.substring(0, 80)}${r.distance_miles != null ? ' \u00b7 ' + r.distance_miles + ' mi' : ''}</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            resultsEl.innerHTML = `<p style="color:var(--error);">${e.message}</p>`;
+        }
+    }
+
+    window._linkOsmToClub = async function(osmId, osmType, osmName) {
+        const clubId = currentClubDetail?.id || currentCourseDetail?.golf_club_id;
+        if (!clubId) return;
+
+        if (!confirm(`Link "${osmName}" to this club and import features?`)) return;
+
+        showCourseStatus('Fetching features from OSM...', 'progress');
+        try {
+            const resp = await fetch(`/api/courses/club/${clubId}/osm/link`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ osm_id: osmId, osm_type: osmType, import_features: true }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Link failed');
+
+            const parts = [];
+            if (data.bunkers) parts.push(`${data.bunkers} bunker(s)`);
+            if (data.water) parts.push(`${data.water} water hazard(s)`);
+            if (data.osm_holes_saved) parts.push(`${data.osm_holes_saved} hole(s)`);
+            if (data.courses_matched) parts.push(`${data.courses_matched} course(s) auto-matched`);
+
+            showCourseStatus(`Linked! Imported: ${parts.join(', ') || 'no features found'}.`, 'success');
+
+            // Clear results and reload
+            document.getElementById('osm-club-results').innerHTML = '';
+            if (currentClubDetail) await loadClubDetail(currentClubDetail.id);
+            else if (currentCourseDetail) await loadCourseDetail(currentCourseDetail.id);
+        } catch (e) {
+            showCourseStatus('Error: ' + e.message, 'error');
+        }
+    };
+
+    async function searchOSMForCourse(courseId, query) {
+        const resultsEl = document.getElementById('osm-course-search-results');
+        resultsEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.84rem;">Searching...</p>';
+
+        const clubLat = currentClubDetail?.lat || currentCourseDetail?.lat;
+        const clubLng = currentClubDetail?.lng || currentCourseDetail?.lng;
+
+        try {
+            const resp = await fetch('/api/courses/osm/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, near_lat: clubLat, near_lng: clubLng }),
+            });
+            const results = await resp.json();
+
+            if (!resp.ok) throw new Error(results.detail || 'Search failed');
+            if (results.length === 0) {
+                resultsEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.84rem;">No results. Try different search terms.</p>';
+                return;
+            }
+
+            resultsEl.innerHTML = `<label style="font-size:0.78rem; color:var(--text-muted);">Select a course to link:</label>` +
+                results.map(r => `
+                <div class="recent-round" style="cursor:pointer; padding:8px 12px;" onclick="window._linkOsmToCourse(${courseId}, ${r.osm_id}, '${r.osm_type}', '${r.name.replace(/'/g, "\\'")}')">
+                    <div class="round-info">
+                        <div class="round-course">${r.name}</div>
+                        <div class="round-meta">${r.display_name.substring(0, 80)}${r.distance_miles != null ? ' \u00b7 ' + r.distance_miles + ' mi' : ''}</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            resultsEl.innerHTML = `<p style="color:var(--error);">${e.message}</p>`;
+        }
+    }
+
+    window._linkOsmToCourse = async function(courseId, osmId, osmType, osmName) {
+        if (!confirm(`Link "${osmName}" to this course and import features?`)) return;
+
+        showCourseStatus('Fetching features from OSM...', 'progress');
+        try {
+            const resp = await fetch(`/api/courses/${courseId}/osm/link`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ osm_id: osmId, osm_type: osmType, import_features: true }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Link failed');
+
+            const parts = [];
+            if (data.bunkers) parts.push(`${data.bunkers} bunker(s)`);
+            if (data.water) parts.push(`${data.water} water hazard(s)`);
+            if (data.osm_holes_saved) parts.push(`${data.osm_holes_saved} hole(s)`);
+
+            showCourseStatus(`Linked! Imported: ${parts.join(', ') || 'no features found'}.`, 'success');
+
+            document.getElementById('osm-course-search-results').innerHTML = '';
+            if (currentClubDetail) await loadClubDetail(currentClubDetail.id);
+            else if (currentCourseDetail) await loadCourseDetail(currentCourseDetail.id);
+        } catch (e) {
+            showCourseStatus('Error: ' + e.message, 'error');
+        }
+    };
 
     // ========== Club Window Selector ==========
     let clubWindow = '';

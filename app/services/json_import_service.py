@@ -422,5 +422,20 @@ def import_full_export(db: Session, parsed: dict, on_progress=None) -> dict:
         progress("enrichment", f"Computed metrics for {total_enriched} shot(s)")
     results["shots_enriched"] = total_enriched
 
+    # 10. Rebuild personal strokes gained baseline
+    from app.services.strokes_gained import rebuild_personal_baseline
+    progress("enrichment", "Rebuilding personal strokes gained baseline...")
+    baseline_stats = rebuild_personal_baseline(db)
+    results["personal_baseline"] = baseline_stats
+    if baseline_stats["bucket_count"] > 0:
+        progress("enrichment", f"Personal baseline: {baseline_stats['shot_count']} shots in {baseline_stats['bucket_count']} buckets")
+
+        # 11. Re-recalc imported rounds to populate sg_personal
+        progress("enrichment", "Computing personal strokes gained...")
+        for sc in parsed["scorecards"]:
+            r = db.query(Round).filter(Round.garmin_id == sc.garmin_id).first()
+            if r and r.course_id and r.tee_id:
+                recalc_round_shots(db, r.id)
+
     progress("done", "Import complete!")
     return results

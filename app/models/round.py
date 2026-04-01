@@ -118,5 +118,6 @@ class Shot(Base):
     green_distance_yards = Column(Float)
     on_green = Column(Boolean)
     sg_pga = Column(Float)                  # strokes gained vs PGA baseline
+    sg_personal = Column(Float)              # strokes gained vs personal baseline
 
     round_hole = relationship("RoundHole", back_populates="shots")

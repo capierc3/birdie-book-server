@@ -35,6 +35,7 @@ class ShotResponse(BaseModel):
     green_distance_yards: Optional[float] = None
     on_green: Optional[bool] = None
     sg_pga: Optional[float] = None
+    sg_personal: Optional[float] = None
 
     class Config:
         from_attributes = True

@@ -53,3 +53,25 @@ def clear_all_data():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     return {"status": "cleared"}
+
+
+@app.post("/api/settings/rebuild-personal-baseline")
+def rebuild_personal_baseline_endpoint():
+    """Rebuild personal strokes gained baseline from all course data, then recalc all shots."""
+    from app.database import SessionLocal
+    from app.services.strokes_gained import rebuild_personal_baseline
+    from app.services.course_calc_service import recalc_course_shots
+    from app.models.course import Course
+
+    db = SessionLocal()
+    try:
+        stats = rebuild_personal_baseline(db)
+        # Recalc all courses to populate sg_personal
+        courses = db.query(Course).all()
+        total_updated = 0
+        for c in courses:
+            total_updated += recalc_course_shots(db, c.id)
+        stats["shots_updated"] = total_updated
+        return {"status": "ok", **stats}
+    finally:
+        db.close()

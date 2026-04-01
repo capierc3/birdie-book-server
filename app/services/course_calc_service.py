@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session
 
 from app.models.course import CourseHole, CourseHazard, CourseTee, Course
 from app.models.round import Shot, RoundHole, Round
-from app.services.strokes_gained import strokes_gained as sg_calc, expected_strokes
+from app.services.strokes_gained import (
+    strokes_gained as sg_calc, expected_strokes,
+    personal_strokes_gained as sg_personal_calc, personal_expected_strokes,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +343,7 @@ def compute_shot_metrics(
         "green_distance_yards": None,
         "on_green": None,
         "sg_pga": None,
+        "sg_personal": None,
     }
 
     if not course_hole:
@@ -429,6 +433,22 @@ def compute_shot_metrics(
             else:
                 sg = sg_calc(pin_before, start_lie, pin_after, end_lie)
                 result["sg_pga"] = sg
+    except Exception:
+        pass
+
+    # Strokes gained (personal baseline)
+    try:
+        if pin_before is not None and result["pin_distance_yards"] is not None:
+            start_lie = shot.start_lie or ""
+            end_lie = shot.end_lie or ""
+            pin_after = result["pin_distance_yards"]
+            if pin_after < 1 and end_lie == "":
+                exp_before = personal_expected_strokes(pin_before, start_lie)
+                if exp_before is not None:
+                    result["sg_personal"] = round(exp_before - 1, 2)
+            else:
+                sg = sg_personal_calc(pin_before, start_lie, pin_after, end_lie)
+                result["sg_personal"] = sg
     except Exception:
         pass
 

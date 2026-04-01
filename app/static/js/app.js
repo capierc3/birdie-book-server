@@ -5492,6 +5492,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ],
         sg: [
             ['SG vs PGA', '_sg_display', ''],
+            ['SG vs Personal', '_sg_personal_display', ''],
         ],
     };
 
@@ -5548,6 +5549,12 @@ document.addEventListener('DOMContentLoaded', () => {
             display._sg_display = `${shot.sg_pga >= 0 ? '+' : ''}${shot.sg_pga.toFixed(2)}`;
         } else {
             display._sg_display = null;
+        }
+
+        if (shot.sg_personal != null) {
+            display._sg_personal_display = `${shot.sg_personal >= 0 ? '+' : ''}${shot.sg_personal.toFixed(2)}`;
+        } else {
+            display._sg_personal_display = null;
         }
 
         return display;
@@ -5615,6 +5622,9 @@ document.addEventListener('DOMContentLoaded', () => {
             let valStyle = '';
             if (key === '_sg_display' && shot.sg_pga != null) {
                 valStyle = shot.sg_pga > 0 ? 'color: var(--green, #4ade80);' : shot.sg_pga < 0 ? 'color: var(--red, #f87171);' : '';
+            }
+            if (key === '_sg_personal_display' && shot.sg_personal != null) {
+                valStyle = shot.sg_personal > 0 ? 'color: var(--green, #4ade80);' : shot.sg_personal < 0 ? 'color: var(--red, #f87171);' : '';
             }
             // Fairway hit coloring
             if (key === '_fairway_hit' && val !== '\u2014') {
@@ -6347,6 +6357,34 @@ document.addEventListener('DOMContentLoaded', () => {
             } finally {
                 btnClearData.disabled = false;
                 btnClearData.textContent = 'Clear All Data';
+            }
+        });
+    }
+
+    // ========== Settings: Rebuild Personal Baseline ==========
+    const btnRebuildBaseline = document.getElementById('btn-rebuild-baseline');
+    const rebuildBaselineStatus = document.getElementById('rebuild-baseline-status');
+
+    if (btnRebuildBaseline) {
+        btnRebuildBaseline.addEventListener('click', async () => {
+            btnRebuildBaseline.disabled = true;
+            btnRebuildBaseline.textContent = 'Rebuilding...';
+
+            try {
+                const resp = await fetch('/api/settings/rebuild-personal-baseline', { method: 'POST' });
+                if (!resp.ok) throw new Error('Failed to rebuild baseline');
+                const data = await resp.json();
+                rebuildBaselineStatus.textContent = `Baseline rebuilt: ${data.shot_count} shots, ${data.bucket_count} buckets, ${data.shots_updated} shots updated.`;
+                rebuildBaselineStatus.className = 'status status-success';
+                rebuildBaselineStatus.style.display = 'block';
+                autoDismiss(rebuildBaselineStatus, 5000);
+            } catch (e) {
+                rebuildBaselineStatus.textContent = 'Error: ' + e.message;
+                rebuildBaselineStatus.className = 'status status-error';
+                rebuildBaselineStatus.style.display = 'block';
+            } finally {
+                btnRebuildBaseline.disabled = false;
+                btnRebuildBaseline.textContent = 'Rebuild Personal Baseline';
             }
         });
     }

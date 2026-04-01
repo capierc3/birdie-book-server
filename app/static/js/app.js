@@ -1323,18 +1323,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ========== Hole Map Rendering ==========
-    function gpsToPixel(lat, lng, centerLat, centerLng, zoom, imgW, imgH) {
-        const scale = Math.pow(2, zoom) * 256;
-        const toX = (ln) => (ln + 180) / 360 * scale;
-        const toY = (lt) => {
-            const s = Math.sin(lt * Math.PI / 180);
-            return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * scale;
-        };
-        return {
-            x: toX(lng) - toX(centerLng) + imgW / 2,
-            y: toY(lat) - toY(centerLat) + imgH / 2,
-        };
-    }
 
     // Default colors per club type — unique for each
     const DEFAULT_CLUB_COLORS = {
@@ -1886,22 +1874,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         // Return first shot that has GPS
         return shots.find(s => s.start_lat && s.start_lng) || null;
-    }
-
-    function pixelToGps(px, py, centerLat, centerLng, zoom, imgW, imgH) {
-        const scale = Math.pow(2, zoom) * 256;
-        const toMercX = (ln) => (ln + 180) / 360 * scale;
-        const toMercY = (lt) => {
-            const s = Math.sin(lt * Math.PI / 180);
-            return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * scale;
-        };
-        const cx = toMercX(centerLng);
-        const cy = toMercY(centerLat);
-        const mercX = (px - imgW / 2) + cx;
-        const mercY = (py - imgH / 2) + cy;
-        const lng = mercX / scale * 360 - 180;
-        const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * mercY / scale))) * 180 / Math.PI;
-        return { lat, lng };
     }
 
     // Show/hide edit button when a hole is selected

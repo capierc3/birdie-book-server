@@ -130,29 +130,58 @@ The "Draw Fairway" tool lets users click points on the hole map to create the pa
 
 ---
 
-## 4. Implementation Priority
+## 4. Implementation Plan
 
-### Phase 1: Side-from-fairway computation (highest value)
-- Compute perpendicular distance from shot end point to fairway path polyline
-- Store as `side_from_fairway_yards` on Shot (or compute on-the-fly)
-- This makes Garmin shots comparable to range shots on dispersion charts
-- Requires: fairway_path with 5+ waypoints
+### Phase 1: Core Geometry Computations (Backend)
+Build a computation service (`app/services/course_calc_service.py`) with these functions:
 
-### Phase 2: Pin distance remaining
-- Simple Haversine from shot end GPS to flag GPS
-- Store as `pin_distance_remaining_yards` on Shot
-- Useful for approach shot analysis and strokes gained baseline
-- Requires: flag position only
+1. **Pin distance remaining** — Haversine from shot end GPS to flag GPS
+   - Inputs: `shot.end_lat/lng` + `course_hole.flag_lat/lng`
+   - Output: yards remaining to pin
+   - Requires: flag position only
 
-### Phase 3: Distance along fairway (useful distance)
-- Project shot onto fairway path to get "how far did this advance the ball toward the hole"
-- More meaningful than raw GPS distance for off-line shots
-- Requires: fairway_path
+2. **Side from fairway** — Perpendicular distance from shot end to fairway centerline
+   - Inputs: `shot.end_lat/lng` + `course_hole.fairway_path`
+   - Output: signed yards (+R / -L relative to play direction)
+   - Requires: fairway_path with 5+ waypoints
+   - Must convert GPS → local Cartesian first for accurate perpendicular calc
 
-### Phase 4: Strokes gained
-- Using pin distance + lie type, look up expected strokes from PGA baseline data
-- Compute strokes gained per shot = expected_before - expected_after - 1
-- Requires: pin distance + strokes gained lookup tables
+3. **Distance along fairway (useful distance)** — How far the shot advanced the ball toward the hole
+   - Inputs: `shot.start_lat/lng` + `shot.end_lat/lng` + `course_hole.fairway_path`
+   - Output: yards of progress along the fairway path
+   - More meaningful than raw GPS distance for off-line shots
+
+4. **Green proximity** — Distance to pin on approach/chip shots
+   - Same as pin distance remaining but filtered to approach/chip shot types
+
+5. **Hazard proximity** — Distance from shot landing to nearest hazard boundary
+   - Inputs: `shot.end_lat/lng` + `CourseHazard.boundary` polygons
+   - Output: yards to nearest hazard edge, hazard type/name
+
+These are all compute-on-the-fly from existing stored geometry — no new columns needed initially.
+
+### Phase 2: Course Shot Detail Panel (Frontend)
+Build a right-pane panel mirroring the range shot detail panel but with course-specific metrics.
+
+**Panel sections:**
+- **Shot Info:** Club, Shot Type (TEE/APPROACH/CHIP/PUTT), Lie (start → end)
+- **Distance:** GPS Distance, Useful Distance (along fairway), Pin Remaining
+- **Accuracy:** Side from Fairway (L/R yards), Fairway Hit/Miss, Green Proximity
+- **Hazards:** Nearest hazard name + distance
+- **Strokes Gained:** SG value per shot (Phase 4)
+- **Hole Context:** Hole #, Par, Score, vs Par
+
+**Interaction:** Click a shot on the map or shot list → panel slides in from right (same UX as range panel).
+
+### Phase 3: API Endpoint
+- `GET /api/rounds/{round_id}/holes/{hole_number}/computed` — returns all computed metrics for each shot on the hole
+- Pulls CourseHole geometry + CourseHazards + shots, runs computations, returns enriched shot data
+- Frontend calls this when a hole is selected and a round is active
+
+### Phase 4: Strokes Gained
+- Using pin distance + lie type, look up expected strokes from PGA Tour baseline data
+- Compute per shot: `SG = expected_before - expected_after - 1`
+- Requires: static lookup table (see Section 6 below)
 
 ---
 
@@ -186,3 +215,70 @@ def point_to_segment_distance(px, py, ax, ay, bx, by):
 ```
 
 For GPS coordinates, convert to a local Cartesian frame first (using the hole center as origin), compute perpendicular distance, then convert back to yards.
+
+---
+
+## 6. Strokes Gained Lookup Data
+
+### What It Is
+Strokes Gained uses PGA Tour baseline data showing the **average number of strokes to hole out** from any distance and lie combination. By comparing expected strokes before and after each shot, you measure how much value each shot added vs the tour average.
+
+### Formula
+```
+SG_per_shot = expected_strokes_before - expected_strokes_after - 1
+```
+- Positive SG = gained strokes on the field (good shot)
+- Negative SG = lost strokes vs the field (bad shot)
+
+### The Lookup Table
+The data is a static table — **not an API call**. It's published PGA Tour statistical data that doesn't change frequently. The table maps:
+
+| Distance (yards) | Lie Type | Expected Strokes to Hole Out |
+|-------------------|----------|------------------------------|
+| 1 | Green | 1.00 |
+| 2 | Green | 1.01 |
+| 3 | Green | 1.04 |
+| 5 | Green | 1.10 |
+| 10 | Green | 1.33 |
+| 20 | Green | 1.70 |
+| 30 | Green | 1.87 |
+| 50 | Green | 2.10 |
+| 100 | Fairway | 2.72 |
+| 150 | Fairway | 2.86 |
+| 200 | Fairway | 3.05 |
+| 250 | Fairway | 3.45 |
+| 300 | Fairway | 3.71 |
+| 350 | Fairway | 3.98 |
+| 400 | Fairway | 4.08 |
+| 450 | Tee | 4.17 |
+| 100 | Rough | 2.92 |
+| 150 | Rough | 3.08 |
+| 200 | Rough | 3.28 |
+| 30 | Sand | 2.43 |
+| 50 | Sand | 2.71 |
+| varies | Recovery | ~3.5-4.0 |
+
+### What You Need to Find
+The authoritative source is **Mark Broadie's book "Every Shot Counts"** (2014). He created the strokes gained concept using PGA Tour ShotLink data.
+
+**What to look for:**
+1. **Broadie's baseline table** — Expected strokes by distance + lie. Available in:
+   - "Every Shot Counts" by Mark Broadie (appendix tables)
+   - Various golf analytics sites have reproduced the key data points
+   - The table above is an approximation — the full table has ~1-yard increments on the green and ~10-yard increments off the green
+
+2. **Lie categories to map:** Our Garmin data has `start_lie` / `end_lie` values. We need to map these to the SG lie buckets:
+   - **Tee** → Tee baseline
+   - **Fairway** → Fairway baseline
+   - **Rough** → Rough baseline
+   - **Green** → Green/Putting baseline
+   - **Sand/Bunker** → Sand baseline
+   - **Recovery** → Recovery baseline (thick rough, trees, etc.)
+
+3. **Storage format:** A simple JSON file or SQLite table with columns: `distance_yards`, `lie_type`, `expected_strokes`. We interpolate between data points at query time.
+
+### Implementation Approach
+- Store as `app/data/strokes_gained_baseline.json`
+- Load once at startup into memory
+- Interpolate linearly between data points for any given distance
+- Map Garmin lie types to SG lie categories

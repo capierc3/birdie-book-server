@@ -90,15 +90,9 @@ class CourseHole(Base):
     tee_lng = Column(Float)
     fairway_path = Column(Text)  # JSON array of [lat, lng] waypoints
     green_boundary = Column(Text)  # JSON array of [lat, lng] polygon points defining green edge
-    rotation_deg = Column(Integer, default=0)  # deprecated — Leaflet handles rotation
-    custom_zoom = Column(Integer)  # deprecated — Leaflet auto-fits
-    custom_bounds = Column(Text)  # deprecated — no more cropping
-    shot_offset_x = Column(Float)  # deprecated — no more offset hacks
-    shot_offset_y = Column(Float)
 
     tee = relationship("CourseTee", back_populates="holes")
     osm_hole = relationship("OSMHole")
-    images = relationship("HoleImage", back_populates="hole")
 
 
 class OSMHole(Base):

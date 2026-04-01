@@ -9,8 +9,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
-from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, HoleImage, Round, RoundHole, Shot
-from app.services.image_service import fetch_all_hole_images
+from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, Round, RoundHole, Shot
 from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
 from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
@@ -19,18 +18,6 @@ router = APIRouter(prefix="/api/courses", tags=["courses"])
 
 
 # --- Pydantic schemas ---
-
-class HoleImageResponse(BaseModel):
-    filename: str
-    zoom_level: int
-    center_lat: Optional[float] = None
-    center_lng: Optional[float] = None
-    width_px: Optional[int] = None
-    height_px: Optional[int] = None
-
-    class Config:
-        from_attributes = True
-
 
 class CourseHazardResponse(BaseModel):
     id: int
@@ -55,12 +42,6 @@ class CourseHoleResponse(BaseModel):
     fairway_path: Optional[str] = None
     green_boundary: Optional[str] = None
     osm_hole_id: Optional[int] = None
-    rotation_deg: int = 0
-    custom_zoom: Optional[int] = None
-    custom_bounds: Optional[str] = None
-    shot_offset_x: Optional[float] = None
-    shot_offset_y: Optional[float] = None
-    image: Optional[HoleImageResponse] = None
 
     class Config:
         from_attributes = True
@@ -277,9 +258,7 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
                  .all())
         hole_responses = []
         for h in holes:
-            img = db.query(HoleImage).filter(HoleImage.hole_id == h.id).first()
             hole_resp = CourseHoleResponse.model_validate(h)
-            hole_resp.image = HoleImageResponse.model_validate(img) if img else None
             hole_responses.append(hole_resp)
         tee_responses.append(CourseTeeResponse(
             id=tee.id,
@@ -444,31 +423,6 @@ async def set_club_photo_upload(golf_club_id: int, file: UploadFile = File(...),
     return {"status": "ok", "photo_url": local_url}
 
 
-@router.post("/{course_id}/tees/{tee_id}/fetch-images")
-def fetch_images(course_id: int, tee_id: int, db: Session = Depends(get_db)):
-    """Fetch and cache satellite images for all holes of a tee."""
-    images = fetch_all_hole_images(db, course_id, tee_id)
-    return {"fetched": len(images)}
-
-
-@router.post("/{course_id}/holes/{hole_id}/fetch-image")
-def fetch_single_hole_image(course_id: int, hole_id: int, db: Session = Depends(get_db)):
-    """Fetch and cache a satellite image for a single hole."""
-    from app.services.image_service import fetch_hole_image
-    hole = db.query(CourseHole).filter(CourseHole.id == hole_id).first()
-    if not hole:
-        raise HTTPException(status_code=404, detail="Hole not found")
-    result = fetch_hole_image(db, hole)
-    if result:
-        return {
-            "status": "ok",
-            "filename": result.filename,
-            "center_lat": result.center_lat,
-            "center_lng": result.center_lng,
-            "zoom_level": result.zoom_level,
-        }
-    return {"status": "error", "reason": "Failed to fetch image (check API limits)"}
-
 
 @router.put("/{course_id}/tees/{tee_id}")
 def update_tee(course_id: int, tee_id: int, req: TeeUpdateRequest, db: Session = Depends(get_db)):
@@ -572,11 +526,6 @@ class HoleUpdateRequest(BaseModel):
     flag_lng: Optional[float] = None
     fairway_path: Optional[str] = None  # JSON string of [[lat, lng], ...]
     green_boundary: Optional[str] = None  # JSON string of [[lat, lng], ...] polygon
-    rotation_deg: Optional[int] = None
-    custom_zoom: Optional[int] = None
-    custom_bounds: Optional[str] = None  # JSON: {"min_lat":..,"max_lat":..,"min_lng":..,"max_lng":..}
-    shot_offset_x: Optional[float] = None  # Pixel offset for aligning shots after crop
-    shot_offset_y: Optional[float] = None
 
 
 @router.put("/{course_id}/holes/{hole_id}")
@@ -588,9 +537,6 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
     if hole.tee.course_id != course_id:
         raise HTTPException(status_code=400, detail="Hole does not belong to this course")
 
-    # Track if tee/green positions changed (need image re-fetch)
-    positions_changed = False
-
     if req.par is not None:
         hole.par = req.par
     if req.yardage is not None:
@@ -600,42 +546,17 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
     if req.tee_lat is not None:
         hole.tee_lat = req.tee_lat
         hole.tee_lng = req.tee_lng
-        positions_changed = True
     if req.flag_lat is not None:
         hole.flag_lat = req.flag_lat
         hole.flag_lng = req.flag_lng
-        positions_changed = True
     if req.fairway_path is not None:
         hole.fairway_path = req.fairway_path
     if req.green_boundary is not None:
         hole.green_boundary = req.green_boundary
-    if req.rotation_deg is not None:
-        hole.rotation_deg = req.rotation_deg
-    if req.custom_zoom is not None:
-        hole.custom_zoom = req.custom_zoom if req.custom_zoom else None
-        positions_changed = True
-    if req.custom_bounds is not None:
-        hole.custom_bounds = req.custom_bounds if req.custom_bounds else None
-        positions_changed = True
-    if req.shot_offset_x is not None:
-        hole.shot_offset_x = req.shot_offset_x
-    if req.shot_offset_y is not None:
-        hole.shot_offset_y = req.shot_offset_y
-
-    # If positions changed, delete cached image so it re-fetches with new bounds
-    if positions_changed:
-        existing_img = db.query(HoleImage).filter(HoleImage.hole_id == hole.id).first()
-        if existing_img:
-            # Delete image file
-            from pathlib import Path
-            img_path = Path("app/static/images/holes") / existing_img.filename
-            if img_path.exists():
-                img_path.unlink()
-            db.delete(existing_img)
 
     db.commit()
     db.refresh(hole)
-    return {"status": "ok", "hole_id": hole.id, "positions_changed": positions_changed}
+    return {"status": "ok", "hole_id": hole.id}
 
 
 class LinkOSMHoleRequest(BaseModel):

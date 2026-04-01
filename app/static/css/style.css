@@ -1655,6 +1655,20 @@ tr.detail-expanded { background: var(--bg-hover) !important; }
 .shot-panel-item-label { color: var(--text-muted); }
 .shot-panel-item-value { font-weight: 500; font-variant-numeric: tabular-nums; }
 
+/* Panel hints for missing geometry */
+.panel-hint {
+    font-size: 0.75rem;
+    font-style: italic;
+    color: var(--text-dim, #71717a);
+    padding: 4px 0 2px;
+}
+
+/* Active shot item in course shot list */
+.shot-item-active {
+    background: var(--bg-hover, rgba(255,255,255,0.06));
+    border-radius: 6px;
+}
+
 /* Club toggle pills */
 .club-toggles {
     display: flex;

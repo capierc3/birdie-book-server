@@ -107,4 +107,16 @@ class Shot(Base):
     auto_shot_type = Column(String(20))  # USED, PENALTY
     timestamp = Column(DateTime)
 
+    # Computed spatial metrics (populated by course_calc_service)
+    pin_distance_yards = Column(Float)
+    fairway_side = Column(String(10))       # 'L', 'R', 'CENTER'
+    fairway_side_yards = Column(Float)      # signed: +R / -L
+    fairway_progress_yards = Column(Float)  # useful distance along fairway
+    nearest_hazard_type = Column(String(30))
+    nearest_hazard_name = Column(String(100))
+    nearest_hazard_yards = Column(Float)
+    green_distance_yards = Column(Float)
+    on_green = Column(Boolean)
+    sg_pga = Column(Float)                  # strokes gained vs PGA baseline
+
     round_hole = relationship("RoundHole", back_populates="shots")

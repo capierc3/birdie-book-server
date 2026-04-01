@@ -16,11 +16,25 @@ class ShotResponse(BaseModel):
     id: int
     shot_number: int
     club: Optional[str] = None
+    shot_type: Optional[str] = None
+    start_lie: Optional[str] = None
+    end_lie: Optional[str] = None
     start_lat: Optional[float] = None
     start_lng: Optional[float] = None
     end_lat: Optional[float] = None
     end_lng: Optional[float] = None
     distance_yards: Optional[float] = None
+    # Computed spatial metrics
+    pin_distance_yards: Optional[float] = None
+    fairway_side: Optional[str] = None
+    fairway_side_yards: Optional[float] = None
+    fairway_progress_yards: Optional[float] = None
+    nearest_hazard_type: Optional[str] = None
+    nearest_hazard_name: Optional[str] = None
+    nearest_hazard_yards: Optional[float] = None
+    green_distance_yards: Optional[float] = None
+    on_green: Optional[bool] = None
+    sg_pga: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -148,3 +162,16 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
             shots=[ShotResponse.model_validate(s) for s in sorted(h.shots, key=lambda s: s.shot_number)],
         ) for h in sorted(r.holes, key=lambda x: x.hole_number)],
     )
+
+
+@router.post("/{round_id}/recalc")
+def recalc_round(round_id: int, db: Session = Depends(get_db)):
+    """Recalculate computed spatial metrics for all shots in a round."""
+    from app.services.course_calc_service import recalc_round_shots
+
+    r = db.query(Round).filter(Round.id == round_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Round not found")
+
+    count = recalc_round_shots(db, round_id)
+    return {"status": "ok", "shots_updated": count}

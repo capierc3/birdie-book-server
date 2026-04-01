@@ -132,56 +132,43 @@ The "Draw Fairway" tool lets users click points on the hole map to create the pa
 
 ## 4. Implementation Plan
 
-### Phase 1: Core Geometry Computations (Backend)
-Build a computation service (`app/services/course_calc_service.py`) with these functions:
+### Phase 1: Core Geometry Computations (Backend) — COMPLETE
+Built `app/services/course_calc_service.py` with:
+- **Pin distance remaining** — Haversine from shot end GPS to flag
+- **Pin distance from start** — Haversine from shot start GPS to flag (for SG calc)
+- **Side from fairway** — Perpendicular distance to fairway centerline, signed L/R
+- **Distance along fairway** — Useful distance (progress along fairway path)
+- **Green proximity** — Distance to green boundary or flag, with on-green detection
+- **Hazard proximity** — Distance to nearest hazard polygon edge
 
-1. **Pin distance remaining** — Haversine from shot end GPS to flag GPS
-   - Inputs: `shot.end_lat/lng` + `course_hole.flag_lat/lng`
-   - Output: yards remaining to pin
-   - Requires: flag position only
+Computed columns stored on `Shot` model: `pin_distance_yards`, `fairway_side`, `fairway_side_yards`, `fairway_progress_yards`, `nearest_hazard_type`, `nearest_hazard_name`, `nearest_hazard_yards`, `green_distance_yards`, `on_green`, `sg_pga`.
 
-2. **Side from fairway** — Perpendicular distance from shot end to fairway centerline
-   - Inputs: `shot.end_lat/lng` + `course_hole.fairway_path`
-   - Output: signed yards (+R / -L relative to play direction)
-   - Requires: fairway_path with 5+ waypoints
-   - Must convert GPS → local Cartesian first for accurate perpendicular calc
+### Phase 2: Course Shot Detail Panel (Frontend) — COMPLETE
+Right-pane panel with course-specific metrics, matching range panel UX.
 
-3. **Distance along fairway (useful distance)** — How far the shot advanced the ball toward the hole
-   - Inputs: `shot.start_lat/lng` + `shot.end_lat/lng` + `course_hole.fairway_path`
-   - Output: yards of progress along the fairway path
-   - More meaningful than raw GPS distance for off-line shots
+**Panel sections:** Shot Info, Distance, Accuracy, Hazards, Strokes Gained.
+**Interaction:** Click a shot on the map → panel shows computed data.
+**Recalc button** (↻) in panel header triggers `POST /api/rounds/{id}/recalc`.
 
-4. **Green proximity** — Distance to pin on approach/chip shots
-   - Same as pin distance remaining but filtered to approach/chip shot types
+### Phase 3: API & Recalc Triggers — COMPLETE
+- Computed fields returned inline with shots via `GET /api/rounds/{id}`
+- `POST /api/rounds/{round_id}/recalc` — manual recalc endpoint
+- Auto-recalc triggers:
+  - Hole geometry update (fairway path, tee/flag position, green boundary)
+  - OSM hole link/sync
+  - Garmin import (recalcs all imported rounds after import)
 
-5. **Hazard proximity** — Distance from shot landing to nearest hazard boundary
-   - Inputs: `shot.end_lat/lng` + `CourseHazard.boundary` polygons
-   - Output: yards to nearest hazard edge, hazard type/name
+### Phase 4: Strokes Gained (PGA Baseline) — COMPLETE
+- Static lookup tables: `app/data/shot_baseline.csv`, `app/data/putt_baseline.csv`
+- `app/services/strokes_gained.py` — interpolation + lie mapping
+- `SG = expected_before - expected_after - 1`
+- Computed per shot and stored as `sg_pga`
 
-These are all compute-on-the-fly from existing stored geometry — no new columns needed initially.
-
-### Phase 2: Course Shot Detail Panel (Frontend)
-Build a right-pane panel mirroring the range shot detail panel but with course-specific metrics.
-
-**Panel sections:**
-- **Shot Info:** Club, Shot Type (TEE/APPROACH/CHIP/PUTT), Lie (start → end)
-- **Distance:** GPS Distance, Useful Distance (along fairway), Pin Remaining
-- **Accuracy:** Side from Fairway (L/R yards), Fairway Hit/Miss, Green Proximity
-- **Hazards:** Nearest hazard name + distance
-- **Strokes Gained:** SG value per shot (Phase 4)
-- **Hole Context:** Hole #, Par, Score, vs Par
-
-**Interaction:** Click a shot on the map or shot list → panel slides in from right (same UX as range panel).
-
-### Phase 3: API Endpoint
-- `GET /api/rounds/{round_id}/holes/{hole_number}/computed` — returns all computed metrics for each shot on the hole
-- Pulls CourseHole geometry + CourseHazards + shots, runs computations, returns enriched shot data
-- Frontend calls this when a hole is selected and a round is active
-
-### Phase 4: Strokes Gained
-- Using pin distance + lie type, look up expected strokes from PGA Tour baseline data
-- Compute per shot: `SG = expected_before - expected_after - 1`
-- Requires: static lookup table (see Section 6 below)
+### Phase 5: Personal Strokes Gained — FUTURE
+- Build personal baseline from accumulated round data (avg strokes to hole out by distance + lie)
+- Requires sufficient data volume for statistical significance
+- New metric: `sg_personal` comparing each shot against player's own historical average
+- Useful for tracking improvement over time independent of PGA baseline
 
 ---
 

@@ -13,6 +13,7 @@ from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OS
 from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
 from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
+from app.services.course_calc_service import recalc_hole_shots, recalc_course_shots
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -556,6 +557,13 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
 
     db.commit()
     db.refresh(hole)
+
+    # Recalculate computed metrics for all shots on this hole
+    hazards = db.query(CourseHazard).filter(
+        CourseHazard.golf_club_id == hole.tee.course.golf_club_id
+    ).all()
+    recalc_hole_shots(db, hole, hazards)
+
     return {"status": "ok", "hole_id": hole.id}
 
 
@@ -622,6 +630,16 @@ def link_osm_hole(
                     sibling.flag_lng = osm_hole.green_lng
 
     db.commit()
+
+    # Recalculate computed metrics for shots on this hole (and siblings)
+    if req.apply_gps:
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if course:
+            hazards = db.query(CourseHazard).filter(
+                CourseHazard.golf_club_id == course.golf_club_id
+            ).all()
+            recalc_hole_shots(db, hole, hazards)
+
     return {"status": "linked", "hole_id": hole.id, "osm_hole_id": osm_hole.id}
 
 
@@ -895,6 +913,10 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
                     imported["greens_set"] += 1
 
     db.commit()
+
+    # Recalculate computed metrics for all shots on this course
+    recalc_course_shots(db, course_id)
+
     return {"status": "imported", **imported}
 
 
@@ -1250,6 +1272,11 @@ def import_features_club(golf_club_id: int, req: ClubImportFeaturesRequest, db: 
                     result["holes_enriched"] += 1
 
     db.commit()
+
+    # Recalculate computed metrics for all courses at this club
+    for c in courses_all:
+        recalc_course_shots(db, c.id)
+
     return result
 
 

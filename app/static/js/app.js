@@ -1483,16 +1483,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 color: color,
                 weight: isHistoric ? 2 : 3,
                 opacity: isHistoric ? 0.4 : 0.8,
+                _shotId: shot.id,
             }).addTo(holeShotLayers);
 
+            // Click handler on polyline
+            if (!isHistoric) {
+                line.on('click', () => window._showCourseShotDetail(shot.id));
+            }
+
             // End dot (landing position)
-            L.circleMarker(end, {
+            const endMarker = L.circleMarker(end, {
                 radius: isHistoric ? 3 : 5,
                 color: color,
                 fillColor: color,
                 fillOpacity: isHistoric ? 0.5 : 0.8,
                 weight: 1,
+                _shotId: shot.id,
             }).addTo(holeShotLayers);
+
+            if (!isHistoric) {
+                endMarker.on('click', () => window._showCourseShotDetail(shot.id));
+            }
 
             // In round mode: shot number marker at start
             if (!isHistoric) {
@@ -1602,6 +1613,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderHoleDetail() {
         // Always exit edit mode when switching holes
         if (holeEditMode) exitEditMode();
+        // Close course shot panel when switching holes
+        if (_coursePanelContext === 'course') hideShotPanel();
 
         const titleEl = document.getElementById('hole-detail-title');
         const statsEl = document.getElementById('hole-detail-stats');
@@ -1807,7 +1820,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     }
                                 }
 
-                                return `<div class="shot-item">
+                                return `<div class="shot-item" data-shot-id="${s.id}" onclick="window._showCourseShotDetail(${s.id})" style="cursor:pointer;">
                                     <span class="shot-num" style="background:${shotColor}; color:#000;">${i + 1}</span>
                                     <span class="shot-club">${clubName} ${lieInfo}${isBest ? ' <span style="font-size:0.72rem;" title="Personal best with this club">\uD83C\uDFC6</span>' : ''}</span>
                                     <span class="shot-dist">${dist ? dist + ' yds' : ''} ${vsAvg}</span>
@@ -5450,15 +5463,285 @@ document.addEventListener('DOMContentLoaded', () => {
     function hideShotPanel() {
         const panel = document.getElementById('shot-panel');
         if (panel) panel.style.display = 'none';
+        _coursePanelContext = null;
     }
+
+    // ── Course Shot Detail Panel ──
+    let _coursePanelContext = null; // null | 'course' — tracks if panel is showing course data
+    let _courseSelectedShotId = null;
+
+    const COURSE_PANEL_FIELDS = {
+        info: [
+            ['Club', '_club', ''],
+            ['Shot Type', '_shot_type', ''],
+            ['Lie', '_lie_transition', ''],
+        ],
+        distance: [
+            ['GPS Distance', 'distance_yards', 'yds', 0],
+            ['Useful Distance', 'fairway_progress_yards', 'yds', 0],
+            ['Pin Remaining', 'pin_distance_yards', 'yds', 0],
+        ],
+        accuracy: [
+            ['Side from FW', '_fairway_side_display', ''],
+            ['Fairway Hit', '_fairway_hit', ''],
+            ['Green Prox', 'green_distance_yards', 'yds', 0],
+            ['On Green', '_on_green_display', ''],
+        ],
+        hazards: [
+            ['Nearest Hazard', '_hazard_display', ''],
+        ],
+        sg: [
+            ['SG vs PGA', '_sg_display', ''],
+        ],
+    };
+
+    function _buildCourseShotDisplay(shot) {
+        // Build computed display fields from raw shot data
+        const display = { ...shot };
+        display._club = shot.club || '\u2014';
+        display._shot_type = shot.shot_type || '\u2014';
+
+        // Lie transition
+        if (shot.start_lie && shot.end_lie) {
+            display._lie_transition = `${shot.start_lie} \u2192 ${shot.end_lie}`;
+        } else if (shot.end_lie) {
+            display._lie_transition = shot.end_lie;
+        } else {
+            display._lie_transition = '\u2014';
+        }
+
+        // Fairway side display
+        if (shot.fairway_side != null && shot.fairway_side_yards != null) {
+            if (shot.fairway_side === 'CENTER') {
+                display._fairway_side_display = 'CENTER';
+            } else {
+                display._fairway_side_display = `${Math.abs(shot.fairway_side_yards).toFixed(0)} ${shot.fairway_side}`;
+            }
+        } else {
+            display._fairway_side_display = null;
+        }
+
+        // Fairway hit (within ~18 yards of centerline)
+        if (shot.fairway_side_yards != null) {
+            display._fairway_hit = Math.abs(shot.fairway_side_yards) < 18 ? '\u2713' : '\u2717';
+        } else {
+            display._fairway_hit = null;
+        }
+
+        // On green display
+        if (shot.on_green != null) {
+            display._on_green_display = shot.on_green ? '\u2713' : '\u2717';
+        } else {
+            display._on_green_display = null;
+        }
+
+        // Hazard display
+        if (shot.nearest_hazard_type && shot.nearest_hazard_yards != null) {
+            const name = shot.nearest_hazard_name || shot.nearest_hazard_type;
+            display._hazard_display = `${name} \u2014 ${shot.nearest_hazard_yards.toFixed(0)} yds`;
+        } else {
+            display._hazard_display = null;
+        }
+
+        // Strokes gained display
+        if (shot.sg_pga != null) {
+            display._sg_display = `${shot.sg_pga >= 0 ? '+' : ''}${shot.sg_pga.toFixed(2)}`;
+        } else {
+            display._sg_display = null;
+        }
+
+        return display;
+    }
+
+    function _getGeometryHints(holeData) {
+        // Determine which geometry is missing for hint messages
+        const hints = {};
+        if (!holeData) return hints;
+        const hasFairway = holeData.fairway_path && (typeof holeData.fairway_path === 'string' ? JSON.parse(holeData.fairway_path).length >= 2 : holeData.fairway_path.length >= 2);
+        const hasFlag = holeData.flag_lat && holeData.flag_lng;
+        const hasGreen = holeData.green_boundary;
+
+        if (!hasFairway) hints.accuracy = 'Draw a fairway path to see accuracy data';
+        if (!hasFairway) hints.distance_useful = 'Draw a fairway path to see useful distance';
+        if (!hasFlag) hints.distance_pin = 'Set flag position to see pin distance';
+        if (!hasGreen) hints.green = 'Add green boundary to see green proximity';
+        return hints;
+    }
+
+    function showCourseShotPanel(shot, holeData) {
+        const panel = document.getElementById('shot-panel');
+        if (!panel) return;
+        _coursePanelContext = 'course';
+        panel.style.display = 'flex';
+
+        // Title
+        const titleEl = document.getElementById('shot-panel-title');
+        titleEl.textContent = `Shot ${shot.shot_number} \u2014 ${shot.club || 'Unknown'}`;
+
+        // Hide range-specific buttons
+        const compareBtn = document.getElementById('btn-panel-compare');
+        const swapBtn = document.getElementById('btn-panel-swap');
+        const popoutBtn = document.getElementById('btn-panel-popout');
+        if (compareBtn) compareBtn.style.display = 'none';
+        if (swapBtn) swapBtn.style.display = 'none';
+        if (popoutBtn) popoutBtn.style.display = 'none';
+
+        // Show recalc button for course panel
+        const recalcBtn = document.getElementById('btn-panel-recalc');
+        if (recalcBtn) recalcBtn.style.display = '';
+
+        // Hide club head diagrams
+        const diagrams = panel.querySelector('.shot-panel-diagrams');
+        if (diagrams) diagrams.style.display = 'none';
+        const footnote = panel.querySelector('.shot-panel-footnote');
+        if (footnote) footnote.style.display = 'none';
+
+        const data = document.getElementById('shot-panel-data');
+        const display = _buildCourseShotDisplay(shot);
+        const hints = _getGeometryHints(holeData);
+
+        function _fmtVal(v, dec = 1) {
+            if (v == null) return '\u2014';
+            if (typeof v === 'string') return v;
+            return dec === 0 ? Math.round(v).toString() : v.toFixed(dec);
+        }
+
+        function _renderCourseField([label, key, unit, dec]) {
+            const v = display[key];
+            const val = _fmtVal(v, dec);
+            const u = unit && val !== '\u2014' ? `<span style="color:var(--text-dim);font-size:0.7rem;">${unit}</span>` : '';
+
+            // SG coloring
+            let valStyle = '';
+            if (key === '_sg_display' && shot.sg_pga != null) {
+                valStyle = shot.sg_pga > 0 ? 'color: var(--green, #4ade80);' : shot.sg_pga < 0 ? 'color: var(--red, #f87171);' : '';
+            }
+            // Fairway hit coloring
+            if (key === '_fairway_hit' && val !== '\u2014') {
+                valStyle = val === '\u2713' ? 'color: var(--green, #4ade80);' : 'color: var(--red, #f87171);';
+            }
+            if (key === '_on_green_display' && val !== '\u2014') {
+                valStyle = val === '\u2713' ? 'color: var(--green, #4ade80);' : 'color: var(--red, #f87171);';
+            }
+
+            return `<div class="shot-panel-item"><span class="shot-panel-item-label">${label}</span><span class="shot-panel-item-value" style="${valStyle}">${val} ${u}</span></div>`;
+        }
+
+        const sectionDefs = [
+            ['Shot Info', 'info', null],
+            ['Distance', 'distance', null],
+            ['Accuracy', 'accuracy', hints.accuracy],
+            ['Hazards', 'hazards', null],
+            ['Strokes Gained', 'sg', hints.distance_pin],
+        ];
+
+        data.innerHTML = sectionDefs.map(([title, key, hint]) => {
+            const fields = COURSE_PANEL_FIELDS[key];
+            const fieldsHtml = fields.map(_renderCourseField).join('');
+
+            // Check if all field values are null (show hint instead)
+            const allNull = fields.every(([, fkey]) => display[fkey] == null);
+            const hintHtml = (allNull && hint) ? `<div class="panel-hint">${hint}</div>` : '';
+
+            return `
+                <div class="shot-panel-section">
+                    <div class="shot-panel-section-title">${title}</div>
+                    <div class="shot-panel-grid">
+                        ${fieldsHtml}
+                    </div>
+                    ${hintHtml}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function _highlightCourseShot(shotId) {
+        _courseSelectedShotId = shotId;
+
+        // Highlight in shot list
+        document.querySelectorAll('#hole-shot-list .shot-item').forEach(el => {
+            el.classList.toggle('shot-item-active', el.dataset.shotId == shotId);
+        });
+
+        // Highlight on map
+        if (holeShotLayers) {
+            holeShotLayers.eachLayer(layer => {
+                if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
+                    const isSelected = layer.options._shotId === shotId;
+                    layer.setStyle({
+                        weight: isSelected ? 5 : 2,
+                        opacity: isSelected ? 1 : 0.3,
+                    });
+                }
+                if (layer instanceof L.CircleMarker) {
+                    const isSelected = layer.options._shotId === shotId;
+                    layer.setStyle({
+                        fillOpacity: isSelected ? 1 : 0.2,
+                        radius: isSelected ? 7 : 4,
+                    });
+                }
+            });
+        }
+    }
+
+    window._showCourseShotDetail = function(shotId) {
+        if (!holeViewRoundDetail) return;
+        const rh = holeViewRoundDetail.holes.find(h => h.hole_number === selectedHole);
+        if (!rh) return;
+        const shot = rh.shots.find(s => s.id === shotId);
+        if (!shot) return;
+
+        const courseHoles = getCourseTeeHoles();
+        const holeData = courseHoles.find(h => h.hole_number === selectedHole);
+
+        _highlightCourseShot(shotId);
+        showCourseShotPanel(shot, holeData);
+    };
 
     // Close button
     document.getElementById('btn-panel-close')?.addEventListener('click', () => {
-        rangeState.compareMode = false;
-        rangeState.primaryShotId = null;
-        rangeState.compareShotId = null;
+        if (_coursePanelContext === 'course') {
+            // Reset course panel state
+            _courseSelectedShotId = null;
+            _highlightCourseShot(null);
+            // Restore range buttons visibility for next range use
+            const compareBtn = document.getElementById('btn-panel-compare');
+            const popoutBtn = document.getElementById('btn-panel-popout');
+            if (compareBtn) compareBtn.style.display = '';
+            if (popoutBtn) popoutBtn.style.display = '';
+            const recalcBtn2 = document.getElementById('btn-panel-recalc');
+            if (recalcBtn2) recalcBtn2.style.display = 'none';
+            const diagrams = document.querySelector('.shot-panel-diagrams');
+            if (diagrams) diagrams.style.display = '';
+        } else {
+            rangeState.compareMode = false;
+            rangeState.primaryShotId = null;
+            rangeState.compareShotId = null;
+            clearHighlights();
+        }
         hideShotPanel();
-        clearHighlights();
+    });
+
+    // Recalc button (course panel only)
+    document.getElementById('btn-panel-recalc')?.addEventListener('click', async () => {
+        if (!holeViewRoundDetail) return;
+        const roundId = holeViewRoundDetail.id;
+        const btn = document.getElementById('btn-panel-recalc');
+        if (btn) { btn.disabled = true; btn.textContent = '…'; }
+        try {
+            await fetch(`/api/rounds/${roundId}/recalc`, { method: 'POST' });
+            // Reload round data
+            const resp = await fetch(`/api/rounds/${roundId}`);
+            holeViewRoundDetail = await resp.json();
+            // Re-render the panel with updated data
+            if (_courseSelectedShotId) {
+                window._showCourseShotDetail(_courseSelectedShotId);
+            }
+        } catch (e) {
+            console.error('Recalc failed:', e);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '\u21bb'; }
+        }
     });
 
     // Compare button

@@ -410,5 +410,17 @@ def import_full_export(db: Session, parsed: dict, on_progress=None) -> dict:
         progress("finalizing", f"Matched {total_tee_matched} round(s) to tees")
     results["rounds_matched_to_tees"] = total_tee_matched
 
+    # 9. Recalculate computed spatial metrics for all imported rounds
+    from app.services.course_calc_service import recalc_round_shots
+    progress("enrichment", "Computing spatial metrics for shots...")
+    total_enriched = 0
+    for sc in parsed["scorecards"]:
+        r = db.query(Round).filter(Round.garmin_id == sc.garmin_id).first()
+        if r and r.course_id and r.tee_id:
+            total_enriched += recalc_round_shots(db, r.id)
+    if total_enriched:
+        progress("enrichment", f"Computed metrics for {total_enriched} shot(s)")
+    results["shots_enriched"] = total_enriched
+
     progress("done", "Import complete!")
     return results

@@ -19,6 +19,19 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://api.golfcourseapi.com"
 
 
+def _normalize_hole_count(holes_completed: int) -> int:
+    """Round partial hole counts to standard course sizes (9 or 18).
+
+    Garmin rounds can report fewer holes than the course actually has
+    (watch died, Garmin bug, partial round). Courses are always 9 or 18.
+    """
+    if holes_completed <= 0:
+        return 18  # fallback
+    if holes_completed <= 9:
+        return 9
+    return 18
+
+
 def _headers() -> dict:
     return {"Authorization": f"Key {settings.golf_course_api_key}"}
 
@@ -257,7 +270,7 @@ def _infer_tees_from_rounds(db: Session, course: Course) -> dict:
         if r.total_strokes and r.score_vs_par is not None:
             par = r.total_strokes - r.score_vs_par
             tee_groups[tee_key]["pars"].append(par)
-        tee_groups[tee_key]["holes_list"].append(r.holes_completed or 18)
+        tee_groups[tee_key]["holes_list"].append(_normalize_hole_count(r.holes_completed or 0))
         tee_groups[tee_key]["round_ids"].append(r.id)
 
     tees_created = 0
@@ -340,6 +353,20 @@ def _infer_tees_from_rounds(db: Session, course: Course) -> dict:
 
     if first_par and not course.par:
         course.par = first_par
+
+    # Update course.holes from inferred data when no API tees exist
+    if tees_created > 0:
+        all_holes_counts = []
+        for data in tee_groups.values():
+            if data["holes_list"]:
+                all_holes_counts.append(Counter(data["holes_list"]).most_common(1)[0][0])
+        if all_holes_counts:
+            inferred_holes = Counter(all_holes_counts).most_common(1)[0][0]
+            has_api_tees = db.query(CourseTee).filter(
+                CourseTee.course_id == course.id, CourseTee.inferred == False
+            ).count() > 0
+            if not has_api_tees:
+                course.holes = inferred_holes
 
     db.commit()
     log.info(

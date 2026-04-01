@@ -117,13 +117,17 @@
 <!-- ===== Course Detail Section ===== -->
 <div class="content-section" id="section-course-detail">
     <!-- Hero Banner -->
-    <div class="course-hero" id="course-hero">
+    <div class="course-hero" id="course-hero" style="position:relative;">
         <div class="course-hero-overlay"></div>
         <div class="course-hero-content">
             <a href="#courses" class="btn btn-ghost btn-sm nav-link course-back-link" data-section="section-courses">&larr; All Clubs</a>
             <h1 id="course-detail-name">Course</h1>
             <p id="course-detail-subtitle"></p>
         </div>
+        <button class="btn btn-ghost btn-sm" id="btn-change-photo"
+            style="position:absolute; bottom:8px; right:8px; z-index:2; background:rgba(0,0,0,0.5); color:#fff; font-size:0.75rem; padding:4px 10px; border-radius:6px; backdrop-filter:blur(4px); cursor:pointer;">
+            Change Photo
+        </button>
     </div>
 
     <!-- Course Info -->
@@ -472,6 +476,37 @@
         <div id="merge-modal-list" class="modal-body"></div>
         <div class="modal-footer" style="margin-top:16px;">
             <button class="btn btn-secondary btn-sm" id="btn-merge-modal-cancel">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Photo Picker Modal ===== -->
+<div class="modal-overlay" id="photo-picker-modal" style="display:none;">
+    <div class="modal" style="max-width:640px;">
+        <div class="modal-header">
+            <h2>Change Club Photo</h2>
+            <button class="btn btn-ghost btn-sm" id="btn-photo-modal-close">&times;</button>
+        </div>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <button class="btn btn-secondary btn-sm photo-tab-btn active" data-tab="google">Google Photos</button>
+            <button class="btn btn-secondary btn-sm photo-tab-btn" data-tab="upload">Upload</button>
+        </div>
+        <div id="photo-tab-google" class="modal-body" style="max-height:400px; overflow-y:auto;">
+            <div id="photo-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:8px;">
+                <p style="color:var(--text-muted); grid-column:1/-1; text-align:center; padding:24px;">Loading photos...</p>
+            </div>
+        </div>
+        <div id="photo-tab-upload" class="modal-body" style="display:none;">
+            <div style="border:2px dashed var(--border); border-radius:8px; padding:32px; text-align:center;">
+                <p style="color:var(--text-muted); margin-bottom:12px;">Select a JPG or PNG image</p>
+                <input type="file" id="photo-upload-input" accept="image/jpeg,image/png" style="display:none;">
+                <button class="btn btn-secondary btn-sm" id="btn-photo-browse">Browse Files</button>
+                <div id="photo-upload-preview" style="margin-top:12px;"></div>
+            </div>
+        </div>
+        <div id="photo-picker-status" style="margin-top:8px; font-size:0.85rem; color:var(--text-muted);"></div>
+        <div class="modal-footer" style="margin-top:12px;">
+            <button class="btn btn-secondary btn-sm" id="btn-photo-modal-cancel">Cancel</button>
         </div>
     </div>
 </div>

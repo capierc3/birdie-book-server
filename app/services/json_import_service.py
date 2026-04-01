@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from app.models import GolfClub, Course, CourseTee, CourseHole, Round, RoundHole, Shot, Club, ClubStats, Player
 from app.models.range_session import RangeShot
 from app.models.trackman_shot import TrackmanShot
-from app.services.golf_course_api import _infer_tees_from_rounds
+from collections import Counter
+from app.services.golf_course_api import _infer_tees_from_rounds, _normalize_hole_count
 from app.services.garmin_json_parser import (
     ParsedClub, ParsedCourseRef, ParsedScorecard, ParsedShot,
     ParsedShotLoc,
@@ -355,6 +356,22 @@ def import_full_export(db: Session, parsed: dict, on_progress=None) -> dict:
     total_shots = len(parsed["shots"])
     progress("scorecards", f"Importing {total_sc} rounds with {total_shots} shots...")
     results["scorecards"] = import_scorecards(db, parsed["scorecards"], shots_by_scorecard, club_map)
+
+    # 5b. Set course.holes from round data (JSON import doesn't set it)
+    for c in parsed["courses"]:
+        course = db.query(Course).filter(Course.garmin_snapshot_id == c.garmin_snapshot_id).first()
+        if course and course.holes == 18:
+            rounds = db.query(Round.holes_completed).filter(
+                Round.course_id == course.id,
+                Round.holes_completed.isnot(None),
+                Round.holes_completed > 0,
+            ).all()
+            if rounds:
+                mode = Counter(_normalize_hole_count(r[0]) for r in rounds).most_common(1)[0][0]
+                if mode != 18:
+                    course.holes = mode
+                    log.info("Set course '%s' holes=%d from round data", course.display_name, mode)
+    db.commit()
 
     # 6. Infer tee data from round history (no API calls — fast and free)
     progress("tees", f"Inferring tee data for {len(parsed['courses'])} courses...")

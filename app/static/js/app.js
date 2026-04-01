@@ -719,10 +719,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const clubName = currentClubDetail?.name || c.club_name || c.display_name;
         const clubId = currentClubDetail?.id || c.golf_club_id;
 
-        // Hero banner
+        // Hero banner (cache-bust local club photos)
         const hero = document.getElementById('course-hero');
         if (c.photo_url) {
-            hero.style.backgroundImage = `url(${c.photo_url})`;
+            const bust = c.photo_url.startsWith('/static/') ? `?t=${Date.now()}` : '';
+            hero.style.backgroundImage = `url(${c.photo_url}${bust})`;
         } else {
             hero.style.backgroundImage = '';
         }
@@ -759,15 +760,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const teesHtml = hasTees ? `
                 <table class="tees-table">
                     <thead>
-                        <tr><th>Tee</th><th>Par</th><th>Yards</th><th>Rating</th><th>Slope</th></tr>
+                        <tr><th>Tee</th><th>Par</th><th>Yards</th><th>Rating</th><th>Slope</th><th style="width:80px;"></th></tr>
                     </thead>
                     <tbody>
-                        ${cc.tees.map(t => `<tr>
+                        ${cc.tees.map(t => `<tr data-tee-id="${t.id}" data-course-id="${cc.id}">
                             <td><strong>${t.tee_name}</strong></td>
                             <td>${t.par_total || '\u2014'}</td>
                             <td>${t.total_yards ? t.total_yards.toLocaleString() : '\u2014'}</td>
                             <td>${t.course_rating?.toFixed(1) || '\u2014'}</td>
                             <td>${t.slope_rating || '\u2014'}</td>
+                            <td style="text-align:right;">
+                                <button class="btn-icon tee-edit-btn" title="Edit tee" onclick="startTeeEdit(this)" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px 6px; font-size:0.9rem;">&#9998;</button>
+                            </td>
                         </tr>`).join('')}
                     </tbody>
                 </table>
@@ -2868,6 +2872,64 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ========== Course Merge ==========
+    async function _executeMerge(targetId, sourceId, resolveHoles, resolvePar) {
+        const params = new URLSearchParams();
+        if (resolveHoles != null) params.set('resolve_holes', resolveHoles);
+        if (resolvePar != null) params.set('resolve_par', resolvePar);
+        const qs = params.toString() ? `?${params}` : '';
+        const resp = await fetch(`/api/courses/${targetId}/merge/${sourceId}${qs}`, { method: 'POST' });
+        return { resp, data: await resp.json() };
+    }
+
+    function _showMergeConflictDialog(preview, onConfirm, onCancel) {
+        const existing = document.getElementById('merge-conflict-dialog');
+        if (existing) existing.remove();
+
+        let html = `<div id="merge-conflict-dialog" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+                <h3 style="margin:0 0 8px;">Merge Conflicts</h3>
+                <p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 16px;">
+                    These fields differ between the two courses. Choose which value to keep:
+                </p>`;
+
+        for (const c of preview.conflicts) {
+            html += `<div style="margin-bottom:12px;">
+                <label style="font-weight:600;font-size:0.85rem;">${c.label}</label>
+                <div style="display:flex;gap:8px;margin-top:4px;">
+                    <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:0.85rem;">
+                        <input type="radio" name="resolve_${c.field}" value="${c.target_value}" checked>
+                        <span>${c.target_value} <span style="color:var(--text-muted);">(target)</span></span>
+                    </label>
+                    <label style="flex:1;display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:0.85rem;">
+                        <input type="radio" name="resolve_${c.field}" value="${c.source_value}">
+                        <span>${c.source_value} <span style="color:var(--text-muted);">(source)</span></span>
+                    </label>
+                </div>
+            </div>`;
+        }
+
+        html += `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+                    <button id="merge-conflict-cancel" class="btn btn-ghost btn-sm">Cancel</button>
+                    <button id="merge-conflict-confirm" class="btn btn-primary btn-sm">Merge</button>
+                </div>
+            </div>
+        </div>`;
+
+        document.body.insertAdjacentHTML('beforeend', html);
+        const dialog = document.getElementById('merge-conflict-dialog');
+        document.getElementById('merge-conflict-cancel').onclick = () => { dialog.remove(); onCancel(); };
+        dialog.addEventListener('click', (e) => { if (e.target === dialog) { dialog.remove(); onCancel(); } });
+        document.getElementById('merge-conflict-confirm').onclick = () => {
+            const resolutions = {};
+            for (const c of preview.conflicts) {
+                const checked = dialog.querySelector(`input[name="resolve_${c.field}"]:checked`);
+                resolutions[c.field] = checked ? parseInt(checked.value) : c.target_value;
+            }
+            dialog.remove();
+            onConfirm(resolutions);
+        };
+    }
+
     document.getElementById('course-detail-courses')?.addEventListener('change', async (e) => {
         const sel = e.target.closest('.merge-target-select');
         if (!sel) return;
@@ -2879,32 +2941,380 @@ document.addEventListener('DOMContentLoaded', () => {
         const sourceName = currentClubCourses.find(c => c.id == sourceId)?.course_name || '(Main Course)';
         const targetName = currentClubCourses.find(c => c.id == targetId)?.course_name || '(Main Course)';
 
-        if (!confirm(`Merge "${sourceName}" into "${targetName}"?\n\nThis will move all rounds and tees, then delete "${sourceName}".`)) {
-            sel.value = '';
-            return;
-        }
-
+        // Preview merge to check for conflicts
         sel.disabled = true;
-        showCourseStatus(`Merging "${sourceName}" into "${targetName}"...`, 'progress');
+        showCourseStatus(`Checking merge...`, 'progress');
 
         try {
-            const resp = await fetch(`/api/courses/${targetId}/merge/${sourceId}`, { method: 'POST' });
-            const data = await resp.json();
-            if (resp.ok && data.status === 'merged') {
-                showCourseStatus(`Merged: ${data.rounds_moved} round(s), ${data.tees_moved} tee set(s) moved.`, 'success');
-                await loadAllData();
-                loadClubDetail(currentClubDetail.id);
+            const previewResp = await fetch(`/api/courses/${targetId}/merge-preview/${sourceId}`);
+            const preview = await previewResp.json();
+            if (!previewResp.ok) {
+                showCourseStatus(preview.detail || 'Preview failed', 'error');
+                sel.value = ''; sel.disabled = false;
+                return;
+            }
+
+            const doMerge = async (resolveHoles, resolvePar) => {
+                showCourseStatus(`Merging "${sourceName}" into "${targetName}"...`, 'progress');
+                const { resp, data } = await _executeMerge(targetId, sourceId, resolveHoles, resolvePar);
+                if (resp.ok && data.status === 'merged') {
+                    showCourseStatus(`Merged: ${data.rounds_moved} round(s), ${data.tees_moved} tee set(s) moved.`, 'success');
+                    await loadAllData();
+                    loadClubDetail(currentClubDetail.id);
+                } else {
+                    showCourseStatus(data.detail || 'Merge failed', 'error');
+                    sel.value = ''; sel.disabled = false;
+                }
+            };
+
+            if (preview.conflicts.length > 0) {
+                // Show conflict resolution dialog
+                _showMergeConflictDialog(preview, async (resolutions) => {
+                    try {
+                        await doMerge(resolutions.holes, resolutions.par);
+                    } catch (err) {
+                        showCourseStatus('Error: ' + err.message, 'error');
+                        sel.value = ''; sel.disabled = false;
+                    }
+                }, () => {
+                    sel.value = ''; sel.disabled = false;
+                    showCourseStatus('Merge cancelled.', 'error');
+                });
             } else {
-                showCourseStatus(data.detail || 'Merge failed', 'error');
-                sel.value = '';
-                sel.disabled = false;
+                // No conflicts — confirm and merge directly
+                if (!confirm(`Merge "${sourceName}" into "${targetName}"?\n\n${preview.rounds_to_move} round(s) and ${preview.tees_to_move} tee set(s) will be moved. "${sourceName}" will be deleted.`)) {
+                    sel.value = ''; sel.disabled = false;
+                    showCourseStatus('', '');
+                    return;
+                }
+                await doMerge(null, null);
             }
         } catch (e) {
             showCourseStatus('Error: ' + e.message, 'error');
-            sel.value = '';
-            sel.disabled = false;
+            sel.value = ''; sel.disabled = false;
         }
     });
+
+    // ========== Tee Inline Edit ==========
+    window.startTeeEdit = function(btn) {
+        const row = btn.closest('tr');
+        const cells = row.querySelectorAll('td');
+        const teeId = row.dataset.teeId;
+        const courseId = row.dataset.courseId;
+
+        // Read current values from display cells
+        const name = cells[0].textContent.trim();
+        const par = cells[1].textContent.trim().replace('\u2014', '');
+        const yards = cells[2].textContent.trim().replace(/,/g, '').replace('\u2014', '');
+        const rating = cells[3].textContent.trim().replace('\u2014', '');
+        const slope = cells[4].textContent.trim().replace('\u2014', '');
+
+        // Replace cells with inputs
+        cells[0].innerHTML = `<input type="text" value="${name}" style="width:100%; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:2px 6px; font-size:0.85rem;">`;
+        cells[1].innerHTML = `<input type="number" value="${par}" style="width:60px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:2px 6px; font-size:0.85rem;">`;
+        cells[2].innerHTML = `<input type="number" value="${yards}" style="width:80px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:2px 6px; font-size:0.85rem;">`;
+        cells[3].innerHTML = `<input type="number" step="0.1" value="${rating}" style="width:70px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:2px 6px; font-size:0.85rem;">`;
+        cells[4].innerHTML = `<input type="number" value="${slope}" style="width:60px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:2px 6px; font-size:0.85rem;">`;
+
+        // Replace action cell with save/delete/cancel
+        cells[5].innerHTML = `
+            <span style="display:flex; gap:4px; justify-content:flex-end;">
+                <button class="btn-icon" title="Save" onclick="saveTeeEdit(this)" style="background:none; border:none; color:#4caf50; cursor:pointer; padding:2px 4px; font-size:0.95rem;">&#10003;</button>
+                <button class="btn-icon" title="Delete tee" onclick="deleteTee(this)" style="background:none; border:none; color:#d32f2f; cursor:pointer; padding:2px 4px; font-size:0.95rem;">&#128465;</button>
+                <button class="btn-icon" title="Cancel" onclick="cancelTeeEdit()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px 4px; font-size:0.95rem;">&#10007;</button>
+            </span>`;
+    };
+
+    window.saveTeeEdit = async function(btn) {
+        const row = btn.closest('tr');
+        const inputs = row.querySelectorAll('input');
+        const teeId = row.dataset.teeId;
+        const courseId = row.dataset.courseId;
+
+        const body = {
+            tee_name: inputs[0].value.trim(),
+            par_total: inputs[1].value ? parseInt(inputs[1].value) : null,
+            total_yards: inputs[2].value ? parseInt(inputs[2].value) : null,
+            course_rating: inputs[3].value ? parseFloat(inputs[3].value) : null,
+            slope_rating: inputs[4].value ? parseFloat(inputs[4].value) : null,
+        };
+
+        try {
+            const resp = await fetch(`/api/courses/${courseId}/tees/${teeId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body),
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                showCourseStatus(err.detail || 'Failed to update tee', 'error');
+                return;
+            }
+            showCourseStatus('Tee updated.', 'success');
+            loadClubDetail(currentClubDetail.id);
+        } catch (e) {
+            showCourseStatus('Error: ' + e.message, 'error');
+        }
+    };
+
+    window.deleteTee = async function(btn) {
+        const row = btn.closest('tr');
+        const teeId = row.dataset.teeId;
+        const courseId = row.dataset.courseId;
+        const name = row.querySelectorAll('input')[0]?.value || 'this tee';
+
+        if (!confirm(`Delete "${name}" and all its hole data? This cannot be undone.`)) return;
+
+        try {
+            const resp = await fetch(`/api/courses/${courseId}/tees/${teeId}`, { method: 'DELETE' });
+            if (resp.status === 409) {
+                // Rounds are linked — show reassignment dialog
+                const info = await resp.json();
+                const detail = info.detail;
+                _showTeeReassignDialog(courseId, teeId, name, detail.rounds, detail.available_tees);
+                return;
+            }
+            if (!resp.ok) {
+                const err = await resp.json();
+                showCourseStatus(err.detail || 'Failed to delete tee', 'error');
+                return;
+            }
+            showCourseStatus('Tee deleted.', 'success');
+            loadClubDetail(currentClubDetail.id);
+        } catch (e) {
+            showCourseStatus('Error: ' + e.message, 'error');
+        }
+    };
+
+    function _showTeeReassignDialog(courseId, teeId, teeName, rounds, availableTees) {
+        // Remove any existing dialog
+        document.querySelector('.tee-reassign-dialog')?.remove();
+
+        const noTees = availableTees.length === 0;
+        const teeOptions = availableTees.map(t => `<option value="${t.id}">${t.tee_name}</option>`).join('');
+
+        const roundRows = rounds.map(r => `
+            <tr data-round-id="${r.id}">
+                <td>${r.date}</td>
+                <td>${r.total_strokes || '\u2014'}</td>
+                <td>${noTees ? '<span style="color:var(--text-muted);">No other tees</span>'
+                    : `<select class="reassign-tee-select" style="font-size:0.85rem; padding:2px 6px; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px;">${teeOptions}</select>`}
+                </td>
+            </tr>
+        `).join('');
+
+        const dialog = document.createElement('div');
+        dialog.className = 'tee-reassign-dialog';
+        dialog.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:1000;';
+        dialog.innerHTML = `
+            <div style="background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:24px; max-width:500px; width:90%;">
+                <h3 style="margin-bottom:12px; color:var(--accent);">Reassign Rounds</h3>
+                <p style="color:var(--text-muted); margin-bottom:16px; font-size:0.88rem;">
+                    "${teeName}" has ${rounds.length} round(s) linked to it. ${noTees
+                        ? 'There are no other tees on this course to reassign to. Create another tee first.'
+                        : 'Reassign each round to another tee before deleting.'}
+                </p>
+                <table style="width:100%; margin-bottom:16px; font-size:0.88rem;">
+                    <thead>
+                        <tr><th style="text-align:left;">Date</th><th>Score</th><th>Assign to</th></tr>
+                    </thead>
+                    <tbody>${roundRows}</tbody>
+                </table>
+                <div style="display:flex; gap:8px; justify-content:flex-end;">
+                    ${noTees ? '' : '<button class="btn btn-primary btn-sm" id="btn-reassign-confirm">Reassign & Delete</button>'}
+                    <button class="btn btn-secondary btn-sm" id="btn-reassign-cancel">Cancel</button>
+                </div>
+            </div>`;
+
+        document.body.appendChild(dialog);
+
+        dialog.querySelector('#btn-reassign-cancel').onclick = () => dialog.remove();
+
+        const confirmBtn = dialog.querySelector('#btn-reassign-confirm');
+        if (confirmBtn) {
+            confirmBtn.onclick = async () => {
+                const assignments = {};
+                dialog.querySelectorAll('tr[data-round-id]').forEach(tr => {
+                    const roundId = parseInt(tr.dataset.roundId);
+                    const sel = tr.querySelector('.reassign-tee-select');
+                    if (sel) assignments[roundId] = parseInt(sel.value);
+                });
+
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = 'Reassigning...';
+                try {
+                    const resp = await fetch(`/api/courses/${courseId}/tees/${teeId}/reassign-rounds`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ assignments }),
+                    });
+                    if (!resp.ok) {
+                        const err = await resp.json();
+                        showCourseStatus(err.detail || 'Reassignment failed', 'error');
+                        confirmBtn.disabled = false;
+                        confirmBtn.textContent = 'Reassign & Delete';
+                        return;
+                    }
+                    dialog.remove();
+                    showCourseStatus('Tee deleted and rounds reassigned.', 'success');
+                    loadClubDetail(currentClubDetail.id);
+                } catch (e) {
+                    showCourseStatus('Error: ' + e.message, 'error');
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Reassign & Delete';
+                }
+            };
+        }
+    }
+
+    window.cancelTeeEdit = function() {
+        // Simply reload the club detail to restore original state
+        if (currentClubDetail) loadClubDetail(currentClubDetail.id);
+    };
+
+    // ========== Photo Picker ==========
+    const photoModal = document.getElementById('photo-picker-modal');
+    const photoGrid = document.getElementById('photo-grid');
+    const photoStatus = document.getElementById('photo-picker-status');
+    let photoPickerClubId = null;
+    let photoResources = [];
+
+    document.getElementById('btn-change-photo')?.addEventListener('click', async () => {
+        photoPickerClubId = currentClubDetail?.id;
+        if (!photoPickerClubId) return;
+        photoModal.style.display = 'flex';
+        photoGrid.innerHTML = '<p style="color:var(--text-muted); grid-column:1/-1; text-align:center; padding:24px;">Loading photos from Google Places...</p>';
+        photoStatus.textContent = '';
+        document.getElementById('photo-upload-preview').innerHTML = '';
+        // Reset tabs
+        document.querySelectorAll('.photo-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('.photo-tab-btn[data-tab="google"]').classList.add('active');
+        document.getElementById('photo-tab-google').style.display = '';
+        document.getElementById('photo-tab-upload').style.display = 'none';
+
+        try {
+            const resp = await fetch(`/api/courses/club/${photoPickerClubId}/photos`);
+            const data = await resp.json();
+            if (!resp.ok) {
+                photoGrid.innerHTML = `<p style="color:var(--text-muted); grid-column:1/-1; text-align:center; padding:24px;">${data.detail || 'Failed to load photos'}</p>`;
+                return;
+            }
+            photoResources = data.photos;
+            if (photoResources.length === 0) {
+                photoGrid.innerHTML = '<p style="color:var(--text-muted); grid-column:1/-1; text-align:center; padding:24px;">No photos found on Google Places</p>';
+                return;
+            }
+            photoGrid.innerHTML = photoResources.map((p, i) => `
+                <div class="photo-thumb" data-resource="${p.resource}" style="cursor:pointer; border:2px solid transparent; border-radius:8px; overflow:hidden; aspect-ratio:16/10; background:var(--surface-alt);">
+                    <img src="/api/courses/club/${photoPickerClubId}/photo-thumbnail?resource=${encodeURIComponent(p.resource)}"
+                         alt="Photo ${i + 1}" loading="lazy"
+                         style="width:100%; height:100%; object-fit:cover; display:block;">
+                </div>
+            `).join('');
+        } catch (e) {
+            photoGrid.innerHTML = `<p style="color:var(--text-muted); grid-column:1/-1; text-align:center; padding:24px;">Error: ${e.message}</p>`;
+        }
+    });
+
+    // Tab switching
+    document.querySelectorAll('.photo-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.photo-tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('photo-tab-google').style.display = btn.dataset.tab === 'google' ? '' : 'none';
+            document.getElementById('photo-tab-upload').style.display = btn.dataset.tab === 'upload' ? '' : 'none';
+        });
+    });
+
+    // Click on a Google photo to select it
+    photoGrid?.addEventListener('click', async (e) => {
+        const thumb = e.target.closest('.photo-thumb');
+        if (!thumb || !photoPickerClubId) return;
+
+        const resource = thumb.dataset.resource;
+        // Highlight selection
+        photoGrid.querySelectorAll('.photo-thumb').forEach(t => t.style.borderColor = 'transparent');
+        thumb.style.borderColor = 'var(--primary)';
+        photoStatus.textContent = 'Setting photo...';
+
+        try {
+            const resp = await fetch(`/api/courses/club/${photoPickerClubId}/set-photo-places`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({photo_resource: resource}),
+            });
+            const data = await resp.json();
+            if (resp.ok && data.photo_url) {
+                // Update hero banner immediately (cache-bust)
+                const hero = document.getElementById('course-hero');
+                hero.style.backgroundImage = `url(${data.photo_url}?t=${Date.now()})`;
+                photoModal.style.display = 'none';
+                // Update all cached references so navigation back doesn't show old photo
+                if (currentCourseDetail) currentCourseDetail.photo_url = data.photo_url;
+                if (currentClubDetail) currentClubDetail.photo_url = data.photo_url;
+                const cached = clubsListCache.find(c => c.id === photoPickerClubId);
+                if (cached) cached.photo_url = data.photo_url;
+                currentClubCourses.forEach(cc => { cc.photo_url = data.photo_url; });
+            } else {
+                photoStatus.textContent = data.detail || 'Failed to set photo';
+            }
+        } catch (err) {
+            photoStatus.textContent = 'Error: ' + err.message;
+        }
+    });
+
+    // Upload tab
+    document.getElementById('btn-photo-browse')?.addEventListener('click', () => {
+        document.getElementById('photo-upload-input').click();
+    });
+
+    document.getElementById('photo-upload-input')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file || !photoPickerClubId) return;
+
+        // Preview
+        const preview = document.getElementById('photo-upload-preview');
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            preview.innerHTML = `<img src="${ev.target.result}" style="max-width:100%; max-height:200px; border-radius:8px; margin-top:8px;">`;
+        };
+        reader.readAsDataURL(file);
+
+        photoStatus.textContent = 'Uploading...';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const resp = await fetch(`/api/courses/club/${photoPickerClubId}/set-photo-upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await resp.json();
+            if (resp.ok && data.photo_url) {
+                const hero = document.getElementById('course-hero');
+                hero.style.backgroundImage = `url(${data.photo_url}?t=${Date.now()})`;
+                photoModal.style.display = 'none';
+                if (currentCourseDetail) currentCourseDetail.photo_url = data.photo_url;
+                if (currentClubDetail) currentClubDetail.photo_url = data.photo_url;
+                const cached = clubsListCache.find(c => c.id === photoPickerClubId);
+                if (cached) cached.photo_url = data.photo_url;
+                currentClubCourses.forEach(cc => { cc.photo_url = data.photo_url; });
+            } else {
+                photoStatus.textContent = data.detail || 'Upload failed';
+            }
+        } catch (err) {
+            photoStatus.textContent = 'Error: ' + err.message;
+        }
+
+        // Reset file input
+        e.target.value = '';
+    });
+
+    // Modal close
+    document.getElementById('btn-photo-modal-close')?.addEventListener('click', () => { photoModal.style.display = 'none'; });
+    document.getElementById('btn-photo-modal-cancel')?.addEventListener('click', () => { photoModal.style.display = 'none'; });
+    photoModal?.addEventListener('click', (e) => { if (e.target === photoModal) photoModal.style.display = 'none'; });
 
     // ========== OSM Feature Detection ==========
     const btnDetectFeatures = document.getElementById('btn-detect-features');

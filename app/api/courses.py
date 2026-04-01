@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc
 from pydantic import BaseModel
@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, HoleImage, Round, RoundHole, Shot
 from app.services.image_service import fetch_all_hole_images
 from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
-from app.services.places_service import fetch_club_photo
+from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -87,10 +87,19 @@ class CourseTeeResponse(BaseModel):
     slope_rating: Optional[float] = None
     par_total: Optional[int] = None
     total_yards: Optional[int] = None
+    inferred: bool = False
     holes: list[CourseHoleResponse] = []
 
     class Config:
         from_attributes = True
+
+
+class TeeUpdateRequest(BaseModel):
+    tee_name: Optional[str] = None
+    par_total: Optional[int] = None
+    total_yards: Optional[int] = None
+    course_rating: Optional[float] = None
+    slope_rating: Optional[float] = None
 
 
 class CourseResponse(BaseModel):
@@ -351,6 +360,90 @@ def fetch_photo(course_id: int, force: bool = False, db: Session = Depends(get_d
     return {"status": "not_found", "reason": "No photo found via Google Places"}
 
 
+@router.get("/club/{golf_club_id}/photos")
+def list_club_photos(golf_club_id: int, db: Session = Depends(get_db)):
+    """List all available Google Places photos for a golf club."""
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+
+    resources = get_all_photo_resources(club)
+    return {
+        "photos": [{"index": i, "resource": r} for i, r in enumerate(resources)],
+        "count": len(resources),
+    }
+
+
+@router.get("/club/{golf_club_id}/photo-thumbnail")
+def get_photo_thumbnail(golf_club_id: int, resource: str, db: Session = Depends(get_db)):
+    """Proxy a Google Places photo thumbnail (keeps API key server-side).
+
+    Pass the photo resource name as a query param, e.g.:
+    ?resource=places/ChIJ.../photos/AU_...
+    """
+    from fastapi.responses import Response
+
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+
+    if not resource.startswith("places/"):
+        raise HTTPException(status_code=400, detail="Invalid photo resource")
+
+    image_bytes = download_photo_thumbnail(resource)
+    if not image_bytes:
+        raise HTTPException(status_code=502, detail="Failed to download photo")
+
+    return Response(content=image_bytes, media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+@router.post("/club/{golf_club_id}/set-photo-places")
+def set_club_photo_places(golf_club_id: int, body: dict, db: Session = Depends(get_db)):
+    """Set club photo from a Google Places photo resource name."""
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+
+    photo_resource = body.get("photo_resource")
+    if not photo_resource:
+        raise HTTPException(status_code=400, detail="photo_resource is required")
+
+    local_url = _download_photo(photo_resource, club.id)
+    if not local_url:
+        raise HTTPException(status_code=502, detail="Failed to download photo from Google Places")
+
+    club.photo_url = local_url
+    db.commit()
+    return {"status": "ok", "photo_url": local_url}
+
+
+@router.post("/club/{golf_club_id}/set-photo-upload")
+async def set_club_photo_upload(golf_club_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Set club photo from an uploaded JPG/PNG file."""
+    from pathlib import Path
+
+    club = db.query(GolfClub).filter(GolfClub.id == golf_club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Golf club not found")
+
+    if file.content_type not in ("image/jpeg", "image/png"):
+        raise HTTPException(status_code=400, detail="Only JPG and PNG files are allowed")
+
+    img_dir = Path("app/static/images/clubs")
+    img_dir.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    filepath = img_dir / f"{club.id}.jpg"
+    filepath.write_bytes(content)
+
+    local_url = f"/static/images/clubs/{club.id}.jpg"
+    club.photo_url = local_url
+    db.commit()
+
+    return {"status": "ok", "photo_url": local_url}
+
+
 @router.post("/{course_id}/tees/{tee_id}/fetch-images")
 def fetch_images(course_id: int, tee_id: int, db: Session = Depends(get_db)):
     """Fetch and cache satellite images for all holes of a tee."""
@@ -375,6 +468,98 @@ def fetch_single_hole_image(course_id: int, hole_id: int, db: Session = Depends(
             "zoom_level": result.zoom_level,
         }
     return {"status": "error", "reason": "Failed to fetch image (check API limits)"}
+
+
+@router.put("/{course_id}/tees/{tee_id}")
+def update_tee(course_id: int, tee_id: int, req: TeeUpdateRequest, db: Session = Depends(get_db)):
+    """Update tee data (name, par, yards, rating, slope)."""
+    tee = db.query(CourseTee).filter(CourseTee.id == tee_id).first()
+    if not tee:
+        raise HTTPException(status_code=404, detail="Tee not found")
+    if tee.course_id != course_id:
+        raise HTTPException(status_code=400, detail="Tee does not belong to this course")
+
+    if req.tee_name is not None:
+        tee.tee_name = req.tee_name
+    if req.par_total is not None:
+        tee.par_total = req.par_total
+    if req.total_yards is not None:
+        tee.total_yards = req.total_yards
+    if req.course_rating is not None:
+        tee.course_rating = req.course_rating
+    if req.slope_rating is not None:
+        tee.slope_rating = req.slope_rating
+
+    # Clear inferred flag since user manually edited
+    tee.inferred = False
+
+    db.commit()
+    db.refresh(tee)
+    return {"status": "ok", "tee_id": tee.id}
+
+
+@router.delete("/{course_id}/tees/{tee_id}")
+def delete_tee(course_id: int, tee_id: int, db: Session = Depends(get_db)):
+    """Delete a tee and all its associated holes."""
+    tee = db.query(CourseTee).filter(CourseTee.id == tee_id).first()
+    if not tee:
+        raise HTTPException(status_code=404, detail="Tee not found")
+    if tee.course_id != course_id:
+        raise HTTPException(status_code=400, detail="Tee does not belong to this course")
+
+    # Check for linked rounds
+    linked_rounds = db.query(Round).filter(Round.tee_id == tee_id).all()
+    if linked_rounds:
+        # Return round info and available tees for reassignment
+        other_tees = db.query(CourseTee).filter(
+            CourseTee.course_id == course_id,
+            CourseTee.id != tee_id
+        ).all()
+        raise HTTPException(status_code=409, detail={
+            "message": "Tee has linked rounds that must be reassigned first.",
+            "rounds": [
+                {"id": r.id, "date": str(r.date), "total_strokes": r.total_strokes}
+                for r in linked_rounds
+            ],
+            "available_tees": [
+                {"id": t.id, "tee_name": t.tee_name}
+                for t in other_tees
+            ],
+        })
+
+    db.delete(tee)
+    db.commit()
+    return {"status": "ok"}
+
+
+class RoundReassignRequest(BaseModel):
+    """Map of round_id -> new tee_id."""
+    assignments: dict[int, int]  # {round_id: new_tee_id}
+
+
+@router.post("/{course_id}/tees/{tee_id}/reassign-rounds")
+def reassign_rounds(course_id: int, tee_id: int, req: RoundReassignRequest, db: Session = Depends(get_db)):
+    """Reassign rounds from one tee to other tees, then delete the original tee."""
+    tee = db.query(CourseTee).filter(CourseTee.id == tee_id).first()
+    if not tee:
+        raise HTTPException(status_code=404, detail="Tee not found")
+    if tee.course_id != course_id:
+        raise HTTPException(status_code=400, detail="Tee does not belong to this course")
+
+    # Reassign each round
+    for round_id, new_tee_id in req.assignments.items():
+        rnd = db.query(Round).filter(Round.id == round_id, Round.tee_id == tee_id).first()
+        if not rnd:
+            raise HTTPException(status_code=404, detail=f"Round {round_id} not found on this tee")
+        new_tee = db.query(CourseTee).filter(CourseTee.id == new_tee_id, CourseTee.course_id == course_id).first()
+        if not new_tee:
+            raise HTTPException(status_code=404, detail=f"Target tee {new_tee_id} not found")
+        rnd.tee_id = new_tee_id
+
+    # Now safe to delete the tee
+    db.delete(tee)
+    db.commit()
+    return {"status": "ok", "reassigned": len(req.assignments)}
 
 
 class HoleUpdateRequest(BaseModel):
@@ -965,34 +1150,36 @@ def import_features_club(golf_club_id: int, req: ClubImportFeaturesRequest, db: 
         import json as _json
         for b in features.bunkers:
             boundary_json = _json.dumps(b.boundary)
-            # Check for duplicate by OSM ID
-            existing = db.query(CourseHazard).filter(
+            # Deduplicate by osm_id
+            if b.osm_id and db.query(CourseHazard).filter(
                 CourseHazard.golf_club_id == golf_club_id,
-                CourseHazard.boundary == boundary_json,
-            ).first()
-            if not existing:
-                db.add(CourseHazard(
-                    golf_club_id=golf_club_id,
-                    hazard_type="bunker",
-                    name=b.name,
-                    boundary=boundary_json,
-                ))
-                result["bunkers"] += 1
+                CourseHazard.osm_id == b.osm_id,
+            ).first():
+                continue
+            db.add(CourseHazard(
+                golf_club_id=golf_club_id,
+                osm_id=b.osm_id,
+                hazard_type="bunker",
+                name=b.name,
+                boundary=boundary_json,
+            ))
+            result["bunkers"] += 1
 
         for w in features.water:
             boundary_json = _json.dumps(w.boundary)
-            existing = db.query(CourseHazard).filter(
+            if w.osm_id and db.query(CourseHazard).filter(
                 CourseHazard.golf_club_id == golf_club_id,
-                CourseHazard.boundary == boundary_json,
-            ).first()
-            if not existing:
-                db.add(CourseHazard(
-                    golf_club_id=golf_club_id,
-                    hazard_type="water",
-                    name=w.name,
-                    boundary=boundary_json,
-                ))
-                result["water"] += 1
+                CourseHazard.osm_id == w.osm_id,
+            ).first():
+                continue
+            db.add(CourseHazard(
+                golf_club_id=golf_club_id,
+                osm_id=w.osm_id,
+                hazard_type="water",
+                name=w.name,
+                boundary=boundary_json,
+            ))
+            result["water"] += 1
 
     # ── Save raw OSM holes to OSMHole table (club-level, no matching needed) ──
     if features.holes:
@@ -1349,10 +1536,16 @@ def _import_osm_features_to_course(db: Session, course: Course, features) -> dic
     golf_club_id = course.golf_club_id
     result = {"bunkers": 0, "water": 0, "holes_enriched": 0, "greens_set": 0, "osm_holes_saved": 0}
 
-    # Import hazards at club level
+    # Import hazards at club level (deduplicate by osm_id)
     for bunker in features.bunkers:
+        if bunker.osm_id and db.query(CourseHazard).filter(
+            CourseHazard.golf_club_id == golf_club_id,
+            CourseHazard.osm_id == bunker.osm_id,
+        ).first():
+            continue
         db.add(CourseHazard(
             golf_club_id=golf_club_id,
+            osm_id=bunker.osm_id,
             hazard_type="bunker",
             name=bunker.name,
             boundary=jsonlib.dumps(bunker.boundary),
@@ -1360,8 +1553,14 @@ def _import_osm_features_to_course(db: Session, course: Course, features) -> dic
         result["bunkers"] += 1
 
     for water in features.water:
+        if water.osm_id and db.query(CourseHazard).filter(
+            CourseHazard.golf_club_id == golf_club_id,
+            CourseHazard.osm_id == water.osm_id,
+        ).first():
+            continue
         db.add(CourseHazard(
             golf_club_id=golf_club_id,
+            osm_id=water.osm_id,
             hazard_type="water",
             name=water.name,
             boundary=jsonlib.dumps(water.boundary),
@@ -1402,10 +1601,16 @@ def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
 
     result = {"bunkers": 0, "water": 0, "osm_holes_saved": 0, "courses_matched": 0}
 
-    # Import hazards
+    # Import hazards (deduplicate by osm_id)
     for bunker in features.bunkers:
+        if bunker.osm_id and db.query(CourseHazard).filter(
+            CourseHazard.golf_club_id == club.id,
+            CourseHazard.osm_id == bunker.osm_id,
+        ).first():
+            continue
         db.add(CourseHazard(
             golf_club_id=club.id,
+            osm_id=bunker.osm_id,
             hazard_type="bunker",
             name=bunker.name,
             boundary=jsonlib.dumps(bunker.boundary),
@@ -1413,8 +1618,14 @@ def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
         result["bunkers"] += 1
 
     for water in features.water:
+        if water.osm_id and db.query(CourseHazard).filter(
+            CourseHazard.golf_club_id == club.id,
+            CourseHazard.osm_id == water.osm_id,
+        ).first():
+            continue
         db.add(CourseHazard(
             golf_club_id=club.id,
+            osm_id=water.osm_id,
             hazard_type="water",
             name=water.name,
             boundary=jsonlib.dumps(water.boundary),
@@ -1552,9 +1763,9 @@ def _auto_match_osm_holes(db: Session, course: Course) -> int:
     return matched
 
 
-@router.post("/{target_id}/merge/{source_id}")
-def merge_courses(target_id: int, source_id: int, db: Session = Depends(get_db)):
-    """Merge source course into target: moves rounds & tees, then deletes source."""
+@router.get("/{target_id}/merge-preview/{source_id}")
+def merge_preview(target_id: int, source_id: int, db: Session = Depends(get_db)):
+    """Preview a merge: detect conflicting fields between source and target."""
     if target_id == source_id:
         raise HTTPException(status_code=400, detail="Cannot merge a course into itself")
 
@@ -1567,6 +1778,71 @@ def merge_courses(target_id: int, source_id: int, db: Session = Depends(get_db))
     if target.golf_club_id != source.golf_club_id:
         raise HTTPException(status_code=400, detail="Courses must belong to the same club")
 
+    conflicts = []
+    if source.holes and target.holes and source.holes != target.holes:
+        conflicts.append({
+            "field": "holes",
+            "label": "Number of holes",
+            "target_value": target.holes,
+            "source_value": source.holes,
+        })
+    if source.par and target.par and source.par != target.par:
+        conflicts.append({
+            "field": "par",
+            "label": "Par",
+            "target_value": target.par,
+            "source_value": source.par,
+        })
+
+    return {
+        "target_id": target_id,
+        "source_id": source_id,
+        "target_name": target.display_name,
+        "source_name": source.display_name,
+        "conflicts": conflicts,
+        "rounds_to_move": db.query(Round).filter(Round.course_id == source_id).count(),
+        "tees_to_move": db.query(CourseTee).filter(CourseTee.course_id == source_id).count(),
+    }
+
+
+@router.post("/{target_id}/merge/{source_id}")
+def merge_courses(
+    target_id: int,
+    source_id: int,
+    resolve_holes: Optional[int] = None,
+    resolve_par: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Merge source course into target: moves rounds & tees, then deletes source.
+
+    When conflicts exist, pass resolve_holes / resolve_par query params
+    to specify which value to keep. Returns 409 if conflicts exist but
+    no resolution is provided.
+    """
+    if target_id == source_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a course into itself")
+
+    target = db.query(Course).filter(Course.id == target_id).first()
+    source = db.query(Course).filter(Course.id == source_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target course not found")
+    if not source:
+        raise HTTPException(status_code=404, detail="Source course not found")
+    if target.golf_club_id != source.golf_club_id:
+        raise HTTPException(status_code=400, detail="Courses must belong to the same club")
+
+    # Check for unresolved conflicts
+    unresolved = []
+    if source.holes and target.holes and source.holes != target.holes and resolve_holes is None:
+        unresolved.append("holes")
+    if source.par and target.par and source.par != target.par and resolve_par is None:
+        unresolved.append("par")
+    if unresolved:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Conflicts on {', '.join(unresolved)}. Use merge-preview and provide resolutions.",
+        )
+
     # Move rounds from source to target
     rounds_moved = db.query(Round).filter(Round.course_id == source_id).update(
         {Round.course_id: target_id}, synchronize_session="fetch"
@@ -1577,10 +1853,16 @@ def merge_courses(target_id: int, source_id: int, db: Session = Depends(get_db))
         {CourseTee.course_id: target_id}, synchronize_session="fetch"
     )
 
-    # Update target holes/par if source had better data
-    if source.holes and (not target.holes or target.holes < source.holes):
+    # Resolve holes: use explicit resolution, or fill in missing values
+    if resolve_holes is not None:
+        target.holes = resolve_holes
+    elif source.holes and not target.holes:
         target.holes = source.holes
-    if source.par and not target.par:
+
+    # Resolve par: use explicit resolution, or fill in missing values
+    if resolve_par is not None:
+        target.par = resolve_par
+    elif source.par and not target.par:
         target.par = source.par
 
     # Delete the now-empty source course

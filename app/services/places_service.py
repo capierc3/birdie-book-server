@@ -208,6 +208,85 @@ def apply_places_result(db: Session, club: GolfClub, result: PlacesResult) -> No
     db.commit()
 
 
+def get_all_photo_resources(club: GolfClub) -> list[str]:
+    """Return all photo resource names from Google Places for this club.
+
+    Each entry is a resource name like 'places/ChIJ.../photos/AU_...'
+    that can be used with the Places Media API.
+    """
+    if not _api_configured():
+        return []
+
+    search_text = club.name
+    if "golf" not in search_text.lower():
+        search_text += " golf course"
+
+    api_key = settings.google_maps_api_key
+    body = {
+        "textQuery": search_text,
+        "includedType": "golf_course",
+        "maxResultCount": 1,
+    }
+    if club.lat and club.lng:
+        body["locationBias"] = {
+            "circle": {
+                "center": {"latitude": club.lat, "longitude": club.lng},
+                "radius": 10000.0,
+            }
+        }
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": "places.photos",
+    }
+
+    try:
+        from app.services.api_tracker import track_call, check_limit
+        if not check_limit("google_places"):
+            return []
+        track_call("google_places", "searchText")
+        resp = httpx.post(
+            f"{PLACES_BASE}:searchText",
+            json=body,
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        places = data.get("places", [])
+        if not places:
+            return []
+        photos = places[0].get("photos", [])
+        return [p["name"] for p in photos if p.get("name")]
+    except Exception as e:
+        log.warning("Failed to get photo resources for '%s': %s", club.name, e)
+        return []
+
+
+def download_photo_thumbnail(photo_resource: str) -> Optional[bytes]:
+    """Download a Places photo as thumbnail bytes (400x250). Returns raw JPEG bytes."""
+    api_key = settings.google_maps_api_key
+    if not api_key or not photo_resource:
+        return None
+
+    url = (
+        f"https://places.googleapis.com/v1/{photo_resource}/media"
+        f"?maxWidthPx=400&maxHeightPx=250&key={api_key}"
+    )
+    try:
+        from app.services.api_tracker import track_call, check_limit
+        if not check_limit("google_places"):
+            return None
+        track_call("google_places", "photo_media")
+        resp = httpx.get(url, timeout=20, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as e:
+        log.warning("Failed to download photo thumbnail: %s", e)
+        return None
+
+
 def fetch_club_photo(db: Session, club: GolfClub, force: bool = False) -> Optional[str]:
     """
     Convenience: look up club via Places and store photo + metadata.

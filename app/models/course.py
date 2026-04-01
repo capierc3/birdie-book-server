@@ -127,6 +127,7 @@ class CourseHazard(Base):
 
     id = Column(Integer, primary_key=True)
     golf_club_id = Column(Integer, ForeignKey("golf_clubs.id", ondelete="CASCADE"), nullable=False, index=True)
+    osm_id = Column(Integer, index=True)  # OSM way/relation ID for deduplication
     hazard_type = Column(String(30), nullable=False)  # bunker, water, out_of_bounds, trees, waste_area
     name = Column(String(100))  # e.g. "Left Fairway Bunker", "Pond"
     boundary = Column(Text, nullable=False)  # JSON: [[lat, lng], ...]

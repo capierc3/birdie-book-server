@@ -5,8 +5,8 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.club import Club, ClubStats
-from app.models.round import Shot
-from app.models.range_session import RangeShot
+from app.models.round import Shot, Round
+from app.models.range_session import RangeSession, RangeShot
 from app.models.trackman_shot import TrackmanShot
 from app.services.club_stats_service import compute_club_stats, compute_windowed_club_stats
 
@@ -415,3 +415,237 @@ def reassign_shot(body: ReassignShotRequest, db: Session = Depends(get_db)):
         "old_club_id": old_club_id,
         "new_club_id": target_club_id,
     }
+
+
+# ── Club Detail (all shots for a club) ──
+
+class ClubShotResponse(BaseModel):
+    id: str
+    raw_id: int
+    source: str
+    date: Optional[str] = None
+    shot_number: int = 0
+    # Distance
+    carry_yards: Optional[float] = None
+    total_yards: Optional[float] = None
+    distance_yards: Optional[float] = None
+    # Speed
+    ball_speed_mph: Optional[float] = None
+    club_speed_mph: Optional[float] = None
+    smash_factor: Optional[float] = None
+    # Angles
+    launch_angle_deg: Optional[float] = None
+    launch_direction_deg: Optional[float] = None
+    attack_angle_deg: Optional[float] = None
+    club_path_deg: Optional[float] = None
+    face_angle_deg: Optional[float] = None
+    face_to_path_deg: Optional[float] = None
+    dynamic_loft_deg: Optional[float] = None
+    spin_loft_deg: Optional[float] = None
+    swing_plane_deg: Optional[float] = None
+    swing_direction_deg: Optional[float] = None
+    dynamic_lie_deg: Optional[float] = None
+    landing_angle_deg: Optional[float] = None
+    descent_angle_deg: Optional[float] = None
+    # Spin
+    spin_rate_rpm: Optional[float] = None
+    spin_axis_deg: Optional[float] = None
+    # Flight
+    apex_yards: Optional[float] = None
+    side_carry_yards: Optional[float] = None
+    side_total_yards: Optional[float] = None
+    curve_yards: Optional[float] = None
+    hang_time_sec: Optional[float] = None
+    # Impact
+    impact_offset_in: Optional[float] = None
+    impact_height_in: Optional[float] = None
+    low_point_distance_in: Optional[float] = None
+    # Course-only
+    shot_type: Optional[str] = None
+    start_lie: Optional[str] = None
+    end_lie: Optional[str] = None
+    pin_distance_yards: Optional[float] = None
+    fairway_side: Optional[str] = None
+    fairway_side_yards: Optional[float] = None
+    fairway_progress_yards: Optional[float] = None
+    green_distance_yards: Optional[float] = None
+    on_green: Optional[bool] = None
+    sg_pga: Optional[float] = None
+    sg_personal: Optional[float] = None
+    nearest_hazard_type: Optional[str] = None
+    nearest_hazard_name: Optional[str] = None
+    nearest_hazard_yards: Optional[float] = None
+    # Context
+    hole_number: Optional[int] = None
+    course_name: Optional[str] = None
+    session_name: Optional[str] = None
+
+
+class ClubDetailResponse(BaseModel):
+    club: ClubResponse
+    shots: list[ClubShotResponse]
+    source_counts: dict[str, int]
+    avg_ball_speed: Optional[float] = None
+    avg_club_speed: Optional[float] = None
+    avg_smash_factor: Optional[float] = None
+    avg_launch_angle: Optional[float] = None
+    avg_attack_angle: Optional[float] = None
+    avg_spin_rate: Optional[float] = None
+    avg_club_path: Optional[float] = None
+
+
+def _avg(values: list) -> Optional[float]:
+    clean = [v for v in values if v is not None]
+    return sum(clean) / len(clean) if clean else None
+
+
+@router.get("/{club_id}/shots", response_model=ClubDetailResponse)
+def get_club_shots(club_id: int, db: Session = Depends(get_db)):
+    """Get all shots for a club across all sources (course, range, trackman)."""
+    club = db.query(Club).options(joinedload(Club.stats)).filter(Club.id == club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club not found")
+
+    shots: list[ClubShotResponse] = []
+
+    # ── Course shots (via garmin_id) ──
+    if club.garmin_id is not None:
+        course_shots = (
+            db.query(Shot, Round)
+            .join(Round, Shot.round_id == Round.id)
+            .filter(Shot.club_garmin_id == club.garmin_id)
+            .filter(Shot.shot_type.notin_(["PUTT", "PENALTY"]))
+            .order_by(Round.date.desc(), Shot.shot_number)
+            .all()
+        )
+        for s, r in course_shots:
+            shots.append(ClubShotResponse(
+                id=f"course_{s.id}",
+                raw_id=s.id,
+                source="course",
+                date=r.date.isoformat() if r.date else None,
+                shot_number=s.shot_number,
+                distance_yards=s.distance_yards,
+                shot_type=s.shot_type,
+                start_lie=s.start_lie,
+                end_lie=s.end_lie,
+                pin_distance_yards=s.pin_distance_yards,
+                fairway_side=s.fairway_side,
+                fairway_side_yards=s.fairway_side_yards,
+                fairway_progress_yards=s.fairway_progress_yards,
+                green_distance_yards=s.green_distance_yards,
+                on_green=s.on_green,
+                sg_pga=s.sg_pga,
+                sg_personal=s.sg_personal,
+                nearest_hazard_type=s.nearest_hazard_type,
+                nearest_hazard_name=s.nearest_hazard_name,
+                nearest_hazard_yards=s.nearest_hazard_yards,
+                hole_number=s.shot_number,
+                course_name=r.course.name if r.course else None,
+            ))
+
+    # ── Range shots (MLM2PRO) ──
+    range_shots = (
+        db.query(RangeShot, RangeSession)
+        .join(RangeSession, RangeShot.session_id == RangeSession.id)
+        .filter(RangeShot.club_id == club_id)
+        .order_by(RangeSession.session_date.desc(), RangeShot.shot_number)
+        .all()
+    )
+    for s, sess in range_shots:
+        shots.append(ClubShotResponse(
+            id=f"mlm_{s.id}",
+            raw_id=s.id,
+            source="rapsodo_mlm2pro",
+            date=sess.session_date.strftime("%Y-%m-%d") if sess.session_date else None,
+            shot_number=s.shot_number,
+            carry_yards=s.carry_yards,
+            total_yards=s.total_yards,
+            ball_speed_mph=s.ball_speed_mph,
+            club_speed_mph=s.club_speed_mph,
+            smash_factor=s.smash_factor,
+            launch_angle_deg=s.launch_angle_deg,
+            launch_direction_deg=s.launch_direction_deg,
+            attack_angle_deg=s.attack_angle_deg,
+            club_path_deg=s.club_path_deg,
+            spin_rate_rpm=s.spin_rate_rpm,
+            spin_axis_deg=s.spin_axis_deg,
+            apex_yards=s.apex_yards,
+            side_carry_yards=s.side_carry_yards,
+            descent_angle_deg=s.descent_angle_deg,
+            session_name=sess.title,
+        ))
+
+    # ── Trackman shots ──
+    tm_shots = (
+        db.query(TrackmanShot, RangeSession)
+        .join(RangeSession, TrackmanShot.session_id == RangeSession.id)
+        .filter(TrackmanShot.club_id == club_id)
+        .order_by(RangeSession.session_date.desc(), TrackmanShot.shot_number)
+        .all()
+    )
+    for s, sess in tm_shots:
+        shots.append(ClubShotResponse(
+            id=f"tm_{s.id}",
+            raw_id=s.id,
+            source="trackman",
+            date=sess.session_date.strftime("%Y-%m-%d") if sess.session_date else None,
+            shot_number=s.shot_number,
+            carry_yards=s.carry_yards,
+            total_yards=s.total_yards,
+            ball_speed_mph=s.ball_speed_mph,
+            club_speed_mph=s.club_speed_mph,
+            smash_factor=s.smash_factor,
+            launch_angle_deg=s.launch_angle_deg,
+            launch_direction_deg=s.launch_direction_deg,
+            attack_angle_deg=s.attack_angle_deg,
+            club_path_deg=s.club_path_deg,
+            face_angle_deg=s.face_angle_deg,
+            face_to_path_deg=s.face_to_path_deg,
+            dynamic_loft_deg=s.dynamic_loft_deg,
+            spin_loft_deg=s.spin_loft_deg,
+            swing_plane_deg=s.swing_plane_deg,
+            swing_direction_deg=s.swing_direction_deg,
+            dynamic_lie_deg=s.dynamic_lie_deg,
+            landing_angle_deg=s.landing_angle_deg,
+            spin_rate_rpm=s.spin_rate_rpm,
+            spin_axis_deg=s.spin_axis_deg,
+            apex_yards=s.apex_ft / 3.0 if s.apex_ft else None,
+            side_carry_yards=s.side_carry_yards,
+            side_total_yards=s.side_total_yards,
+            curve_yards=s.curve_yards,
+            hang_time_sec=s.hang_time_sec,
+            impact_offset_in=s.impact_offset_in,
+            impact_height_in=s.impact_height_in,
+            low_point_distance_in=s.low_point_distance_in,
+            session_name=sess.title,
+        ))
+
+    # Sort all by date desc
+    shots.sort(key=lambda s: s.date or "", reverse=True)
+
+    # Source counts
+    source_counts = {"course": 0, "range": 0, "trackman": 0}
+    for s in shots:
+        if s.source == "course":
+            source_counts["course"] += 1
+        elif s.source == "rapsodo_mlm2pro":
+            source_counts["range"] += 1
+        elif s.source == "trackman":
+            source_counts["trackman"] += 1
+
+    # Aggregate speed/angle stats from range + trackman shots
+    range_tm = [s for s in shots if s.source != "course"]
+
+    return ClubDetailResponse(
+        club=_build_club_response(club),
+        shots=shots,
+        source_counts=source_counts,
+        avg_ball_speed=_avg([s.ball_speed_mph for s in range_tm]),
+        avg_club_speed=_avg([s.club_speed_mph for s in range_tm]),
+        avg_smash_factor=_avg([s.smash_factor for s in range_tm]),
+        avg_launch_angle=_avg([s.launch_angle_deg for s in range_tm]),
+        avg_attack_angle=_avg([s.attack_angle_deg for s in range_tm]),
+        avg_spin_rate=_avg([s.spin_rate_rpm for s in range_tm]),
+        avg_club_path=_avg([s.club_path_deg for s in range_tm]),
+    )

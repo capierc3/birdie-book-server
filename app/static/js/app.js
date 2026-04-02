@@ -93,7 +93,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Club detail route: club/123
+        // Equipment club detail route: club-detail/123
+        const clubDetailMatch = hash.match(/^club-detail\/(\d+)$/);
+        if (clubDetailMatch) {
+            navigateTo('section-club-detail');
+            loadClubDetailShots(parseInt(clubDetailMatch[1]));
+            return;
+        }
+
+        // Golf club (venue) detail route: club/123
         const clubMatch = hash.match(/^club\/(\d+)$/);
         if (clubMatch) {
             navigateTo('section-course-detail');
@@ -566,6 +574,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let roundsSortCol = 'date';
+    let roundsSortDir = 'desc';
+    let roundsHolesFilter = 'all';
+
+    document.getElementById('rounds-holes-filter')?.addEventListener('change', (e) => {
+        roundsHolesFilter = e.target.value;
+        renderRoundsTable();
+    });
+
+    window._sortRounds = function(col) {
+        if (roundsSortCol === col) {
+            roundsSortDir = roundsSortDir === 'desc' ? 'asc' : 'desc';
+        } else {
+            roundsSortCol = col;
+            roundsSortDir = col === 'date' || col === 'course_name' || col === 'source' ? 'desc' : 'desc';
+        }
+        renderRoundsTable();
+    };
+
     function renderRoundsTable() {
         const tbody = document.getElementById('rounds-body');
         if (roundsCache.length === 0) {
@@ -573,7 +600,43 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        tbody.innerHTML = roundsCache.map(r => {
+        // Update sort indicators in header
+        const headers = document.querySelectorAll('#rounds-table thead th.sortable');
+        const colOrder = ['date', 'course_name', 'total_strokes', 'score_vs_par', 'holes_completed', 'shots_tracked', 'source'];
+        headers.forEach((th, i) => {
+            const col = colOrder[i];
+            const base = th.textContent.replace(/ [\u25B2\u25BC]$/, '');
+            th.textContent = col === roundsSortCol ? `${base} ${roundsSortDir === 'desc' ? '\u25BC' : '\u25B2'}` : base;
+        });
+
+        // Filter by holes
+        let filtered = roundsCache;
+        if (roundsHolesFilter === '18') {
+            filtered = roundsCache.filter(r => r.holes_completed >= 18);
+        } else if (roundsHolesFilter === '9') {
+            filtered = roundsCache.filter(r => r.holes_completed && r.holes_completed < 18);
+        }
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No rounds match this filter.</td></tr>';
+            return;
+        }
+
+        // Sort
+        const dir = roundsSortDir === 'desc' ? -1 : 1;
+        const sorted = [...filtered].sort((a, b) => {
+            const isStr = roundsSortCol === 'date' || roundsSortCol === 'course_name' || roundsSortCol === 'source';
+            if (isStr) {
+                const va = (a[roundsSortCol] || '').toLowerCase();
+                const vb = (b[roundsSortCol] || '').toLowerCase();
+                return va < vb ? -dir : va > vb ? dir : 0;
+            }
+            const va = a[roundsSortCol] != null ? a[roundsSortCol] : -Infinity;
+            const vb = b[roundsSortCol] != null ? b[roundsSortCol] : -Infinity;
+            return (va - vb) * dir;
+        });
+
+        tbody.innerHTML = sorted.map(r => {
             const vsPar = r.score_vs_par;
             const vsParStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
             const cls = vsPar < 0 ? 'score-birdie' : vsPar === 0 ? 'score-par' : 'score-bogey';
@@ -3760,15 +3823,15 @@ document.addEventListener('DOMContentLoaded', () => {
             // Store box plot data on the element for later
             c._boxData = { minVal, p10Val, medianVal, avgVal, p90Val, maxVal, color: clubColor };
 
-            return `<tr>
+            return `<tr class="clickable" onclick="location.hash='club-detail/${c.id}'" style="cursor:pointer;">
                 <td style="width:28px;"><span class="source-badge" style="background:${clubColor}; color:${textColor}; cursor:pointer;" title="Click to change color" onclick="event.stopPropagation(); window._pickClubColor(${c.id})">${srcLabel}</span></td>
-                <td class="clickable" onclick="window._editClub(${c.id})"><strong>${c.club_type}</strong>${c.name ? ` <span style="color:var(--accent); font-size:0.8rem;">"${c.name}"</span>` : ''}${c.model ? ` <span style="color:var(--text-muted); font-size:0.84rem;">${c.model}</span>` : ''}</td>
+                <td><strong>${c.club_type}</strong>${c.name ? ` <span style="color:var(--accent); font-size:0.8rem;">"${c.name}"</span>` : ''}${c.model ? ` <span style="color:var(--text-muted); font-size:0.84rem;">${c.model}</span>` : ''}</td>
                 <td>${avg}</td>
                 <td>${maxD}</td>
                 <td>${median}</td>
                 <td>${stdDev}</td>
                 <td>${shots}${wShots}</td>
-                <td style="width:60px;"><button class="btn btn-ghost btn-sm" onclick="window._mergeClub(${c.id})" title="Merge another club into this one" style="font-size:0.75rem;">Merge</button></td>
+                <td style="width:60px;"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._mergeClub(${c.id})" title="Merge another club into this one" style="font-size:0.75rem;">Merge</button></td>
             </tr>`;
         }).join('');
 
@@ -4294,9 +4357,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('stat-courses').textContent = coursesCache.length || '0';
 
         if (roundsCache.length > 0) {
-            const scores = roundsCache.filter(r => r.total_strokes).map(r => r.total_strokes);
-            const best = Math.min(...scores);
-            document.getElementById('stat-best').textContent = best;
+            const scores18 = roundsCache.filter(r => r.total_strokes && r.holes_completed >= 18).map(r => r.total_strokes);
+            const scores9 = roundsCache.filter(r => r.total_strokes && r.holes_completed && r.holes_completed < 18).map(r => r.total_strokes);
+            if (scores18.length > 0) document.getElementById('stat-best-18').textContent = Math.min(...scores18);
+            if (scores9.length > 0) document.getElementById('stat-best-9').textContent = Math.min(...scores9);
 
             const vpScores = roundsCache.filter(r => r.score_vs_par != null).map(r => r.score_vs_par);
             if (vpScores.length > 0) {
@@ -4353,7 +4417,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }).join('');
 
         // Dashboard courses
+        renderDashCourses();
+    }
+
+    function renderDashCourses() {
         const coursesContainer = document.getElementById('dash-courses');
+        if (!coursesContainer) return;
+
         if (coursesCache.length === 0) {
             coursesContainer.innerHTML = `<div class="empty-state">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -4365,16 +4435,43 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        coursesContainer.innerHTML = coursesCache.slice(0, 5).map(c => `
+        const sortMode = document.getElementById('dash-courses-sort')?.value || 'most-played';
+
+        // Compute rounds played and most recent date per course from roundsCache
+        const roundsByCourse = {};
+        for (const r of roundsCache) {
+            if (!r.course_id) continue;
+            if (!roundsByCourse[r.course_id]) roundsByCourse[r.course_id] = { count: 0, lastDate: '' };
+            roundsByCourse[r.course_id].count++;
+            if (r.date > roundsByCourse[r.course_id].lastDate) roundsByCourse[r.course_id].lastDate = r.date;
+        }
+
+        let sorted = [...coursesCache];
+        if (sortMode === 'most-played') {
+            sorted.sort((a, b) => (roundsByCourse[b.id]?.count || 0) - (roundsByCourse[a.id]?.count || 0));
+        } else {
+            sorted.sort((a, b) => (roundsByCourse[b.id]?.lastDate || '') .localeCompare(roundsByCourse[a.id]?.lastDate || ''));
+        }
+
+        coursesContainer.innerHTML = sorted.slice(0, 5).map(c => {
+            const info = roundsByCourse[c.id];
+            const roundCount = info?.count || 0;
+            const lastPlayed = info?.lastDate ? new Date(info.lastDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            const metaExtra = sortMode === 'most-played'
+                ? `${roundCount} round${roundCount !== 1 ? 's' : ''}`
+                : (lastPlayed || 'No rounds');
+            return `
             <div class="recent-round" onclick="location.hash='course/${c.id}'">
                 <div class="round-score even" style="font-size:0.85rem;">${c.holes || 18}</div>
                 <div class="round-info">
                     <div class="round-course">${c.display_name}</div>
-                    <div class="round-meta">Par ${c.par || '\u2014'} \u00b7 Rating ${c.course_rating?.toFixed(1) || '\u2014'} \u00b7 Slope ${c.slope_rating || '\u2014'}</div>
+                    <div class="round-meta">Par ${c.par || '\u2014'} \u00b7 ${metaExtra}</div>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
     }
+
+    document.getElementById('dash-courses-sort')?.addEventListener('change', () => renderDashCourses());
 
     // ========== Range Sessions ==========
 
@@ -6279,6 +6376,497 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Chart.js handles its own responsive resize, no manual handler needed
+
+    // ========== Club Detail (Equipment) ==========
+
+    const clubDetailState = {
+        club: null,
+        allShots: [],
+        sourceFilter: 'all',
+        visibleColumns: null,
+        editColumnsMode: false,
+        sortColumn: null,
+        sortDirection: null,
+        expandedShotId: null,
+    };
+
+    const CD_ALL_COLUMNS = [
+        { key: 'row_num', label: '#', fmt: null, width: '40px', fixed: true },
+        { key: 'date', label: 'Date', fmt: null, width: '90px' },
+        { key: 'source', label: 'Source', fmt: null, width: '70px' },
+        { key: 'carry_yards', label: 'Carry', fmt: '_fmt' },
+        { key: 'total_yards', label: 'Total', fmt: '_fmt' },
+        { key: 'distance_yards', label: 'GPS Dist', fmt: '_fmt' },
+        { key: 'ball_speed_mph', label: 'Ball Spd', fmt: '_fmt' },
+        { key: 'club_speed_mph', label: 'Club Spd', fmt: '_fmt' },
+        { key: 'spin_rate_rpm', label: 'Spin', fmt: '_fmtInt' },
+        { key: 'launch_angle_deg', label: 'Launch', fmt: '_fmtDeg' },
+        { key: 'apex_yards', label: 'Apex', fmt: '_fmt' },
+        { key: 'side_carry_yards', label: 'Side', fmt: '_fmtSigned' },
+        { key: 'smash_factor', label: 'Smash', fmt: '_fmt2' },
+        { key: 'attack_angle_deg', label: 'Attack', fmt: '_fmtDeg' },
+        { key: 'club_path_deg', label: 'Club Path', fmt: '_fmtDeg' },
+        { key: 'descent_angle_deg', label: 'Descent', fmt: '_fmtDeg' },
+        { key: 'face_angle_deg', label: 'Face Ang', fmt: '_fmtDeg' },
+        { key: 'face_to_path_deg', label: 'F2P', fmt: '_fmtDeg' },
+        { key: 'dynamic_loft_deg', label: 'Dyn Loft', fmt: '_fmtDeg' },
+        { key: 'spin_loft_deg', label: 'Spin Loft', fmt: '_fmtDeg' },
+        { key: 'swing_plane_deg', label: 'Swing Pl', fmt: '_fmtDeg' },
+        { key: 'swing_direction_deg', label: 'Swing Dir', fmt: '_fmtDeg' },
+        { key: 'dynamic_lie_deg', label: 'Dyn Lie', fmt: '_fmtDeg' },
+        { key: 'impact_offset_in', label: 'Imp Offset', fmt: '_fmt' },
+        { key: 'impact_height_in', label: 'Imp Height', fmt: '_fmt' },
+        { key: 'low_point_distance_in', label: 'Low Point', fmt: '_fmt' },
+        { key: 'curve_yards', label: 'Curve', fmt: '_fmt' },
+        { key: 'hang_time_sec', label: 'Hang Time', fmt: '_fmt' },
+        { key: 'side_total_yards', label: 'Side Tot', fmt: '_fmtSigned' },
+        { key: 'shot_type', label: 'Type', fmt: null },
+        { key: 'pin_distance_yards', label: 'Pin Dist', fmt: '_fmt' },
+        { key: 'fairway_side_yards', label: 'FW Side', fmt: '_fmtSigned' },
+        { key: 'sg_pga', label: 'SG PGA', fmt: '_fmtSigned' },
+        { key: 'sg_personal', label: 'SG Pers', fmt: '_fmtSigned' },
+    ];
+
+    const CD_DEFAULT_VISIBLE = ['row_num', 'date', 'source', 'carry_yards', 'total_yards', 'distance_yards', 'ball_speed_mph', 'spin_rate_rpm'];
+    const CD_COL_MAP = {};
+    CD_ALL_COLUMNS.forEach(c => { CD_COL_MAP[c.key] = c; });
+
+    function _loadCDColumnConfig() {
+        try {
+            const saved = localStorage.getItem('birdie_book_club_detail_columns');
+            if (saved) {
+                const keys = JSON.parse(saved);
+                if (keys.every(k => CD_COL_MAP[k])) return keys;
+            }
+        } catch (e) { /* ignore */ }
+        return [...CD_DEFAULT_VISIBLE];
+    }
+
+    function _saveCDColumnConfig() {
+        localStorage.setItem('birdie_book_club_detail_columns', JSON.stringify(clubDetailState.visibleColumns));
+    }
+
+    clubDetailState.visibleColumns = _loadCDColumnConfig();
+
+    function _cdFmtCell(shot, colKey) {
+        if (colKey === 'row_num') return shot._rowNum || '';
+        if (colKey === 'date') return shot.date || '\u2014';
+        if (colKey === 'source') {
+            const labels = { course: 'Course', rapsodo_mlm2pro: 'Range', trackman: 'TM' };
+            const colors = { course: '#4CAF50', rapsodo_mlm2pro: '#2196F3', trackman: '#FF9800' };
+            const src = shot.source || '';
+            return `<span class="source-badge" style="background:${colors[src] || '#888'}; color:#fff; font-size:0.7rem; width:auto; padding:2px 6px;">${labels[src] || src}</span>`;
+        }
+        if (colKey === 'shot_type') return shot.shot_type || '\u2014';
+        const col = CD_COL_MAP[colKey];
+        if (!col) return '\u2014';
+        const val = shot[colKey];
+        if (col.fmt && FORMATTERS[col.fmt]) return FORMATTERS[col.fmt](val);
+        return val != null ? val : '\u2014';
+    }
+
+    async function loadClubDetailShots(clubId) {
+        try {
+            const resp = await fetch(`/api/clubs/${clubId}/shots`);
+            if (!resp.ok) throw new Error('Club not found');
+            const data = await resp.json();
+
+            clubDetailState.club = data.club;
+            clubDetailState.allShots = data.shots;
+            clubDetailState.sourceFilter = 'all';
+            clubDetailState.expandedShotId = null;
+            clubDetailState.sortColumn = null;
+            clubDetailState.sortDirection = null;
+
+            _renderCDHeader(data);
+            _renderCDSourceToggles(data.source_counts);
+            _renderCDShots();
+        } catch (e) {
+            console.error('Failed to load club detail:', e);
+            document.getElementById('club-detail-stats').innerHTML = '<div class="empty-state" style="padding:24px;"><p>Failed to load club data.</p></div>';
+        }
+    }
+
+    function _renderCDHeader(data) {
+        const club = data.club;
+        const s = club.stats;
+
+        // Header info
+        const headerEl = document.getElementById('club-detail-header-info');
+        const clubColor = club.color || '#888';
+        headerEl.innerHTML = `
+            <span class="source-badge" style="background:${clubColor}; color:${_isLightColor(clubColor) ? '#000' : '#fff'}; font-size:0.85rem; width:auto; padding:2px 8px;">${club.club_type}</span>
+            <h1 style="margin:0; font-size:1.3rem;">${club.club_type}${club.name ? ` "${club.name}"` : ''}${club.model ? ` <span style="color:var(--text-muted); font-weight:normal;">${club.model}</span>` : ''}</h1>
+            <button class="btn btn-ghost btn-sm" onclick="window._editClub(${club.id})" title="Edit club">&#9998;</button>
+        `;
+
+        // Stats cards
+        const statsEl = document.getElementById('club-detail-stats');
+        const src = clubDetailState.sourceFilter;
+
+        // Pick correct stats based on source
+        let avgY, medY, maxY, stdY, p10Y, p90Y, countY;
+        if (s) {
+            if (src === 'course') {
+                avgY = s.avg_yards; medY = s.median_yards; maxY = s.max_yards;
+                stdY = s.std_dev; p10Y = s.p10; p90Y = s.p90; countY = s.sample_count;
+            } else if (src === 'range' || src === 'trackman') {
+                avgY = s.range_avg_yards; medY = s.range_median_yards; maxY = s.range_max_yards;
+                stdY = s.range_std_dev; p10Y = s.range_p10; p90Y = s.range_p90; countY = s.range_sample_count;
+            } else {
+                avgY = s.combined_avg_yards; medY = s.combined_median_yards; maxY = s.combined_max_yards;
+                stdY = s.combined_std_dev; p10Y = s.combined_p10; p90Y = s.combined_p90; countY = s.combined_sample_count;
+            }
+        }
+
+        const statCard = (label, val, unit = '') =>
+            `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">${val != null ? val.toFixed(1) + unit : '\u2014'}</div></div>`;
+
+        let speedAngleHtml = '';
+        if (data.avg_ball_speed != null || data.avg_club_speed != null || data.avg_spin_rate != null) {
+            speedAngleHtml = `
+            <div class="stats-row" style="margin-top:8px;">
+                ${statCard('Ball Spd', data.avg_ball_speed, ' mph')}
+                ${statCard('Club Spd', data.avg_club_speed, ' mph')}
+                ${statCard('Smash', data.avg_smash_factor ? data.avg_smash_factor : null, '')}
+                ${statCard('Launch', data.avg_launch_angle, '\u00b0')}
+                ${statCard('Attack', data.avg_attack_angle, '\u00b0')}
+                ${statCard('Spin', data.avg_spin_rate ? Math.round(data.avg_spin_rate) : null, ' rpm')}
+                ${statCard('Club Path', data.avg_club_path, '\u00b0')}
+            </div>`;
+        }
+
+        // Club specs
+        let specsHtml = '';
+        const specs = [];
+        if (club.loft_deg != null) specs.push(`Loft: ${club.loft_deg}\u00b0`);
+        if (club.lie_deg != null) specs.push(`Lie: ${club.lie_deg}\u00b0`);
+        if (club.flex) specs.push(`Flex: ${club.flex}`);
+        if (club.shaft_length_in != null) specs.push(`Shaft: ${club.shaft_length_in}"`);
+        if (specs.length) {
+            specsHtml = `<div style="color:var(--text-muted); font-size:0.84rem; margin-top:4px;">${specs.join(' \u00b7 ')}</div>`;
+        }
+
+        statsEl.innerHTML = `
+            ${statCard('Avg', avgY, ' yds')}
+            ${statCard('Median', medY, ' yds')}
+            ${statCard('Max', maxY, ' yds')}
+            ${statCard('Spread', stdY, '')}
+            ${statCard('P10\u2013P90', p10Y != null && p90Y != null ? null : null, '')}
+            ${statCard('Shots', countY, '')}
+        `;
+        // Fix P10-P90 card
+        const cards = statsEl.querySelectorAll('.stat-card');
+        if (cards[4] && p10Y != null && p90Y != null) {
+            cards[4].querySelector('.stat-value').textContent = `${p10Y.toFixed(0)}\u2013${p90Y.toFixed(0)} yds`;
+        }
+
+        // Append speed/angle and specs after the stats row
+        statsEl.insertAdjacentHTML('afterend', '');
+        const afterStats = document.createElement('div');
+        afterStats.id = 'club-detail-extra-stats';
+        afterStats.innerHTML = speedAngleHtml + specsHtml;
+        // Remove old extra stats if any
+        const oldExtra = document.getElementById('club-detail-extra-stats');
+        if (oldExtra) oldExtra.remove();
+        statsEl.parentElement.insertBefore(afterStats, statsEl.nextSibling);
+    }
+
+    function _renderCDSourceToggles(sourceCounts) {
+        const container = document.getElementById('club-detail-source-toggles');
+        if (!container) return;
+
+        const total = (sourceCounts.course || 0) + (sourceCounts.range || 0) + (sourceCounts.trackman || 0);
+        const sf = clubDetailState.sourceFilter;
+
+        const sources = [
+            { key: 'all', label: 'All', count: total, color: 'var(--accent)' },
+            { key: 'course', label: 'Course', count: sourceCounts.course || 0, color: '#4CAF50' },
+            { key: 'range', label: 'Range', count: sourceCounts.range || 0, color: '#2196F3' },
+            { key: 'trackman', label: 'Trackman', count: sourceCounts.trackman || 0, color: '#FF9800' },
+        ];
+
+        container.innerHTML = sources
+            .filter(s => s.key === 'all' || s.count > 0)
+            .map(s =>
+                `<span class="club-toggle${sf === s.key ? ' active' : ''}" data-source="${s.key}" style="--club-color:${s.color};">
+                    <span class="club-color-dot" style="background:${s.color};"></span>${s.label} (${s.count})
+                </span>`
+            ).join('');
+
+        container.querySelectorAll('.club-toggle').forEach(el => {
+            el.addEventListener('click', () => {
+                clubDetailState.sourceFilter = el.dataset.source;
+                _renderCDSourceToggles(sourceCounts);
+                _renderCDShots();
+            });
+        });
+    }
+
+    function _getCDFilteredShots() {
+        const sf = clubDetailState.sourceFilter;
+        if (sf === 'all') return clubDetailState.allShots;
+        if (sf === 'range') return clubDetailState.allShots.filter(s => s.source === 'rapsodo_mlm2pro');
+        return clubDetailState.allShots.filter(s => s.source === sf);
+    }
+
+    function _renderCDShots() {
+        const tbody = document.getElementById('club-detail-shots-body');
+        const thead = document.getElementById('club-detail-shots-head');
+        if (!tbody || !thead) return;
+
+        let shots = _getCDFilteredShots();
+        const cols = clubDetailState.visibleColumns;
+        const editMode = clubDetailState.editColumnsMode;
+
+        // Update title
+        const titleEl = document.getElementById('club-detail-table-title');
+        if (titleEl) titleEl.textContent = `All Shots (${shots.length})`;
+
+        if (shots.length === 0) {
+            thead.innerHTML = '';
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No shots found.</td></tr>';
+            return;
+        }
+
+        // Apply sorting
+        let sortedShots = [...shots];
+        if (clubDetailState.sortColumn && clubDetailState.sortDirection) {
+            const dir = clubDetailState.sortDirection === 'desc' ? -1 : 1;
+            sortedShots.sort((a, b) => {
+                let va, vb;
+                if (clubDetailState.sortColumn === 'date') {
+                    va = a.date || ''; vb = b.date || '';
+                    return va < vb ? -dir : va > vb ? dir : 0;
+                }
+                va = a[clubDetailState.sortColumn]; vb = b[clubDetailState.sortColumn];
+                va = va != null ? va : -Infinity; vb = vb != null ? vb : -Infinity;
+                return (va - vb) * dir;
+            });
+        }
+
+        // Build header
+        const headerCells = cols.map((key, ci) => {
+            const col = CD_COL_MAP[key];
+            if (!col) return '';
+            const sortArrow = clubDetailState.sortColumn === key
+                ? (clubDetailState.sortDirection === 'desc' ? ' \u25BC' : ' \u25B2')
+                : '';
+            const removeBtn = editMode && !col.fixed
+                ? `<span class="col-remove" onclick="event.stopPropagation(); window._cdRemoveColumn('${key}')">\u00d7</span>`
+                : '';
+            const dragAttr = editMode && !col.fixed ? `draggable="true" data-cd-col-idx="${ci}"` : '';
+            const style = col.width ? `style="width:${col.width}"` : '';
+            return `<th ${style} ${dragAttr} onclick="window._cdSortByColumn('${key}')" class="sortable${editMode ? ' edit-mode' : ''}">${col.label}${sortArrow}${removeBtn}</th>`;
+        }).join('');
+
+        const addBtn = editMode
+            ? `<th class="col-add-cell"><span class="col-add" onclick="event.stopPropagation(); window._cdShowAddColumn(this)">+</span></th>`
+            : '<th></th>';
+
+        thead.innerHTML = headerCells + addBtn;
+
+        // Stats helpers
+        const _avgArr = arr => { const c = arr.filter(v => v != null); return c.length ? c.reduce((a, b) => a + b, 0) / c.length : null; };
+        const _stdDevArr = arr => { const c = arr.filter(v => v != null); if (c.length < 2) return null; const m = c.reduce((a, b) => a + b, 0) / c.length; return Math.sqrt(c.reduce((s, v) => s + (v - m) ** 2, 0) / (c.length - 1)); };
+
+        // Summary rows
+        const avgCells = cols.map(key => {
+            if (key === 'row_num') return '<td><strong>Avg</strong></td>';
+            if (key === 'date' || key === 'source' || key === 'shot_type') return '<td></td>';
+            const val = _avgArr(shots.map(s => s[key]));
+            return `<td>${_cdFmtCell({[key]: val}, key)}</td>`;
+        }).join('') + '<td></td>';
+
+        const sdCells = cols.map(key => {
+            if (key === 'row_num') return '<td><strong>StdDev</strong></td>';
+            if (key === 'date' || key === 'source' || key === 'shot_type') return '<td></td>';
+            const val = _stdDevArr(shots.map(s => s[key]));
+            return `<td>${_cdFmtCell({[key]: val}, key)}</td>`;
+        }).join('') + '<td></td>';
+
+        // Shot rows
+        const shotRows = sortedShots.map((s, i) => {
+            const shot = { ...s, _rowNum: i + 1 };
+            const isExpanded = clubDetailState.expandedShotId === s.id;
+            const dataCells = cols.map(key => `<td>${_cdFmtCell(shot, key)}</td>`).join('');
+
+            const shotType = s.source === 'trackman' ? 'trackman' : (s.source === 'course' ? 'course' : 'range');
+            const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${s.raw_id})" style="font-size:0.7rem;">Move</button></td>`;
+
+            let row = `<tr data-shot-id="${s.id}" onclick="window._cdToggleShot('${s.id}')" class="clickable${isExpanded ? ' detail-expanded' : ''}">${dataCells}${moveBtn}</tr>`;
+
+            if (isExpanded) {
+                row += _buildCDDetailPanel(shot, cols.length + 1);
+            }
+            return row;
+        }).join('');
+
+        tbody.innerHTML = `
+            <tr class="summary-row summary-avg">${avgCells}</tr>
+            <tr class="summary-row summary-sd">${sdCells}</tr>
+            ${shotRows}
+        `;
+
+        // Attach drag handlers if in edit mode
+        if (editMode) _attachCDDragHandlers();
+    }
+
+    function _buildCDDetailPanel(shot, colSpan) {
+        let sections;
+        if (shot.source === 'course') {
+            // Course-specific detail panel
+            const lieTransition = (shot.start_lie && shot.end_lie) ? `${shot.start_lie} \u2192 ${shot.end_lie}` : (shot.start_lie || '\u2014');
+            const fwHit = shot.fairway_side === 'CENTER' ? '\u2713 Hit' : (shot.fairway_side === 'L' ? '\u2190 Left' : (shot.fairway_side === 'R' ? '\u2192 Right' : '\u2014'));
+            const sgFmt = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) : '\u2014';
+
+            sections = [
+                { title: 'Info', fields: [
+                    ['Type', shot.shot_type || '\u2014'],
+                    ['Lie', lieTransition],
+                    ['Hole', shot.hole_number || '\u2014'],
+                ]},
+                { title: 'Distance', fields: [
+                    ['GPS Distance', _fmt(shot.distance_yards) + ' yds'],
+                    ['Useful Dist', _fmt(shot.fairway_progress_yards) + ' yds'],
+                    ['Pin Remaining', _fmt(shot.pin_distance_yards) + ' yds'],
+                ]},
+                { title: 'Accuracy', fields: [
+                    ['Side from FW', _fmtSigned(shot.fairway_side_yards) + ' yds'],
+                    ['Fairway', fwHit],
+                    ['Green Prox', _fmt(shot.green_distance_yards) + ' yds'],
+                    ['On Green', shot.on_green != null ? (shot.on_green ? 'Yes' : 'No') : '\u2014'],
+                ]},
+                { title: 'Hazards', fields: [
+                    ['Nearest', shot.nearest_hazard_name || shot.nearest_hazard_type || '\u2014'],
+                    ['Distance', _fmt(shot.nearest_hazard_yards) + ' yds'],
+                ]},
+                { title: 'Strokes Gained', fields: [
+                    ['SG vs PGA', sgFmt(shot.sg_pga)],
+                    ['SG vs Personal', sgFmt(shot.sg_personal)],
+                ]},
+            ];
+        } else {
+            // Range/Trackman detail panel (reuse existing pattern)
+            sections = [
+                { title: 'Flight', fields: [
+                    ['Carry', _fmt(shot.carry_yards)], ['Total', _fmt(shot.total_yards)],
+                    ['Side', _fmtSigned(shot.side_carry_yards)], ['Side Tot', _fmtSigned(shot.side_total_yards)],
+                    ['Apex', _fmt(shot.apex_yards)], ['Curve', _fmt(shot.curve_yards)],
+                    ['Hang Time', shot.hang_time_sec != null ? shot.hang_time_sec.toFixed(1) + 's' : '\u2014'],
+                    ['Descent', _fmtDeg(shot.descent_angle_deg || shot.landing_angle_deg)],
+                ]},
+                { title: 'Club & Swing', fields: [
+                    ['Club Spd', _fmt(shot.club_speed_mph)], ['Ball Spd', _fmt(shot.ball_speed_mph)],
+                    ['Smash', _fmt2(shot.smash_factor)], ['Attack', _fmtDeg(shot.attack_angle_deg)],
+                    ['Club Path', _fmtDeg(shot.club_path_deg)], ['Face Ang', _fmtDeg(shot.face_angle_deg)],
+                    ['F2P', _fmtDeg(shot.face_to_path_deg)], ['Dyn Loft', _fmtDeg(shot.dynamic_loft_deg)],
+                    ['Spin Loft', _fmtDeg(shot.spin_loft_deg)], ['Swing Pl', _fmtDeg(shot.swing_plane_deg)],
+                    ['Swing Dir', _fmtDeg(shot.swing_direction_deg)], ['Dyn Lie', _fmtDeg(shot.dynamic_lie_deg)],
+                ]},
+                { title: 'Impact', fields: [
+                    ['Offset', _fmt(shot.impact_offset_in)], ['Height', _fmt(shot.impact_height_in)],
+                    ['Low Point', _fmt(shot.low_point_distance_in)],
+                ]},
+                { title: 'Spin', fields: [
+                    ['Rate', _fmtInt(shot.spin_rate_rpm)], ['Axis', _fmtDeg(shot.spin_axis_deg)],
+                    ['Launch', _fmtDeg(shot.launch_angle_deg)], ['Launch Dir', _fmtDeg(shot.launch_direction_deg)],
+                ]},
+            ];
+        }
+
+        const html = sections.map(sec => `
+            <div class="detail-section">
+                <div class="detail-section-title">${sec.title}</div>
+                <div class="detail-grid">
+                    ${sec.fields.map(([label, val]) => `<div class="detail-item"><span class="detail-label">${label}</span><span class="detail-value">${val}</span></div>`).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        const shotType = shot.source === 'trackman' ? 'trackman' : (shot.source === 'course' ? 'course' : 'range');
+        return `<tr class="detail-panel-row"><td colspan="${colSpan}"><div class="shot-detail-panel">${html}
+            <div style="text-align:right; margin-top:8px;">
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${shot.raw_id})" style="font-size:0.75rem;">Move Shot</button>
+            </div>
+        </div></td></tr>`;
+    }
+
+    // ── Club Detail interaction handlers ──
+
+    window._cdToggleShot = function(shotId) {
+        clubDetailState.expandedShotId = clubDetailState.expandedShotId === shotId ? null : shotId;
+        _renderCDShots();
+    };
+
+    window._cdSortByColumn = function(key) {
+        if (clubDetailState.sortColumn === key) {
+            clubDetailState.sortDirection = clubDetailState.sortDirection === 'desc' ? 'asc' : (clubDetailState.sortDirection === 'asc' ? null : 'desc');
+            if (!clubDetailState.sortDirection) clubDetailState.sortColumn = null;
+        } else {
+            clubDetailState.sortColumn = key;
+            clubDetailState.sortDirection = 'desc';
+        }
+        _renderCDShots();
+    };
+
+    window._toggleClubDetailEditColumns = function() {
+        clubDetailState.editColumnsMode = !clubDetailState.editColumnsMode;
+        _renderCDShots();
+    };
+
+    window._cdRemoveColumn = function(key) {
+        clubDetailState.visibleColumns = clubDetailState.visibleColumns.filter(k => k !== key);
+        _saveCDColumnConfig();
+        _renderCDShots();
+    };
+
+    window._cdShowAddColumn = function(el) {
+        document.querySelectorAll('.col-add-dropdown').forEach(d => d.remove());
+        const hidden = CD_ALL_COLUMNS.filter(c => !c.fixed && !clubDetailState.visibleColumns.includes(c.key));
+        if (hidden.length === 0) return;
+
+        const dd = document.createElement('div');
+        dd.className = 'col-add-dropdown';
+        dd.innerHTML = hidden.map(c =>
+            `<div class="col-add-option" onclick="window._cdAddColumn('${c.key}')">${c.label}</div>`
+        ).join('');
+        el.parentElement.appendChild(dd);
+    };
+
+    window._cdAddColumn = function(key) {
+        if (!clubDetailState.visibleColumns.includes(key)) {
+            clubDetailState.visibleColumns.push(key);
+            _saveCDColumnConfig();
+        }
+        document.querySelectorAll('.col-add-dropdown').forEach(d => d.remove());
+        _renderCDShots();
+    };
+
+    function _attachCDDragHandlers() {
+        const headers = document.querySelectorAll('#club-detail-shots-head th[draggable]');
+        headers.forEach(th => {
+            th.addEventListener('dragstart', e => {
+                e.dataTransfer.setData('text/plain', th.dataset.cdColIdx);
+                th.classList.add('dragging');
+            });
+            th.addEventListener('dragend', () => th.classList.remove('dragging'));
+            th.addEventListener('dragover', e => { e.preventDefault(); th.classList.add('drag-over'); });
+            th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
+            th.addEventListener('drop', e => {
+                e.preventDefault();
+                th.classList.remove('drag-over');
+                const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                const toIdx = parseInt(th.dataset.cdColIdx);
+                if (fromIdx === toIdx) return;
+                const cols = clubDetailState.visibleColumns;
+                const [moved] = cols.splice(fromIdx, 1);
+                cols.splice(toIdx, 0, moved);
+                _saveCDColumnConfig();
+                _renderCDShots();
+            });
+        });
+    }
 
     // ========== Status Helpers ==========
     function autoDismiss(el, delay = 4000) {

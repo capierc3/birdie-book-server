@@ -164,10 +164,9 @@ Right-pane panel with course-specific metrics, matching range panel UX.
 - `SG = expected_before - expected_after - 1`
 - Computed per shot and stored as `sg_pga`
 
-### Phase 5: Personal Strokes Gained — FUTURE
-- Build personal baseline from accumulated round data (avg strokes to hole out by distance + lie)
-- Requires sufficient data volume for statistical significance
-- New metric: `sg_personal` comparing each shot against player's own historical average
+### Phase 5: Personal Strokes Gained — COMPLETE
+- Personal baseline built from accumulated round data (avg strokes to hole out by distance + lie)
+- `sg_personal` computed per shot, comparing against player's own historical average
 - Useful for tracking improvement over time independent of PGA baseline
 
 ---

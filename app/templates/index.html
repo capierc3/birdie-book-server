@@ -19,8 +19,12 @@
             <div class="stat-value" id="stat-courses">--</div>
         </div>
         <div class="stat-card">
-            <div class="stat-label">Best Score</div>
-            <div class="stat-value" id="stat-best">--</div>
+            <div class="stat-label">Best 18</div>
+            <div class="stat-value" id="stat-best-18">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Best 9</div>
+            <div class="stat-value" id="stat-best-9">--</div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Avg Score vs Par</div>
@@ -44,7 +48,13 @@
         <div class="card">
             <div class="card-header">
                 <h2>Your Courses</h2>
-                <a href="#courses" class="btn btn-ghost btn-sm nav-link" data-section="section-courses">View All</a>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="dash-courses-sort" class="club-window-select" style="font-size:0.8rem;">
+                        <option value="most-played">Most Played</option>
+                        <option value="recent">Most Recent</option>
+                    </select>
+                    <a href="#courses" class="btn btn-ghost btn-sm nav-link" data-section="section-courses">View All</a>
+                </div>
             </div>
             <div id="dash-courses">
                 <div class="empty-state">
@@ -57,9 +67,18 @@
 
 <!-- ===== Rounds Section ===== -->
 <div class="content-section" id="section-rounds">
-    <div class="page-header">
-        <h1>Rounds</h1>
-        <p>All your recorded rounds</p>
+    <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+            <h1>Rounds</h1>
+            <p>All your recorded rounds</p>
+        </div>
+        <div>
+            <select id="rounds-holes-filter" class="club-window-select" style="font-size:0.85rem;">
+                <option value="all">All Rounds</option>
+                <option value="18">18 Hole Only</option>
+                <option value="9">9 Hole Only</option>
+            </select>
+        </div>
     </div>
 
     <div class="card">
@@ -67,13 +86,13 @@
             <table id="rounds-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Course</th>
-                        <th>Score</th>
-                        <th>vs Par</th>
-                        <th>Holes</th>
-                        <th>Shots</th>
-                        <th>Source</th>
+                        <th class="sortable" onclick="window._sortRounds('date')">Date</th>
+                        <th class="sortable" onclick="window._sortRounds('course_name')">Course</th>
+                        <th class="sortable" onclick="window._sortRounds('total_strokes')">Score</th>
+                        <th class="sortable" onclick="window._sortRounds('score_vs_par')">vs Par</th>
+                        <th class="sortable" onclick="window._sortRounds('holes_completed')">Holes</th>
+                        <th class="sortable" onclick="window._sortRounds('shots_tracked')">Shots</th>
+                        <th class="sortable" onclick="window._sortRounds('source')">Source</th>
                     </tr>
                 </thead>
                 <tbody id="rounds-body">
@@ -402,6 +421,36 @@
                 </svg>
                 <span>Comparison window</span>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Club Detail Section ===== -->
+<div class="content-section" id="section-club-detail">
+    <div class="range-controls">
+        <a href="#clubs" class="btn btn-ghost btn-sm nav-link" data-section="section-clubs">&larr; Clubs</a>
+        <div id="club-detail-header-info" style="display:flex; align-items:center; gap:12px;"></div>
+    </div>
+
+    <!-- Aggregate stats -->
+    <div class="stats-row" id="club-detail-stats"></div>
+
+    <!-- Source filter toggles -->
+    <div id="club-detail-source-toggles" class="club-toggles"></div>
+
+    <!-- Shots table -->
+    <div class="card">
+        <div class="card-header">
+            <h2 id="club-detail-table-title">All Shots</h2>
+            <span class="col-edit-toggle" onclick="window._toggleClubDetailEditColumns()" title="Edit columns">&#9998;</span>
+        </div>
+        <div class="table-wrap">
+            <table id="club-detail-shots-table">
+                <thead><tr id="club-detail-shots-head"></tr></thead>
+                <tbody id="club-detail-shots-body">
+                    <tr><td colspan="8" class="empty-state">Loading...</td></tr>
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

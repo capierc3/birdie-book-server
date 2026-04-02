@@ -5,7 +5,7 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.club import Club, ClubStats
-from app.models.round import Shot, Round
+from app.models.round import Shot, Round, RoundHole
 from app.models.range_session import RangeSession, RangeShot
 from app.models.trackman_shot import TrackmanShot
 from app.services.club_stats_service import compute_club_stats, compute_windowed_club_stats
@@ -476,6 +476,7 @@ class ClubShotResponse(BaseModel):
     nearest_hazard_name: Optional[str] = None
     nearest_hazard_yards: Optional[float] = None
     # Context
+    round_id: Optional[int] = None
     hole_number: Optional[int] = None
     course_name: Optional[str] = None
     session_name: Optional[str] = None
@@ -511,14 +512,16 @@ def get_club_shots(club_id: int, db: Session = Depends(get_db)):
     # ── Course shots (via garmin_id) ──
     if club.garmin_id is not None:
         course_shots = (
-            db.query(Shot, Round)
+            db.query(Shot, Round, RoundHole)
             .join(Round, Shot.round_id == Round.id)
+            .join(RoundHole, Shot.round_hole_id == RoundHole.id)
             .filter(Shot.club_garmin_id == club.garmin_id)
             .filter(Shot.shot_type.notin_(["PUTT", "PENALTY"]))
+            .filter(Round.exclude_from_stats != True)
             .order_by(Round.date.desc(), Shot.shot_number)
             .all()
         )
-        for s, r in course_shots:
+        for s, r, rh in course_shots:
             shots.append(ClubShotResponse(
                 id=f"course_{s.id}",
                 raw_id=s.id,
@@ -540,7 +543,8 @@ def get_club_shots(club_id: int, db: Session = Depends(get_db)):
                 nearest_hazard_type=s.nearest_hazard_type,
                 nearest_hazard_name=s.nearest_hazard_name,
                 nearest_hazard_yards=s.nearest_hazard_yards,
-                hole_number=s.shot_number,
+                round_id=r.id,
+                hole_number=rh.hole_number,
                 course_name=r.course.name if r.course else None,
             ))
 

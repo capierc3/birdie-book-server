@@ -67,14 +67,16 @@ def _compute_stats_from_distances(distances: list[float], min_samples: int = 2) 
 
 
 def _base_shot_query(db: Session):
-    """Base query for valid distance shots (excludes putts, penalties, mishits)."""
+    """Base query for valid distance shots (excludes putts, penalties, mishits, excluded rounds)."""
     return (
         db.query(Shot.club_garmin_id, Shot.distance_yards)
+        .join(Round, Shot.round_id == Round.id)
         .filter(
             Shot.club_garmin_id.isnot(None),
             Shot.distance_yards.isnot(None),
             Shot.distance_yards > 5,
             Shot.shot_type.notin_(["PUTT", "PENALTY"]),
+            Round.exclude_from_stats != True,
         )
     )
 
@@ -318,6 +320,7 @@ def compute_windowed_club_stats(
         round_ids = [
             r[0] for r in
             db.query(Round.id)
+            .filter(Round.exclude_from_stats != True)
             .order_by(Round.date.desc())
             .limit(window_value)
             .all()
@@ -327,7 +330,7 @@ def compute_windowed_club_stats(
         round_ids = [
             r[0] for r in
             db.query(Round.id)
-            .filter(Round.date >= cutoff)
+            .filter(Round.date >= cutoff, Round.exclude_from_stats != True)
             .all()
         ]
     else:

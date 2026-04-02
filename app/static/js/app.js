@@ -65,20 +65,21 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleRoute() {
         const hash = window.location.hash.replace('#', '');
 
-        // Round detail route: round/123
-        const roundMatch = hash.match(/^round\/(\d+)$/);
+        // Round detail route: round/123 or round/123/hole/5
+        const roundMatch = hash.match(/^round\/(\d+)(?:\/hole\/(\d+))?$/);
         if (roundMatch) {
             const roundId = parseInt(roundMatch[1]);
+            const holeNum = roundMatch[2] ? parseInt(roundMatch[2]) : null;
             const round = roundsCache.find(r => r.id === roundId);
             if (round && round.course_id) {
                 navigateTo('section-hole-view');
-                loadHoleView(round.course_id, roundId);
+                loadHoleView(round.course_id, roundId, holeNum);
             } else {
                 // Round not in cache yet — fetch it
                 fetch(`/api/rounds/${roundId}`).then(r => r.json()).then(data => {
                     if (data.course_id) {
                         navigateTo('section-hole-view');
-                        loadHoleView(data.course_id, roundId);
+                        loadHoleView(data.course_id, roundId, holeNum);
                     }
                 });
             }
@@ -593,18 +594,67 @@ document.addEventListener('DOMContentLoaded', () => {
         renderRoundsTable();
     };
 
+    const GAME_FORMATS = [
+        { value: 'STROKE_PLAY', label: 'Stroke' },
+        { value: 'SCRAMBLE', label: 'Scramble' },
+        { value: 'MATCH_PLAY', label: 'Match' },
+        { value: 'BEST_BALL', label: 'Best Ball' },
+        { value: 'STABLEFORD', label: 'Stableford' },
+        { value: 'OTHER', label: 'Other' },
+    ];
+
+    const FORMAT_COLORS = {
+        STROKE_PLAY: '#888', SCRAMBLE: '#FF9800', MATCH_PLAY: '#9C27B0',
+        BEST_BALL: '#2196F3', STABLEFORD: '#4CAF50', OTHER: '#78909C',
+    };
+
+    window._toggleRoundExclude = async function(roundId) {
+        const round = roundsCache.find(r => r.id === roundId);
+        if (!round) return;
+        const newVal = !round.exclude_from_stats;
+        try {
+            const resp = await fetch(`/api/rounds/${roundId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ exclude_from_stats: newVal }),
+            });
+            if (resp.ok) {
+                round.exclude_from_stats = newVal;
+                renderRoundsTable();
+                updateDashboard();
+            }
+        } catch (e) { console.error('Failed to toggle exclude:', e); }
+    };
+
+    window._setRoundFormat = async function(roundId, format) {
+        const round = roundsCache.find(r => r.id === roundId);
+        if (!round) return;
+        try {
+            const resp = await fetch(`/api/rounds/${roundId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ game_format: format }),
+            });
+            if (resp.ok) {
+                round.game_format = format;
+                renderRoundsTable();
+            }
+        } catch (e) { console.error('Failed to set format:', e); }
+    };
+
     function renderRoundsTable() {
         const tbody = document.getElementById('rounds-body');
         if (roundsCache.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No rounds yet. Import data to get started.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No rounds yet. Import data to get started.</td></tr>';
             return;
         }
 
         // Update sort indicators in header
         const headers = document.querySelectorAll('#rounds-table thead th.sortable');
-        const colOrder = ['date', 'course_name', 'total_strokes', 'score_vs_par', 'holes_completed', 'shots_tracked', 'source'];
+        const colOrder = ['date', 'course_name', 'total_strokes', 'score_vs_par', 'holes_completed', 'shots_tracked', 'game_format'];
         headers.forEach((th, i) => {
             const col = colOrder[i];
+            if (!col) return;
             const base = th.textContent.replace(/ [\u25B2\u25BC]$/, '');
             th.textContent = col === roundsSortCol ? `${base} ${roundsSortDir === 'desc' ? '\u25BC' : '\u25B2'}` : base;
         });
@@ -618,14 +668,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No rounds match this filter.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No rounds match this filter.</td></tr>';
             return;
         }
 
         // Sort
         const dir = roundsSortDir === 'desc' ? -1 : 1;
         const sorted = [...filtered].sort((a, b) => {
-            const isStr = roundsSortCol === 'date' || roundsSortCol === 'course_name' || roundsSortCol === 'source';
+            const isStr = roundsSortCol === 'date' || roundsSortCol === 'course_name' || roundsSortCol === 'source' || roundsSortCol === 'game_format';
             if (isStr) {
                 const va = (a[roundsSortCol] || '').toLowerCase();
                 const vb = (b[roundsSortCol] || '').toLowerCase();
@@ -640,14 +690,37 @@ document.addEventListener('DOMContentLoaded', () => {
             const vsPar = r.score_vs_par;
             const vsParStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
             const cls = vsPar < 0 ? 'score-birdie' : vsPar === 0 ? 'score-par' : 'score-bogey';
-            return `<tr class="clickable" onclick="location.hash='round/${r.id}'">
+            const excluded = r.exclude_from_stats;
+            const rowStyle = excluded ? 'opacity:0.5;' : '';
+            const fmt = r.game_format || 'STROKE_PLAY';
+            const fmtColor = FORMAT_COLORS[fmt] || '#888';
+            const fmtLabel = GAME_FORMATS.find(f => f.value === fmt)?.label || fmt;
+
+            // Format dropdown
+            const fmtOptions = GAME_FORMATS.map(f =>
+                `<option value="${f.value}"${f.value === fmt ? ' selected' : ''}>${f.label}</option>`
+            ).join('');
+
+            // Exclude toggle
+            const toggleIcon = excluded ? '\u2717' : '\u2713';
+            const toggleTitle = excluded ? 'Excluded from stats \u2014 click to include' : 'Included in stats \u2014 click to exclude';
+            const toggleColor = excluded ? '#f44336' : '#4CAF50';
+
+            return `<tr class="clickable" style="${rowStyle}" onclick="location.hash='round/${r.id}'">
                 <td>${r.date}</td>
                 <td>${r.course_name || '\u2014'}</td>
                 <td>${r.total_strokes || '\u2014'}</td>
                 <td class="${cls}">${vsParStr}</td>
                 <td>${r.holes_completed || '\u2014'}</td>
                 <td>${r.shots_tracked || '\u2014'}</td>
-                <td>${r.source || '\u2014'}</td>
+                <td onclick="event.stopPropagation();">
+                    <select class="club-window-select" style="font-size:0.75rem; padding:2px 4px; background:${fmtColor}22; border-color:${fmtColor}; color:var(--text);" onchange="window._setRoundFormat(${r.id}, this.value)">
+                        ${fmtOptions}
+                    </select>
+                </td>
+                <td onclick="event.stopPropagation();">
+                    <span style="cursor:pointer; font-size:1.1rem; color:${toggleColor}; font-weight:bold;" title="${toggleTitle}" onclick="window._toggleRoundExclude(${r.id})">${toggleIcon}</span>
+                </td>
             </tr>`;
         }).join('');
     }
@@ -1058,7 +1131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let holeViewMode = 'historic'; // 'historic' or roundId
     let selectedHole = 1;
 
-    async function loadHoleView(courseId, roundId = null) {
+    async function loadHoleView(courseId, roundId = null, holeNum = null) {
         // Fetch course detail with tees/holes
         try {
             const resp = await fetch(`/api/courses/${courseId}`);
@@ -1112,7 +1185,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Load the selected view
         await onRoundSelect(roundSelect.value);
-        selectedHole = 1;
+        selectedHole = (holeNum && holeNum >= 1) ? holeNum : 1;
         renderHoleDetail();
     }
 
@@ -4357,12 +4430,13 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('stat-courses').textContent = coursesCache.length || '0';
 
         if (roundsCache.length > 0) {
-            const scores18 = roundsCache.filter(r => r.total_strokes && r.holes_completed >= 18).map(r => r.total_strokes);
-            const scores9 = roundsCache.filter(r => r.total_strokes && r.holes_completed && r.holes_completed < 18).map(r => r.total_strokes);
+            const included = roundsCache.filter(r => !r.exclude_from_stats);
+            const scores18 = included.filter(r => r.total_strokes && r.holes_completed >= 18).map(r => r.total_strokes);
+            const scores9 = included.filter(r => r.total_strokes && r.holes_completed && r.holes_completed < 18).map(r => r.total_strokes);
             if (scores18.length > 0) document.getElementById('stat-best-18').textContent = Math.min(...scores18);
             if (scores9.length > 0) document.getElementById('stat-best-9').textContent = Math.min(...scores9);
 
-            const vpScores = roundsCache.filter(r => r.score_vs_par != null).map(r => r.score_vs_par);
+            const vpScores = included.filter(r => r.score_vs_par != null).map(r => r.score_vs_par);
             if (vpScores.length > 0) {
                 const avg = vpScores.reduce((a, b) => a + b, 0) / vpScores.length;
                 const avgStr = avg > 0 ? `+${avg.toFixed(1)}` : avg.toFixed(1);
@@ -6785,8 +6859,12 @@ document.addEventListener('DOMContentLoaded', () => {
         `).join('');
 
         const shotType = shot.source === 'trackman' ? 'trackman' : (shot.source === 'course' ? 'course' : 'range');
+        const viewRoundBtn = shot.source === 'course' && shot.round_id
+            ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); location.hash='round/${shot.round_id}/hole/${shot.hole_number || 1}'" style="font-size:0.75rem;">View Hole</button>`
+            : '';
         return `<tr class="detail-panel-row"><td colspan="${colSpan}"><div class="shot-detail-panel">${html}
-            <div style="text-align:right; margin-top:8px;">
+            <div style="text-align:right; margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
+                ${viewRoundBtn}
                 <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${shot.raw_id})" style="font-size:0.75rem;">Move Shot</button>
             </div>
         </div></td></tr>`;

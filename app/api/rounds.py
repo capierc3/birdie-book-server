@@ -70,6 +70,8 @@ class RoundSummaryResponse(BaseModel):
     slope_rating: Optional[float] = None
     shots_tracked: Optional[int] = None
     source: Optional[str] = None
+    exclude_from_stats: bool = False
+    game_format: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -115,6 +117,8 @@ def list_rounds(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
             slope_rating=r.slope_rating,
             shots_tracked=r.shots_tracked,
             source=r.source,
+            exclude_from_stats=r.exclude_from_stats or False,
+            game_format=r.game_format,
         ))
     return results
 
@@ -163,6 +167,34 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
             shots=[ShotResponse.model_validate(s) for s in sorted(h.shots, key=lambda s: s.shot_number)],
         ) for h in sorted(r.holes, key=lambda x: x.hole_number)],
     )
+
+
+class RoundUpdate(BaseModel):
+    game_format: Optional[str] = None
+    exclude_from_stats: Optional[bool] = None
+
+
+@router.patch("/{round_id}")
+def update_round(round_id: int, body: RoundUpdate, db: Session = Depends(get_db)):
+    """Update round metadata (game format, exclude from stats)."""
+    r = db.query(Round).filter(Round.id == round_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Round not found")
+
+    exclude_changed = False
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if field == "exclude_from_stats" and getattr(r, field) != value:
+            exclude_changed = True
+        setattr(r, field, value)
+
+    db.commit()
+
+    # Recompute stats if exclusion changed
+    if exclude_changed:
+        from app.services.club_stats_service import compute_club_stats
+        compute_club_stats(db)
+
+    return {"status": "updated", "round_id": round_id}
 
 
 @router.post("/{round_id}/recalc")

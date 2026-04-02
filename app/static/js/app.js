@@ -955,17 +955,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 const scoreClass = vsPar < 0 ? 'under' : vsPar === 0 ? 'even' : 'over';
                 const colorClass = vsPar < 0 ? 'score-birdie' : vsPar === 0 ? 'score-par' : 'score-bogey';
                 const courseName = coursesCache.find(cc => cc.id === r.course_id)?.course_name || '';
+                // Build tee options from the matching course's tees
+                const courseDetail = currentClubCourses.find(cc => cc.id === r.course_id);
+                const tees = courseDetail?.tees || [];
+                let teeHtml = '';
+                if (tees.length > 0) {
+                    const opts = tees.map(t =>
+                        `<option value="${t.id}"${t.tee_name === r.tee_name ? ' selected' : ''}>${t.tee_name}</option>`
+                    ).join('');
+                    teeHtml = `<select class="round-tee-select" data-round-id="${r.id}" onclick="event.stopPropagation()">
+                        <option value="">—</option>${opts}</select>`;
+                } else {
+                    teeHtml = `<span class="round-tee-label">${r.tee_name || '—'}</span>`;
+                }
                 return `<div class="recent-round" onclick="location.hash='round/${r.id}'">
                     <div class="round-score ${scoreClass}">${r.total_strokes || '\u2014'}</div>
                     <div class="round-info">
                         <div class="round-course">${r.date}${courseName ? ` \u2014 ${courseName}` : ''}</div>
-                        <div class="round-meta">${r.holes_completed || 18} holes \u00b7 ${r.shots_tracked || 0} shots \u00b7 ${r.source || 'unknown'}</div>
+                        <div class="round-meta">${r.holes_completed || 18} holes \u00b7 ${r.shots_tracked || 0} shots \u00b7 ${r.source || 'unknown'} \u00b7 ${teeHtml}</div>
                     </div>
                     <div class="round-detail">
                         <div class="round-vs-par ${colorClass}">${vsParStr}</div>
                     </div>
                 </div>`;
             }).join('');
+
+            // Wire up tee select change handlers
+            roundsContainer.querySelectorAll('.round-tee-select').forEach(sel => {
+                sel.addEventListener('change', async (e) => {
+                    e.stopPropagation();
+                    const roundId = e.target.dataset.roundId;
+                    const teeId = e.target.value ? parseInt(e.target.value) : null;
+                    try {
+                        await fetch(`/api/rounds/${roundId}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tee_id: teeId }),
+                        });
+                        // Update cache
+                        const cached = roundsCache.find(r => r.id === parseInt(roundId));
+                        if (cached) {
+                            const courseDetail = currentClubCourses.find(cc => cc.id === cached.course_id);
+                            const tee = courseDetail?.tees?.find(t => t.id === teeId);
+                            cached.tee_name = tee?.tee_name || null;
+                        }
+                    } catch (err) {
+                        console.error('Failed to update tee:', err);
+                    }
+                });
+            });
         }
 
         // Store club ID for sync buttons
@@ -4609,6 +4647,9 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedSession: 'all',
         viewMode: 'total',
         highlightedShotIds: new Set(), // shots to highlight (empty = none highlighted, show all normal)
+        compareSession: null,       // session id or 'all' for compare
+        compareShots: [],           // shots from compare API call
+        sessionCompareMode: false,  // whether session compare is active
     };
 
     async function loadRangeAnalytics(sessionId) {
@@ -4639,6 +4680,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 sessionSelect.value = String(sid);
             }
 
+            // Populate compare dropdown
+            const compareSelect = document.getElementById('range-compare-select');
+            const compareSelectorWrap = document.getElementById('range-compare-selector');
+            if (compareSelect && compareSelectorWrap) {
+                compareSelect.innerHTML = '<option value="">None</option>' +
+                    '<option value="all">All Time</option>';
+                data.sessions.forEach(s => {
+                    if (String(s.id) === String(sid)) return; // exclude primary
+                    const d = new Date(s.session_date);
+                    const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const src = s.source === 'rapsodo_mlm2pro' ? 'MLM2PRO' : s.source;
+                    compareSelect.innerHTML += `<option value="${s.id}">${label} — ${src} (${s.shot_count})</option>`;
+                });
+                // If primary is "all", remove "All Time" from compare
+                if (String(sid) === 'all') {
+                    compareSelect.querySelector('option[value="all"]')?.remove();
+                }
+                // Show compare dropdown if there are sessions to compare against
+                const hasOptions = compareSelect.options.length > 1;
+                compareSelectorWrap.style.display = hasOptions ? 'flex' : 'none';
+                // Reset compare if selected session was removed
+                if (rangeState.compareSession && !compareSelect.querySelector(`option[value="${rangeState.compareSession}"]`)) {
+                    rangeState.compareSession = null;
+                    rangeState.compareShots = [];
+                    rangeState.sessionCompareMode = false;
+                }
+                compareSelect.value = rangeState.compareSession || '';
+            }
+
             // Initialize enabled clubs on first load, preserve on session switch
             if (rangeState.enabledClubs.size === 0 && data.clubs.length > 0) {
                 rangeState.enabledClubs = new Set(data.clubs);
@@ -4662,8 +4732,39 @@ document.addEventListener('DOMContentLoaded', () => {
         return shots;
     }
 
+    function getFilteredCompareShots() {
+        if (!rangeState.sessionCompareMode) return [];
+        if (rangeState.enabledClubs.size === 0) return [];
+        return rangeState.compareShots.filter(s => rangeState.enabledClubs.has(s.club_name || s.club_type_raw));
+    }
+
+    async function loadCompareData(sessionId) {
+        if (!sessionId) {
+            rangeState.compareSession = null;
+            rangeState.compareShots = [];
+            rangeState.sessionCompareMode = false;
+            renderRangeAnalytics();
+            return;
+        }
+        rangeState.compareSession = String(sessionId);
+        rangeState.sessionCompareMode = true;
+        try {
+            const url = sessionId === 'all' ? '/api/range/shots?session_id=all' : `/api/range/shots?session_id=${sessionId}`;
+            const resp = await fetch(url);
+            const data = await resp.json();
+            rangeState.compareShots = data.shots;
+            data.shots.forEach(s => {
+                if (s.club_color && s.club_name) clubColorCache[s.club_name] = s.club_color;
+            });
+            renderRangeAnalytics();
+        } catch (e) {
+            console.error('Failed to load compare data:', e);
+        }
+    }
+
     function renderRangeAnalytics() {
         const shots = getFilteredShots();
+        const compareShots = getFilteredCompareShots();
 
         // Clear highlights on re-render
         rangeState.highlightedShotIds.clear();
@@ -4672,8 +4773,19 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('btn-view-total')?.classList.toggle('active', rangeState.viewMode === 'total');
         document.getElementById('btn-view-carry')?.classList.toggle('active', rangeState.viewMode === 'carry');
 
-        drawScatterChart(shots);
-        drawTrajectoryChart(shots);
+        drawScatterChart(shots, compareShots);
+        drawTrajectoryChart(shots, compareShots);
+
+        // Compare stats table
+        const compareStatsEl = document.getElementById('range-compare-stats');
+        if (compareStatsEl) {
+            if (rangeState.sessionCompareMode && compareShots.length > 0) {
+                renderCompareStatsTable(shots, compareShots);
+            } else {
+                compareStatsEl.innerHTML = '';
+            }
+        }
+
         renderClubSections(shots);
     }
 
@@ -4686,6 +4798,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Session select
     document.getElementById('range-session-select')?.addEventListener('change', (e) => {
         loadRangeAnalytics(e.target.value === 'all' ? null : parseInt(e.target.value));
+    });
+
+    // Compare session select
+    document.getElementById('range-compare-select')?.addEventListener('change', (e) => {
+        const val = e.target.value;
+        loadCompareData(val === 'all' ? 'all' : val ? parseInt(val) : null);
     });
 
     // ── Club Toggles ──
@@ -4828,7 +4946,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ── Scatter Chart (Top-Down Dispersion) ──
 
-    function drawScatterChart(shots) {
+    function drawScatterChart(shots, compareShots = []) {
         const canvas = document.getElementById('range-scatter-canvas');
         if (!canvas) return;
 
@@ -4869,6 +4987,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 _baseColors: clubShots.map(() => color),
             };
         });
+
+        // Compare datasets (diamond markers, hollow fill)
+        if (compareShots.length > 0) {
+            const validCompare = compareShots.filter(s => s.side_carry_yards != null && s[distKey] != null);
+            const compareGroups = {};
+            for (const s of validCompare) {
+                const name = s.club_name || s.club_type_raw;
+                if (!compareGroups[name]) compareGroups[name] = [];
+                compareGroups[name].push(s);
+            }
+            Object.entries(compareGroups).forEach(([clubName, clubShots]) => {
+                const color = getClubColor(clubName);
+                datasets.push({
+                    label: clubName + ' (compare)',
+                    data: clubShots.map(s => ({ x: s.side_carry_yards, y: s[distKey] })),
+                    backgroundColor: clubShots.map(() => 'transparent'),
+                    borderColor: clubShots.map(() => color + 'B3'),
+                    pointBackgroundColor: clubShots.map(() => 'transparent'),
+                    pointBorderColor: clubShots.map(() => color + 'B3'),
+                    pointStyle: 'rectRot',
+                    pointRadius: 6,
+                    pointHoverRadius: 9,
+                    pointBorderWidth: 2,
+                    _shotIds: clubShots.map(s => s.id),
+                    _baseColors: clubShots.map(() => color),
+                    _isCompare: true,
+                });
+            });
+        }
 
         const ctx = canvas.getContext('2d');
 
@@ -4941,11 +5088,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         callbacks: {
                             label: (ctx) => {
                                 const ds = ctx.dataset;
-                                const shotId = ds._shotIds?.[ctx.dataIndex];
-                                const shot = validShots.find(s => s.id === shotId);
-                                if (!shot) return '';
                                 const distLabel = rangeState.viewMode === 'carry' ? 'Carry' : 'Total';
-                                return `${ds.label}: ${distLabel} ${ctx.parsed.y?.toFixed(1)} yds, Side ${ctx.parsed.x?.toFixed(1)} yds`;
+                                const compareTag = ds._isCompare ? ' (compare)' : '';
+                                const clubLabel = ds._isCompare ? ds.label.replace(' (compare)', '') : ds.label;
+                                return `${clubLabel}${compareTag}: ${distLabel} ${ctx.parsed.y?.toFixed(1)} yds, Side ${ctx.parsed.x?.toFixed(1)} yds`;
                             }
                         }
                     }
@@ -4969,15 +5115,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const legendEl = document.getElementById('range-scatter-legend');
         if (legendEl) {
             const clubNames = Object.keys(clubGroups);
-            legendEl.innerHTML = clubNames.map(name =>
+            let html = clubNames.map(name =>
                 `<span class="range-legend-item"><span class="club-color-dot" style="background:${getClubColor(name)}"></span>${name}</span>`
             ).join('');
+            if (compareShots.length > 0) {
+                html += '<span class="range-legend-compare-note">\u25C9 = primary \u25C7 = compare</span>';
+            }
+            legendEl.innerHTML = html;
         }
     }
 
     // ── Trajectory Chart (Ball Flight Side View) ──
 
-    function drawTrajectoryChart(shots) {
+    function drawTrajectoryChart(shots, compareShots = []) {
         const canvas = document.getElementById('range-trajectory-canvas');
         if (!canvas) return;
 
@@ -4990,9 +5140,14 @@ document.addEventListener('DOMContentLoaded', () => {
             s.carry_yards != null && s.carry_yards > 5 &&
             s.apex_yards != null && s.apex_yards > 0
         );
+        const validCompare = compareShots.filter(s =>
+            s.carry_yards != null && s.carry_yards > 5 &&
+            s.apex_yards != null && s.apex_yards > 0
+        );
+        const allValid = [...validShots, ...validCompare];
 
-        const maxCarry = validShots.length > 0 ? Math.max(...validShots.map(s => s.carry_yards)) : 100;
-        const maxApex = validShots.length > 0 ? Math.max(...validShots.map(s => s.apex_yards)) : 30;
+        const maxCarry = allValid.length > 0 ? Math.max(...allValid.map(s => s.carry_yards)) : 100;
+        const maxApex = allValid.length > 0 ? Math.max(...allValid.map(s => s.apex_yards)) : 30;
 
         // Build one dataset per shot (each is a trajectory line)
         const datasets = validShots.map(s => {
@@ -5054,6 +5209,56 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         });
 
+        // Compare trajectory datasets (dashed, thinner)
+        if (validCompare.length > 0) {
+            validCompare.forEach(s => {
+                const carry = s.carry_yards;
+                const apex = s.apex_yards;
+                const color = getClubColor(s.club_name);
+                const clubName = s.club_name || s.club_type_raw;
+                let points = [];
+
+                if (s.trajectory_json) {
+                    try {
+                        const traj = typeof s.trajectory_json === 'string' ? JSON.parse(s.trajectory_json) : s.trajectory_json;
+                        points = traj.map(p => ({ x: p.X * 1.09361, y: p.Y * 1.09361 }));
+                    } catch (e) { /* fallback */ }
+                }
+                if (points.length === 0) {
+                    const launchDeg = s.launch_angle_deg || 12;
+                    const descentDeg = s.descent_angle_deg || 40;
+                    const launchRad = launchDeg * Math.PI / 180;
+                    const descentRad = descentDeg * Math.PI / 180;
+                    const steps = 30;
+                    for (let i = 0; i <= steps; i++) {
+                        const t = i / steps;
+                        const cp1x = carry * 0.3;
+                        const cp1y = cp1x * Math.tan(launchRad);
+                        const cp2x = carry * 0.75;
+                        const cp2y = (carry - cp2x) * Math.tan(descentRad);
+                        const x = (1 - t) ** 3 * 0 + 3 * (1 - t) ** 2 * t * cp1x + 3 * (1 - t) * t ** 2 * cp2x + t ** 3 * carry;
+                        const y = (1 - t) ** 3 * 0 + 3 * (1 - t) ** 2 * t * cp1y + 3 * (1 - t) * t ** 2 * cp2y + t ** 3 * 0;
+                        points.push({ x, y });
+                    }
+                }
+                datasets.push({
+                    label: clubName + ' (compare)',
+                    data: points,
+                    borderColor: color + '80',
+                    borderWidth: 1.5,
+                    borderDash: [6, 3],
+                    pointRadius: 0,
+                    pointHitRadius: 0,
+                    tension: 0.3,
+                    fill: false,
+                    showLine: true,
+                    _shotId: s.id,
+                    _baseColor: color,
+                    _isCompare: true,
+                });
+            });
+        }
+
         const ctx = canvas.getContext('2d');
 
         trajectoryChartInstance = new Chart(ctx, {
@@ -5103,10 +5308,136 @@ document.addEventListener('DOMContentLoaded', () => {
         const clubsSeen = new Set(validShots.map(s => s.club_name || s.club_type_raw));
         const legendEl = document.getElementById('range-trajectory-legend');
         if (legendEl) {
-            legendEl.innerHTML = [...clubsSeen].map(name =>
+            let html = [...clubsSeen].map(name =>
                 `<span class="range-legend-item"><span class="club-color-dot" style="background:${getClubColor(name)}"></span>${name}</span>`
             ).join('');
+            if (validCompare.length > 0) {
+                html += '<span class="range-legend-compare-note">solid = primary, dashed = compare</span>';
+            }
+            legendEl.innerHTML = html;
         }
+    }
+
+    // ── Compare Stats Table ──
+
+    const COMPARE_METRICS = [
+        { key: 'carry_yards', label: 'Carry', fmt: '_fmt', better: 'higher' },
+        { key: 'total_yards', label: 'Total', fmt: '_fmt', better: 'higher' },
+        { key: 'ball_speed_mph', label: 'Ball Spd', fmt: '_fmt', better: 'higher' },
+        { key: 'club_speed_mph', label: 'Club Spd', fmt: '_fmt', better: 'higher' },
+        { key: 'launch_angle_deg', label: 'Launch', fmt: '_fmtDeg', better: null },
+        { key: 'spin_rate_rpm', label: 'Spin', fmt: '_fmtInt', better: null },
+        { key: 'apex_yards', label: 'Apex', fmt: '_fmt', better: null },
+        { key: 'side_carry_yards', label: 'Side', fmt: '_fmtSigned', better: 'zero' },
+        { key: 'smash_factor', label: 'Smash', fmt: '_fmt2', better: 'higher' },
+    ];
+
+    function _computeClubAvgs(shots) {
+        const groups = {};
+        for (const s of shots) {
+            const name = s.club_name || s.club_type_raw;
+            if (!groups[name]) groups[name] = [];
+            groups[name].push(s);
+        }
+        const result = {};
+        for (const [club, clubShots] of Object.entries(groups)) {
+            const avgs = {};
+            for (const m of COMPARE_METRICS) {
+                const vals = clubShots.map(s => s[m.key]).filter(v => v != null);
+                avgs[m.key] = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+            }
+            avgs._count = clubShots.length;
+            result[club] = avgs;
+        }
+        return result;
+    }
+
+    function _deltaClass(metric, primaryVal, compareVal) {
+        if (primaryVal == null || compareVal == null) return '';
+        const diff = primaryVal - compareVal;
+        if (Math.abs(diff) < 0.05) return '';
+        if (metric.better === 'higher') return diff > 0 ? 'delta-pos' : 'delta-neg';
+        if (metric.better === 'zero') return Math.abs(primaryVal) < Math.abs(compareVal) ? 'delta-pos' : 'delta-neg';
+        return '';
+    }
+
+    function _getSessionLabel(sessionId) {
+        if (!sessionId || sessionId === 'all') return 'All Time';
+        const s = rangeState.sessions.find(x => String(x.id) === String(sessionId));
+        if (!s) return 'Session ' + sessionId;
+        const d = new Date(s.session_date);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    function renderCompareStatsTable(primaryShots, compareShots) {
+        const container = document.getElementById('range-compare-stats');
+        if (!container) return;
+
+        const primaryAvgs = _computeClubAvgs(primaryShots);
+        const compareAvgs = _computeClubAvgs(compareShots);
+
+        const allClubs = [...new Set([...Object.keys(primaryAvgs), ...Object.keys(compareAvgs)])]
+            .sort((a, b) => clubBagOrder(a) - clubBagOrder(b));
+
+        if (allClubs.length === 0) {
+            container.innerHTML = '<div class="card" style="padding:16px;color:var(--text-muted);font-size:0.85rem;">No shots to compare.</div>';
+            return;
+        }
+
+        const primaryLabel = _getSessionLabel(rangeState.selectedSession);
+        const compareLabel = _getSessionLabel(rangeState.compareSession);
+
+        let html = `<div class="card"><div class="card-header" style="padding:12px 16px;">
+            <h3 style="margin:0;font-size:0.9rem;">Session Comparison</h3>
+            <div class="compare-session-labels">
+                <span class="primary-label">${primaryLabel}</span>
+                <span class="compare-label">${compareLabel}</span>
+            </div>
+        </div>
+        <div style="overflow-x:auto;">
+        <table class="compare-stats-table">
+            <thead><tr>
+                <th style="text-align:left;">Club</th>
+                ${COMPARE_METRICS.map(m => `<th>${m.label}</th>`).join('')}
+            </tr></thead>
+            <tbody>`;
+
+        for (const club of allClubs) {
+            const pAvg = primaryAvgs[club] || {};
+            const cAvg = compareAvgs[club] || {};
+            const color = getClubColor(club);
+
+            html += `<tr><td><span class="club-color-dot" style="background:${color};"></span>${club}`;
+            if (pAvg._count || cAvg._count) {
+                html += ` <span style="color:var(--text-muted);font-size:0.72rem;">(${pAvg._count || 0}/${cAvg._count || 0})</span>`;
+            }
+            html += `</td>`;
+
+            for (const m of COMPARE_METRICS) {
+                const pVal = pAvg[m.key];
+                const cVal = cAvg[m.key];
+                const fmtFn = FORMATTERS[m.fmt] || _fmt;
+                const delta = (pVal != null && cVal != null) ? pVal - cVal : null;
+                const cls = _deltaClass(m, pVal, cVal);
+
+                let deltaStr = '';
+                if (delta != null && Math.abs(delta) >= 0.05) {
+                    const sign = delta > 0 ? '+' : '';
+                    const fmtDelta = m.fmt === '_fmtInt' ? Math.round(delta).toString() :
+                                     m.fmt === '_fmt2' ? delta.toFixed(2) : delta.toFixed(1);
+                    deltaStr = `<span class="compare-cell-delta ${cls}">${sign}${fmtDelta}</span>`;
+                }
+
+                html += `<td>
+                    <span class="compare-cell-primary">${fmtFn(pVal)}</span>
+                    ${deltaStr}
+                </td>`;
+            }
+            html += '</tr>';
+        }
+
+        html += '</tbody></table></div></div>';
+        container.innerHTML = html;
     }
 
     // ── Collapsible Club Sections ──

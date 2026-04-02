@@ -138,7 +138,7 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
         garmin_id=r.garmin_id,
         course_id=r.course_id,
         course_name=r.course.display_name if r.course else None,
-        tee_name=None,
+        tee_name=r.tee.tee_name if r.tee_id and r.tee else None,
         date=r.date,
         holes_completed=r.holes_completed,
         total_strokes=r.total_strokes,
@@ -172,6 +172,7 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
 class RoundUpdate(BaseModel):
     game_format: Optional[str] = None
     exclude_from_stats: Optional[bool] = None
+    tee_id: Optional[int] = None
 
 
 @router.patch("/{round_id}")

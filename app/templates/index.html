@@ -658,6 +658,12 @@
                 <option value="all">All Time</option>
             </select>
         </div>
+        <div class="window-selector" id="range-compare-selector" style="display:none;">
+            <label for="range-compare-select">Compare to:</label>
+            <select id="range-compare-select" class="club-window-select">
+                <option value="">None</option>
+            </select>
+        </div>
     </div>
 
     <!-- Club toggles -->
@@ -689,6 +695,9 @@
             <div class="range-legend" id="range-trajectory-legend"></div>
         </div>
     </div>
+
+    <!-- Compare stats table -->
+    <div id="range-compare-stats"></div>
 
     <!-- Collapsible club shot sections -->
     <div id="range-club-sections"></div>
@@ -866,5 +875,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.2.0"></script>
+<script src="/static/js/app.js?v=0.2.1"></script>
 {% endblock %}

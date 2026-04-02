@@ -2,12 +2,13 @@
   "date": "2026-04-01",
   "services": {
     "golf_course_api": {
-      "calls": 0,
-      "last_call": null
+      "calls": 7,
+      "last_call": "2026-04-01T22:51:22.933691",
+      "last_endpoint": "detail: 28839"
     },
     "google_places": {
-      "calls": 7,
-      "last_call": "2026-04-01T21:59:38.031941",
+      "calls": 9,
+      "last_call": "2026-04-01T22:51:12.879827",
       "last_endpoint": "photo_media"
     },
     "google_maps_static": {

@@ -318,6 +318,56 @@ def green_proximity(
 
 
 # ---------------------------------------------------------------------------
+# Green pin distance estimation (when Garmin doesn't track on-green distance)
+# ---------------------------------------------------------------------------
+
+# Putt count → estimated feet from pin (based on PGA/amateur averages)
+_PUTT_DISTANCE_FT = {
+    0: None,   # handled separately via green radius or default
+    1: 6,      # ~6ft — makeable putt
+    2: 22,     # ~22ft — two-putt range
+    3: 40,     # ~40ft — lag putt territory
+}
+
+
+def _estimate_green_pin_distance(
+    putts: Optional[int],
+    green_boundary: Optional[list],
+    flag_lat: Optional[float] = None,
+    flag_lng: Optional[float] = None,
+) -> Optional[float]:
+    """
+    Estimate distance to pin (in yards) for a shot that landed on the green,
+    using putt count and optionally green size.
+
+    Returns estimated yards or None.
+    """
+    # Compute green radius in yards (if boundary available) for capping
+    green_radius_yards = None
+    if green_boundary and len(green_boundary) >= 3 and flag_lat and flag_lng:
+        max_dist = 0.0
+        for pt in green_boundary:
+            d = haversine_yards(flag_lat, flag_lng, pt[0], pt[1])
+            max_dist = max(max_dist, d)
+        green_radius_yards = max_dist
+
+    if putts is not None and putts > 0:
+        ft = _PUTT_DISTANCE_FT.get(putts, 40)  # 3+ putts default to 40ft
+        yards = ft / 3.0
+        # Cap at green radius if available
+        if green_radius_yards is not None:
+            yards = min(yards, green_radius_yards)
+        return round(yards, 1)
+
+    # 0 putts (chip-in from off green) or unknown — use half green radius or default
+    if putts == 0:
+        return None  # chip-in, not an on-green shot
+    if green_radius_yards is not None:
+        return round(green_radius_yards / 2, 1)
+    return round(12 / 3.0, 1)  # default 12ft = 4 yards
+
+
+# ---------------------------------------------------------------------------
 # Composite computation
 # ---------------------------------------------------------------------------
 
@@ -325,6 +375,7 @@ def compute_shot_metrics(
     shot: Shot,
     course_hole: Optional[CourseHole],
     hazards: list[CourseHazard],
+    round_hole: Optional[RoundHole] = None,
 ) -> dict:
     """
     Compute all spatial metrics for a single shot.
@@ -418,6 +469,20 @@ def compute_shot_metrics(
     except Exception:
         pass
 
+    # Estimate pin distance for shots landing on green when Garmin zeroes it out
+    # Garmin stops tracking distance once it detects the ball on the green,
+    # resulting in pin_distance_yards ≈ 0. Use putt count to estimate instead.
+    if (result["on_green"]
+            and result["pin_distance_yards"] is not None
+            and result["pin_distance_yards"] < 2
+            and shot.shot_type != "PUTT"
+            and round_hole is not None):
+        estimated = _estimate_green_pin_distance(
+            round_hole.putts, green_boundary, flag_lat, flag_lng,
+        )
+        if estimated is not None:
+            result["pin_distance_yards"] = estimated
+
     # Strokes gained (PGA baseline)
     try:
         if pin_before is not None and result["pin_distance_yards"] is not None:
@@ -497,12 +562,14 @@ def recalc_hole_shots(
     if not round_holes:
         return 0
 
-    rh_ids = [rh.id for rh in round_holes]
+    rh_map = {rh.id: rh for rh in round_holes}
+    rh_ids = list(rh_map.keys())
     shots = db.query(Shot).filter(Shot.round_hole_id.in_(rh_ids)).all()
 
     count = 0
     for shot in shots:
-        metrics = compute_shot_metrics(shot, course_hole, hazards)
+        rh = rh_map.get(shot.round_hole_id)
+        metrics = compute_shot_metrics(shot, course_hole, hazards, round_hole=rh)
         for key, val in metrics.items():
             setattr(shot, key, val)
         count += 1
@@ -574,7 +641,7 @@ def recalc_round_shots(db: Session, round_id: int) -> int:
         course_hole = holes_map.get(rh.hole_number)
         shots = db.query(Shot).filter(Shot.round_hole_id == rh.id).all()
         for shot in shots:
-            metrics = compute_shot_metrics(shot, course_hole, hazards)
+            metrics = compute_shot_metrics(shot, course_hole, hazards, round_hole=rh)
             for key, val in metrics.items():
                 setattr(shot, key, val)
             count += 1

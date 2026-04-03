@@ -267,6 +267,29 @@ def rebuild_personal_baseline(db) -> dict:
         buckets.setdefault(sg_lie, {}).setdefault(bucket_key, []).append(strokes_remaining)
         shot_count += 1
 
+    # Build Green buckets from putt-count estimation
+    # Garmin doesn't record individual putt shots — only putt count per hole.
+    # Use putt count to estimate first-putt distance and build Green expected strokes.
+    # Estimated feet from pin: 1 putt=6ft, 2 putts=22ft, 3+ putts=40ft
+    _PUTT_EST_FT = {1: 6, 2: 22, 3: 40}
+    green_rows = (
+        db.query(RoundHole)
+        .join(Round, RoundHole.round_id == Round.id)
+        .filter(
+            RoundHole.putts.isnot(None),
+            RoundHole.putts >= 1,
+            RoundHole.strokes.isnot(None),
+            Round.exclude_from_stats != True,
+        )
+        .all()
+    )
+    for rh in green_rows:
+        est_ft = _PUTT_EST_FT.get(rh.putts, 40)
+        bucket_key = max(3, round(est_ft / 3) * 3)
+        strokes_remaining = rh.putts  # putts remaining from the green
+        buckets.setdefault("Green", {}).setdefault(bucket_key, []).append(strokes_remaining)
+        shot_count += 1
+
     # Build averages, filtering by min samples
     baselines: dict[str, dict[str, float]] = {}
     bucket_count = 0

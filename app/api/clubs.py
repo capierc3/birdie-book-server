@@ -417,6 +417,33 @@ def reassign_shot(body: ReassignShotRequest, db: Session = Depends(get_db)):
     }
 
 
+class DeleteShotRequest(BaseModel):
+    shot_type: str  # "range", "trackman", or "course"
+    shot_id: int
+
+
+@router.post("/delete-shot")
+def delete_shot(body: DeleteShotRequest, db: Session = Depends(get_db)):
+    """Delete a shot (range, trackman, or on-course)."""
+    if body.shot_type == "range":
+        shot = db.query(RangeShot).filter(RangeShot.id == body.shot_id).first()
+    elif body.shot_type == "trackman":
+        shot = db.query(TrackmanShot).filter(TrackmanShot.id == body.shot_id).first()
+    elif body.shot_type == "course":
+        shot = db.query(Shot).filter(Shot.id == body.shot_id).first()
+    else:
+        raise HTTPException(status_code=400, detail="shot_type must be 'range', 'trackman', or 'course'")
+
+    if not shot:
+        raise HTTPException(status_code=404, detail="Shot not found")
+
+    db.delete(shot)
+    db.commit()
+    compute_club_stats(db)
+
+    return {"status": "deleted", "shot_type": body.shot_type, "shot_id": body.shot_id}
+
+
 # ── Club Detail (all shots for a club) ──
 
 class ClubShotResponse(BaseModel):

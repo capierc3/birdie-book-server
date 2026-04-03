@@ -33,6 +33,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sectionId === 'section-clubs' && _lastBoxPlotClubs) {
             requestAnimationFrame(() => renderClubBoxPlot(_lastBoxPlotClubs));
         }
+
+        // Load strokes gained data when navigating to that section
+        if (sectionId === 'section-strokes-gained') {
+            loadStrokesGained();
+        }
     }
 
     // Sidebar nav clicks
@@ -128,6 +133,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hash === 'range/analytics') {
             navigateTo('section-range-detail');
             loadRangeAnalytics(null);
+            return;
+        }
+
+        // Strokes Gained route
+        if (hash === 'strokes-gained') {
+            navigateTo('section-strokes-gained');
+            loadStrokesGained();
             return;
         }
 
@@ -1726,8 +1738,8 @@ document.addEventListener('DOMContentLoaded', () => {
             holeLeafletMap.setView(allLatLngs[0], 18, { animate: false });
         }
 
-        // Note: rotation disabled — leaflet-rotate plugin had click-shift bugs
-        // TODO: revisit with Mapbox GL JS or a fixed rotate plugin
+        // Note: rotation disabled — CSS transform approach shows ugly corners
+        // TODO: revisit with Mapbox GL JS or a fixed leaflet-rotate plugin
     }
 
     async function renderHoleMap(holeNumber) {
@@ -4462,6 +4474,29 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-reassign-modal-cancel')?.addEventListener('click', () => { shotReassignModal.style.display = 'none'; });
     shotReassignModal?.addEventListener('click', (e) => { if (e.target === shotReassignModal) shotReassignModal.style.display = 'none'; });
 
+    document.getElementById('btn-delete-shot')?.addEventListener('click', async () => {
+        if (!reassignShotType || !reassignShotId) return;
+        if (!confirm('Are you sure you want to delete this shot? This cannot be undone.')) return;
+        try {
+            const resp = await fetch('/api/clubs/delete-shot', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ shot_type: reassignShotType, shot_id: reassignShotId }),
+            });
+            if (!resp.ok) throw new Error((await resp.json()).detail || 'Failed');
+            shotReassignModal.style.display = 'none';
+            loadClubs();
+            // Reload current detail view if open
+            const clubDetailEl = document.getElementById('section-club-detail');
+            if (clubDetailEl?.classList.contains('active')) {
+                const match = window.location.hash.match(/^#club-detail\/(\d+)$/);
+                if (match) loadClubDetailShots(parseInt(match[1]));
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+    });
+
     function updateDashboard() {
         // Stats
         document.getElementById('stat-rounds').textContent = roundsCache.length || '0';
@@ -4530,6 +4565,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Dashboard courses
         renderDashCourses();
+
+        // SG summary card
+        loadSGSummary();
     }
 
     function renderDashCourses() {
@@ -5620,7 +5658,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const displayShot = isAllTime ? {...s, _rowNum: rowIdx + 1} : s;
                 const dataCells = cols.map(key => `<td>${_fmtCell(displayShot, key)}</td>`).join('');
                 const shotType = s.source === 'trackman' ? 'trackman' : 'range';
-                const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${s.raw_id})" style="font-size:0.7rem;">Move</button></td>`;
+                const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${s.raw_id})" style="font-size:0.8rem; padding:2px 6px;" title="Edit shot">&#9881;</button></td>`;
                 let row = `<tr data-shot-id="${s.id}" onclick="window._toggleShotHighlight('${s.id}')" class="clickable${isExpanded ? ' detail-expanded' : ''}">${dataCells}${moveBtn}</tr>`;
 
                 // Inline detail panel
@@ -5696,7 +5734,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `<tr class="detail-panel-row"><td colspan="${colSpan}"><div class="shot-detail-panel">${html}
             <div style="text-align:right; margin-top:8px;">
-                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shot.source === "trackman" ? "trackman" : "range"}', ${shot.raw_id})" style="font-size:0.75rem;">Move Shot</button>
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shot.source === "trackman" ? "trackman" : "range"}', ${shot.raw_id})" style="font-size:0.8rem; padding:2px 6px;" title="Edit shot">&#9881;</button>
             </div>
         </div></td></tr>`;
     }
@@ -7097,7 +7135,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const dataCells = cols.map(key => `<td>${_cdFmtCell(shot, key)}</td>`).join('');
 
             const shotType = s.source === 'trackman' ? 'trackman' : (s.source === 'course' ? 'course' : 'range');
-            const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${s.raw_id})" style="font-size:0.7rem;">Move</button></td>`;
+            const moveBtn = `<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${s.raw_id})" style="font-size:0.8rem; padding:2px 6px;" title="Edit shot">&#9881;</button></td>`;
 
             let row = `<tr data-shot-id="${s.id}" onclick="window._cdToggleShot('${s.id}')" class="clickable${isExpanded ? ' detail-expanded' : ''}">${dataCells}${moveBtn}</tr>`;
 
@@ -7196,7 +7234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return `<tr class="detail-panel-row"><td colspan="${colSpan}"><div class="shot-detail-panel">${html}
             <div style="text-align:right; margin-top:8px; display:flex; justify-content:flex-end; gap:8px;">
                 ${viewRoundBtn}
-                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${shot.raw_id})" style="font-size:0.75rem;">Move Shot</button>
+                <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); window._reassignShot('${shotType}', ${shot.raw_id})" style="font-size:0.8rem; padding:2px 6px;" title="Edit shot">&#9881;</button>
             </div>
         </div></td></tr>`;
     }
@@ -7385,6 +7423,503 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
+    // ========== Strokes Gained ==========
+
+    const SG_COLORS = {
+        off_the_tee: '#3b82f6',   // blue
+        approach: '#f59e0b',       // amber
+        short_game: '#10b981',     // emerald
+        putting: '#8b5cf6',        // violet
+    };
+    const SG_LABELS = {
+        off_the_tee: 'Off the Tee',
+        approach: 'Approach',
+        short_game: 'Short Game',
+        putting: 'Putting',
+    };
+    const SG_STAT_IDS = {
+        off_the_tee: 'sg-stat-ott',
+        approach: 'sg-stat-app',
+        short_game: 'sg-stat-sg',
+        putting: 'sg-stat-putt',
+    };
+
+    let sgTrendChart = null;
+    let sgOverallCache = null;
+    let sgTrendsCache = null;
+
+    function _sgVal(v) {
+        if (v == null) return '--';
+        const s = v >= 0 ? `+${v.toFixed(1)}` : v.toFixed(1);
+        return s;
+    }
+
+    function _sgColor(v) {
+        if (v == null || v === 0) return 'var(--text-muted)';
+        return v > 0 ? '#22c55e' : '#ef4444';
+    }
+
+    // Dashboard summary card
+    async function loadSGSummary() {
+        try {
+            const resp = await fetch('/api/stats/strokes-gained');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            if (!data.round_count) return;
+
+            const card = document.getElementById('sg-summary-card');
+            const insightEl = document.getElementById('sg-summary-insight');
+            const barsEl = document.getElementById('sg-summary-bars');
+            if (!card) return;
+
+            // Insight text
+            const opp = data.biggest_opportunity_pga;
+            if (opp && data.overall[opp]) {
+                const val = data.overall[opp].sg_pga_per_round;
+                const label = SG_LABELS[opp] || opp;
+                insightEl.innerHTML = `Your biggest opportunity is <strong>${label}</strong>, costing <strong style="color:#ef4444">${Math.abs(val).toFixed(1)}</strong> strokes/round vs PGA`;
+            }
+
+            // Bars
+            const cats = ['off_the_tee', 'approach', 'short_game', 'putting'];
+            const maxAbs = Math.max(...cats.map(c => Math.abs(data.overall[c]?.sg_pga_per_round || 0)), 0.5);
+            barsEl.innerHTML = cats.map(cat => {
+                const v = data.overall[cat]?.sg_pga_per_round || 0;
+                const pct = Math.min(Math.abs(v) / maxAbs * 100, 100);
+                const color = v >= 0 ? '#22c55e' : '#ef4444';
+                const sign = v >= 0 ? '+' : '';
+                return `<div style="display:flex; align-items:center; margin-bottom:6px; gap:10px;">
+                    <span style="width:90px; font-size:0.8rem; color:var(--text-muted); flex-shrink:0;">${SG_LABELS[cat]}</span>
+                    <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:18px; overflow:hidden;">
+                        <div style="width:${pct}%; background:${color}; height:100%; border-radius:4px; transition:width 0.3s;"></div>
+                    </div>
+                    <span style="width:50px; text-align:right; font-size:0.82rem; font-weight:600; color:${color}; flex-shrink:0;">${sign}${v.toFixed(1)}</span>
+                </div>`;
+            }).join('');
+
+            card.style.display = '';
+            card.onclick = () => { window.location.hash = 'strokes-gained'; };
+        } catch (e) {
+            console.error('Failed to load SG summary:', e);
+        }
+    }
+
+    // Full strokes gained page
+    async function loadStrokesGained() {
+        try {
+            const [overallResp, trendsResp] = await Promise.all([
+                fetch('/api/stats/strokes-gained'),
+                fetch('/api/stats/strokes-gained/trends'),
+            ]);
+            sgOverallCache = await overallResp.json();
+            sgTrendsCache = await trendsResp.json();
+
+            renderSGCategoryCards();
+            renderSGTrendsChart();
+            renderSGRoundTable();
+            loadSGClubBreakdown();
+        } catch (e) {
+            console.error('Failed to load strokes gained:', e);
+        }
+    }
+
+    function renderSGCategoryCards() {
+        if (!sgOverallCache?.overall) return;
+        const baseline = document.getElementById('sg-baseline-select')?.value || 'pga';
+        const field = baseline === 'pga' ? 'sg_pga_per_round' : 'sg_personal_per_round';
+
+        for (const cat of ['off_the_tee', 'approach', 'short_game', 'putting']) {
+            const el = document.getElementById(SG_STAT_IDS[cat]);
+            if (!el) continue;
+            const v = sgOverallCache.overall[cat]?.[field] ?? null;
+            el.textContent = _sgVal(v);
+            el.style.color = _sgColor(v);
+        }
+    }
+
+    // Track which categories are hidden (persists across re-renders)
+    const sgHiddenCats = new Set();
+
+    function renderSGTrendsChart() {
+        if (!sgTrendsCache || !sgTrendsCache.raw.length) {
+            if (sgTrendChart) { sgTrendChart.destroy(); sgTrendChart = null; }
+            return;
+        }
+
+        const canvas = document.getElementById('sg-trends-chart');
+        if (!canvas) return;
+        if (sgTrendChart) { sgTrendChart.destroy(); sgTrendChart = null; }
+
+        const baseline = document.getElementById('sg-baseline-select')?.value || 'pga';
+        const axisMode = document.getElementById('sg-trend-axis')?.value || 'date';
+        const rangeMonths = document.getElementById('sg-trend-range')?.value || 'all';
+        const roundRange = document.getElementById('sg-trend-round-range')?.value || 'all';
+        const cats = ['off_the_tee', 'approach', 'short_game', 'putting'];
+        const visibleCats = cats.filter(c => !sgHiddenCats.has(c));
+
+        const allRaw = sgTrendsCache.raw;
+
+        // Determine which data to show based on axis mode
+        let raw;
+        if (axisMode === 'rounds' && roundRange !== 'all') {
+            raw = allRaw.slice(-parseInt(roundRange));
+        } else {
+            raw = allRaw;
+        }
+
+        // Date mode: determine x-axis bounds
+        const now = new Date();
+        let xMin = null;
+        const xMax = now.toISOString().slice(0, 10);
+        if (axisMode === 'date' && rangeMonths !== 'all') {
+            const cutoff = new Date();
+            cutoff.setMonth(cutoff.getMonth() - parseInt(rangeMonths));
+            xMin = cutoff.toISOString().slice(0, 10);
+        }
+
+        // Helpers: build points based on axis mode
+        const key = (cat) => baseline === 'personal' ? cat + '_personal' : cat;
+
+        function buildPoints(series, cat) {
+            if (axisMode === 'rounds') {
+                return series.map((p, i) => ({ x: i + 1, y: p[key(cat)] }));
+            }
+            const pts = series.map(p => ({ x: p.date, y: p[key(cat)] }));
+            if (pts.length > 0 && pts[pts.length - 1].x < xMax) {
+                pts.push({ x: xMax, y: pts[pts.length - 1].y });
+            }
+            return pts;
+        }
+
+        function buildCumulativeAvg(series, cat) {
+            let sum = 0;
+            const pts = series.map((p, i) => {
+                sum += (p[key(cat)] || 0);
+                const y = Math.round((sum / (i + 1)) * 100) / 100;
+                return axisMode === 'rounds' ? { x: i + 1, y } : { x: p.date, y };
+            });
+            if (axisMode === 'date' && pts.length > 0 && pts[pts.length - 1].x < xMax) {
+                pts.push({ x: xMax, y: pts[pts.length - 1].y });
+            }
+            return pts;
+        }
+
+        const datasets = [];
+
+        // Solid lines = cumulative average
+        for (const cat of visibleCats) {
+            const pts = buildCumulativeAvg(raw, cat);
+            const radii = pts.map((_, i) => i < raw.length ? 3 : 0);
+            datasets.push({
+                label: SG_LABELS[cat],
+                data: pts,
+                borderColor: SG_COLORS[cat],
+                backgroundColor: SG_COLORS[cat] + '33',
+                borderWidth: 2.5,
+                pointRadius: radii,
+                pointHoverRadius: 5,
+                tension: 0.3,
+                fill: false,
+            });
+        }
+
+        // Dashed lines = per-round values, with best/worst highlights
+        const bestRounds = sgTrendsCache.best_rounds || {};
+        const worstRounds = sgTrendsCache.worst_rounds || {};
+        for (const cat of visibleCats) {
+            const pts = buildPoints(raw, cat);
+            const bestId = bestRounds[cat]?.round_id;
+            const worstId = worstRounds[cat]?.round_id;
+            const radii = pts.map((_, i) => {
+                if (i >= raw.length) return 0;
+                const rid = raw[i]?.round_id;
+                if (rid === bestId || rid === worstId) return 6;
+                return 2;
+            });
+            const bgColors = pts.map((_, i) => {
+                if (i >= raw.length) return 'transparent';
+                const rid = raw[i]?.round_id;
+                if (rid === bestId) return '#22c55e';
+                if (rid === worstId) return '#ef4444';
+                return SG_COLORS[cat] + '99';
+            });
+            const borderColors = pts.map((_, i) => {
+                if (i >= raw.length) return 'transparent';
+                const rid = raw[i]?.round_id;
+                if (rid === bestId) return '#22c55e';
+                if (rid === worstId) return '#ef4444';
+                return SG_COLORS[cat] + '66';
+            });
+            datasets.push({
+                label: `${SG_LABELS[cat]} (per round)`,
+                data: pts,
+                borderColor: SG_COLORS[cat] + '66',
+                borderWidth: 1,
+                borderDash: [4, 3],
+                pointRadius: radii,
+                pointHoverRadius: 6,
+                pointBackgroundColor: bgColors,
+                pointBorderColor: borderColors,
+                pointBorderWidth: pts.map((_, i) => {
+                    if (i >= raw.length) return 0;
+                    const rid = raw[i]?.round_id;
+                    return (rid === bestId || rid === worstId) ? 2 : 0;
+                }),
+                tension: 0.2,
+                fill: false,
+            });
+        }
+
+        // Render clickable custom legend
+        const legendEl = document.getElementById('sg-trends-legend');
+        if (legendEl) {
+            let legendHtml = '';
+            for (const cat of cats) {
+                const hidden = sgHiddenCats.has(cat);
+                const opacity = hidden ? '0.3' : '1';
+                legendHtml += `<span class="sg-legend-item" data-cat="${cat}" style="display:inline-flex; align-items:center; gap:4px; cursor:pointer; opacity:${opacity}; user-select:none;">
+                    <span style="width:14px; height:3px; background:${SG_COLORS[cat]}; border-radius:2px; display:inline-block;"></span>
+                    <span style="color:var(--text-muted);">${SG_LABELS[cat]}</span>
+                </span>`;
+            }
+            legendHtml += `<span style="display:inline-flex; align-items:center; gap:6px; margin-left:8px; padding-left:12px; border-left:1px solid var(--border);">`;
+            legendHtml += `<span style="display:inline-flex; align-items:center; gap:4px;">
+                <span style="width:14px; height:3px; background:var(--text-muted); border-radius:2px; display:inline-block;"></span>
+                <span style="color:var(--text-dim);">Cumulative avg</span>
+            </span>`;
+            legendHtml += `<span style="display:inline-flex; align-items:center; gap:4px;">
+                <span style="width:14px; height:0; border-top:2px dashed var(--text-muted); display:inline-block;"></span>
+                <span style="color:var(--text-dim);">Per round</span>
+            </span>`;
+            legendHtml += `<span style="display:inline-flex; align-items:center; gap:4px;">
+                <span style="width:8px; height:8px; background:#22c55e; border-radius:50%; display:inline-block;"></span>
+                <span style="color:var(--text-dim);">Best</span>
+            </span>`;
+            legendHtml += `<span style="display:inline-flex; align-items:center; gap:4px;">
+                <span style="width:8px; height:8px; background:#ef4444; border-radius:50%; display:inline-block;"></span>
+                <span style="color:var(--text-dim);">Worst</span>
+            </span>`;
+            legendHtml += `</span>`;
+            legendEl.innerHTML = legendHtml;
+
+            // Attach click handlers to legend items
+            legendEl.querySelectorAll('.sg-legend-item').forEach(el => {
+                el.addEventListener('click', () => {
+                    const cat = el.dataset.cat;
+                    if (sgHiddenCats.has(cat)) sgHiddenCats.delete(cat);
+                    else sgHiddenCats.add(cat);
+                    renderSGTrendsChart();
+                });
+            });
+        }
+
+        // X-axis config
+        let xAxisConfig;
+        if (axisMode === 'rounds') {
+            xAxisConfig = {
+                type: 'linear',
+                ticks: {
+                    color: '#64748b',
+                    font: { size: 11 },
+                    stepSize: 1,
+                    callback: v => `R${v}`,
+                },
+                title: { display: true, text: 'Round', color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+        } else {
+            xAxisConfig = {
+                type: 'time',
+                time: {
+                    unit: rangeMonths === '1' ? 'week' : 'month',
+                    displayFormats: { week: 'MMM d', month: 'MMM yyyy' },
+                    tooltipFormat: 'MMM d, yyyy',
+                },
+                ticks: { color: '#64748b', maxRotation: 45, font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+            if (xMin) xAxisConfig.min = xMin;
+            xAxisConfig.max = xMax;
+        }
+
+        sgTrendChart = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const el = elements[0];
+                    const idx = el.index;
+                    if (idx >= 0 && idx < raw.length) {
+                        const roundId = raw[idx].round_id;
+                        if (roundId) window.location.hash = `round/${roundId}`;
+                    }
+                },
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#e2e8f0',
+                        bodyColor: '#e2e8f0',
+                        callbacks: {
+                            title: ctxs => {
+                                if (axisMode === 'rounds' && ctxs[0]) {
+                                    const i = ctxs[0].dataIndex;
+                                    const pt = raw[i];
+                                    return pt ? `Round ${ctxs[0].raw.x} — ${new Date(pt.date).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'})}` : `Round ${ctxs[0].raw.x}`;
+                                }
+                                return undefined;  // default
+                            },
+                            label: ctx => {
+                                const v = ctx.raw?.y;
+                                if (v == null) return '';
+                                const sign = v >= 0 ? '+' : '';
+                                return `${ctx.dataset.label}: ${sign}${v.toFixed(2)}`;
+                            }
+                        }
+                    },
+                },
+                scales: {
+                    x: xAxisConfig,
+                    y: {
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => (v >= 0 ? '+' : '') + v.toFixed(1),
+                            font: { size: 11 },
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderSGRoundTable() {
+        const container = document.getElementById('sg-round-table');
+        if (!container || !sgOverallCache?.per_round?.length) {
+            if (container) container.innerHTML = '<div class="empty-state"><p>No data</p></div>';
+            return;
+        }
+
+        const baseline = document.getElementById('sg-baseline-select')?.value || 'pga';
+        const field = baseline === 'pga' ? 'sg_pga' : 'sg_personal';
+        const rounds = [...sgOverallCache.per_round].reverse(); // most recent first
+
+        const header = `<tr>
+            <th>Date</th><th>Course</th>
+            <th style="text-align:right">OTT</th><th style="text-align:right">APP</th>
+            <th style="text-align:right">SG</th><th style="text-align:right">PUTT</th>
+            <th style="text-align:right">Total</th>
+        </tr>`;
+
+        const rows = rounds.map(r => {
+            const ott = r.off_the_tee?.[field] ?? null;
+            const app = r.approach?.[field] ?? null;
+            const sg = r.short_game?.[field] ?? null;
+            const putt = r.putting?.[field] ?? null;
+            const total = baseline === 'pga' ? r.total_sg_pga : r.total_sg_personal;
+            const d = new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+            return `<tr onclick="location.hash='round/${r.round_id}'" style="cursor:pointer;">
+                <td>${d}</td>
+                <td>${r.course_name || ''}</td>
+                <td style="text-align:right; color:${_sgColor(ott)}">${_sgVal(ott)}</td>
+                <td style="text-align:right; color:${_sgColor(app)}">${_sgVal(app)}</td>
+                <td style="text-align:right; color:${_sgColor(sg)}">${_sgVal(sg)}</td>
+                <td style="text-align:right; color:${_sgColor(putt)}">${_sgVal(putt)}</td>
+                <td style="text-align:right; font-weight:600; color:${_sgColor(total)}">${_sgVal(total)}</td>
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `<table class="data-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+    }
+
+    async function loadSGClubBreakdown() {
+        const catFilter = document.getElementById('sg-club-category-filter')?.value || '';
+        const params = new URLSearchParams();
+        if (catFilter) params.set('category', catFilter);
+
+        const container = document.getElementById('sg-club-breakdown');
+        if (!container) return;
+
+        try {
+            const resp = await fetch(`/api/stats/strokes-gained/by-club?${params}`);
+            const data = await resp.json();
+
+            const minShots = parseInt(document.getElementById('sg-club-min-shots')?.value || '0');
+            data.clubs = data.clubs.filter(c => c.shot_count >= (minShots || 0));
+
+            if (!data.clubs?.length) {
+                container.innerHTML = '<div class="empty-state"><p>No data</p></div>';
+                return;
+            }
+
+            const baseline = document.getElementById('sg-baseline-select')?.value || 'pga';
+            const clubs = [...data.clubs].sort((a, b) => {
+                const av = baseline === 'pga' ? a.sg_pga_per_shot : a.sg_personal_per_shot;
+                const bv = baseline === 'pga' ? b.sg_pga_per_shot : b.sg_personal_per_shot;
+                if (av == null && bv == null) return 0;
+                if (av == null) return 1;  // nulls to end
+                if (bv == null) return -1;
+                return av - bv;
+            });
+            const maxAbs = Math.max(...clubs.map(c => Math.abs(baseline === 'pga' ? c.sg_pga_per_shot : c.sg_personal_per_shot)), 0.1);
+
+            container.innerHTML = `<div style="padding:0 20px 20px;">
+                ${clubs.map(c => {
+                    const v = baseline === 'pga' ? c.sg_pga_per_shot : c.sg_personal_per_shot;
+                    if (v == null) {
+                        return `<div style="display:flex; align-items:center; margin-bottom:6px; gap:10px;">
+                            <span style="width:100px; font-size:0.82rem; color:var(--text); flex-shrink:0;">${c.club_name || 'Unknown'}</span>
+                            <span style="width:70px; font-size:0.75rem; color:var(--text-dim); flex-shrink:0;">${SG_LABELS[c.category] || c.category}</span>
+                            <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:16px; overflow:hidden;"></div>
+                            <span style="width:55px; text-align:right; font-size:0.8rem; color:var(--text-dim); flex-shrink:0;">--</span>
+                            <span style="width:50px; text-align:right; font-size:0.75rem; color:var(--text-dim); flex-shrink:0;">${c.shot_count} shots</span>
+                        </div>`;
+                    }
+                    const pct = Math.min(Math.abs(v) / maxAbs * 100, 100);
+                    const color = v >= 0 ? '#22c55e' : '#ef4444';
+                    const sign = v >= 0 ? '+' : '';
+                    return `<div style="display:flex; align-items:center; margin-bottom:6px; gap:10px;">
+                        <span style="width:100px; font-size:0.82rem; color:var(--text); flex-shrink:0;">${c.club_name || 'Unknown'}</span>
+                        <span style="width:70px; font-size:0.75rem; color:var(--text-dim); flex-shrink:0;">${SG_LABELS[c.category] || c.category}</span>
+                        <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:16px; overflow:hidden;">
+                            <div style="width:${pct}%; background:${color}; height:100%; border-radius:4px;"></div>
+                        </div>
+                        <span style="width:55px; text-align:right; font-size:0.8rem; font-weight:600; color:${color}; flex-shrink:0;">${sign}${v.toFixed(3)}</span>
+                        <span style="width:50px; text-align:right; font-size:0.75rem; color:var(--text-dim); flex-shrink:0;">${c.shot_count} shots</span>
+                    </div>`;
+                }).join('')}
+            </div>`;
+        } catch (e) {
+            console.error('Failed to load SG by club:', e);
+            container.innerHTML = '<div class="empty-state"><p>Failed to load</p></div>';
+        }
+    }
+
+    // SG event listeners
+    document.getElementById('sg-baseline-select')?.addEventListener('change', () => {
+        renderSGCategoryCards();
+        renderSGTrendsChart();
+        renderSGRoundTable();
+        loadSGClubBreakdown();
+    });
+    document.getElementById('sg-club-category-filter')?.addEventListener('change', () => loadSGClubBreakdown());
+    document.getElementById('sg-club-min-shots')?.addEventListener('change', () => loadSGClubBreakdown());
+    document.getElementById('sg-trend-range')?.addEventListener('change', () => renderSGTrendsChart());
+    document.getElementById('sg-trend-round-range')?.addEventListener('change', () => renderSGTrendsChart());
+    document.getElementById('sg-trend-axis')?.addEventListener('change', () => {
+        const mode = document.getElementById('sg-trend-axis')?.value;
+        document.getElementById('sg-trend-range').style.display = mode === 'date' ? '' : 'none';
+        document.getElementById('sg-trend-round-range').style.display = mode === 'rounds' ? '' : 'none';
+        renderSGTrendsChart();
+    });
 
     // ========== Initial Load ==========
     loadAllData();

@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
-from app.api import rounds, courses, clubs, import_api, range_sessions
+from app.api import rounds, courses, clubs, import_api, range_sessions, stats
 from app.config import settings
 from app.database import Base, engine
 import app.models  # noqa: F401 — registers all models with Base.metadata
@@ -29,6 +29,7 @@ app.include_router(courses.router)
 app.include_router(clubs.router)
 app.include_router(import_api.router)
 app.include_router(range_sessions.router)
+app.include_router(stats.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -73,5 +74,40 @@ def rebuild_personal_baseline_endpoint():
             total_updated += recalc_course_shots(db, c.id)
         stats["shots_updated"] = total_updated
         return {"status": "ok", **stats}
+    finally:
+        db.close()
+
+
+@app.post("/api/settings/recompute-scores")
+def recompute_scores_endpoint():
+    """Recompute score_vs_par for all rounds from hole strokes and course par."""
+    from app.database import SessionLocal
+    from app.models import Round, RoundHole, CourseHole
+
+    db = SessionLocal()
+    try:
+        rounds = db.query(Round).filter(Round.tee_id.isnot(None)).all()
+        updated = 0
+        for r in rounds:
+            holes = db.query(RoundHole).filter(RoundHole.round_id == r.id).all()
+            if not holes:
+                continue
+            course_holes = db.query(CourseHole).filter(CourseHole.tee_id == r.tee_id).all()
+            par_map = {ch.hole_number: ch.par for ch in course_holes}
+
+            played = [h for h in holes if h.strokes and h.strokes > 0]
+            if not played:
+                continue
+            total_strokes = sum(h.strokes for h in played)
+            total_par = sum(par_map.get(h.hole_number, 0) for h in played)
+
+            if total_strokes and total_par:
+                new_vs_par = total_strokes - total_par
+                if r.score_vs_par != new_vs_par:
+                    r.score_vs_par = new_vs_par
+                    updated += 1
+
+        db.commit()
+        return {"status": "ok", "rounds_checked": len(rounds), "updated": updated}
     finally:
         db.close()

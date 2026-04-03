@@ -32,6 +32,16 @@
         </div>
     </div>
 
+    <!-- SG Summary Card -->
+    <div class="card" id="sg-summary-card" style="display:none; margin-bottom:28px; cursor:pointer;">
+        <div class="card-header">
+            <h2>Strokes Gained</h2>
+            <a href="#strokes-gained" class="btn btn-ghost btn-sm nav-link" data-section="section-strokes-gained">Details</a>
+        </div>
+        <div id="sg-summary-insight" style="padding:0 20px 8px; font-size:0.92rem; color:var(--text-muted);"></div>
+        <div id="sg-summary-bars" style="padding:0 20px 20px;"></div>
+    </div>
+
     <div class="grid-2">
         <div class="card">
             <div class="card-header">
@@ -565,7 +575,7 @@
 <div class="modal-overlay" id="shot-reassign-modal" style="display:none;">
     <div class="modal reassign-modal">
         <div class="modal-header">
-            <h2>Reassign Shot</h2>
+            <h2>Edit Shot</h2>
             <button class="btn btn-ghost btn-sm" id="btn-reassign-modal-close">&times;</button>
         </div>
 
@@ -611,7 +621,8 @@
             </div>
         </div>
 
-        <div class="modal-footer">
+        <div class="modal-footer" style="display:flex; justify-content:space-between;">
+            <button class="btn btn-sm" id="btn-delete-shot" style="background:var(--danger); color:#fff;">Delete Shot</button>
             <button class="btn btn-secondary btn-sm" id="btn-reassign-modal-cancel">Cancel</button>
         </div>
     </div>
@@ -845,6 +856,93 @@
     </div>
 </div>
 
+<!-- ===== Strokes Gained Section ===== -->
+<div class="content-section" id="section-strokes-gained">
+    <div class="page-header">
+        <h1>Strokes Gained</h1>
+        <p>Where you gain and lose strokes vs PGA Tour average</p>
+    </div>
+
+    <!-- Filter controls -->
+    <div style="display:flex; gap:12px; margin-bottom:20px; align-items:center; flex-wrap:wrap;">
+        <select id="sg-baseline-select" class="club-window-select" style="font-size:0.85rem;">
+            <option value="pga">vs PGA Tour</option>
+            <option value="personal">vs Personal</option>
+        </select>
+    </div>
+
+    <!-- Category summary cards -->
+    <div class="stats-row" id="sg-category-stats">
+        <div class="stat-card"><div class="stat-label">Off the Tee</div><div class="stat-value" id="sg-stat-ott">--</div></div>
+        <div class="stat-card"><div class="stat-label">Approach</div><div class="stat-value" id="sg-stat-app">--</div></div>
+        <div class="stat-card"><div class="stat-label">Short Game</div><div class="stat-value" id="sg-stat-sg">--</div></div>
+        <div class="stat-card"><div class="stat-label">Putting</div><div class="stat-value" id="sg-stat-putt">--</div></div>
+    </div>
+
+    <!-- Trends chart -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>SG Trends Over Time</h2>
+            <div style="display:flex; gap:8px; align-items:center; font-size:0.82rem;">
+                <select id="sg-trend-axis" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="date" selected>By Date</option>
+                    <option value="rounds">By Round</option>
+                </select>
+                <select id="sg-trend-range" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="1">1 Month</option>
+                    <option value="3">3 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12">1 Year</option>
+                    <option value="all" selected>All Time</option>
+                </select>
+                <select id="sg-trend-round-range" class="club-window-select" style="font-size:0.82rem; display:none;">
+                    <option value="5">Last 5 Rounds</option>
+                    <option value="10">Last 10 Rounds</option>
+                    <option value="20">Last 20 Rounds</option>
+                    <option value="all" selected>All Rounds</option>
+                </select>
+            </div>
+        </div>
+        <div style="padding:0 20px 8px;">
+            <div id="sg-trends-legend" style="display:flex; gap:16px; flex-wrap:wrap; font-size:0.78rem;"></div>
+        </div>
+        <div style="height:350px; padding:0 20px 20px; position:relative;">
+            <canvas id="sg-trends-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Per-round table -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>SG by Round</h2>
+        </div>
+        <div id="sg-round-table" style="overflow-x:auto;"></div>
+    </div>
+
+    <!-- Per-club breakdown -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>SG by Club</h2>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <select id="sg-club-min-shots" class="club-window-select" style="font-size:0.85rem;">
+                    <option value="0">All Shots</option>
+                    <option value="3">Min 3 shots</option>
+                    <option value="5" selected>Min 5 shots</option>
+                    <option value="10">Min 10 shots</option>
+                </select>
+                <select id="sg-club-category-filter" class="club-window-select" style="font-size:0.85rem;">
+                    <option value="">All Categories</option>
+                    <option value="off_the_tee">Off the Tee</option>
+                    <option value="approach">Approach</option>
+                    <option value="short_game">Short Game</option>
+                    <option value="putting">Putting</option>
+                </select>
+            </div>
+        </div>
+        <div id="sg-club-breakdown"></div>
+    </div>
+</div>
+
 <!-- ===== Settings Section ===== -->
 <div class="content-section" id="section-settings">
     <div class="page-header">
@@ -875,5 +973,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.2.1"></script>
+<script src="/static/js/app.js?v=0.2.3"></script>
 {% endblock %}

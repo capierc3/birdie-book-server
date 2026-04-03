@@ -62,6 +62,7 @@ class RoundSummaryResponse(BaseModel):
     course_id: Optional[int] = None
     course_name: Optional[str] = None
     tee_name: Optional[str] = None
+    tee_id: Optional[int] = None
     date: date
     holes_completed: Optional[int] = None
     total_strokes: Optional[int] = None
@@ -109,6 +110,7 @@ def list_rounds(skip: int = 0, limit: int = 50, db: Session = Depends(get_db)):
             course_id=r.course_id,
             course_name=r.course.display_name if r.course else None,
             tee_name=r.tee.tee_name if r.tee_id and r.tee else None,
+            tee_id=r.tee_id,
             date=r.date,
             holes_completed=r.holes_completed,
             total_strokes=r.total_strokes,
@@ -139,6 +141,7 @@ def get_round(round_id: int, db: Session = Depends(get_db)):
         course_id=r.course_id,
         course_name=r.course.display_name if r.course else None,
         tee_name=r.tee.tee_name if r.tee_id and r.tee else None,
+        tee_id=r.tee_id,
         date=r.date,
         holes_completed=r.holes_completed,
         total_strokes=r.total_strokes,

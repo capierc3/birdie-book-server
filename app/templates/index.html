@@ -332,6 +332,64 @@
     </div>
 </div>
 
+<!-- ===== Round Detail Section ===== -->
+<div class="content-section" id="section-round-detail">
+    <div class="page-header">
+        <div style="display:flex; gap:12px; align-items:center; margin-bottom:4px;">
+            <a href="#rounds" class="btn btn-ghost btn-sm nav-link" data-section="section-rounds">&larr; All Rounds</a>
+            <a href="#" id="rd-course-link" class="btn btn-ghost btn-sm" style="display:none;"></a>
+        </div>
+        <div style="display:flex; align-items:center; gap:16px;">
+            <h1 id="rd-title">Round</h1>
+            <div id="rd-score-badge" style="display:none;"></div>
+        </div>
+        <p id="rd-subtitle"></p>
+        <div id="rd-badges" style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;"></div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stats-row" id="rd-stat-cards"></div>
+
+    <!-- Scorecard -->
+    <div class="card">
+        <div class="card-header"><h2>Scorecard</h2></div>
+        <div class="table-wrap" id="rd-scorecard">
+            <div class="empty-state" style="padding:24px;"><p>Loading...</p></div>
+        </div>
+    </div>
+
+    <!-- SG breakdown + Scoring distribution -->
+    <div class="grid-2">
+        <div class="card" id="rd-sg-card">
+            <div class="card-header"><h2>Strokes Gained</h2></div>
+            <div id="rd-sg-breakdown" style="padding:0 20px 20px;">
+                <div class="empty-state" style="padding:24px;"><p>No shot data for this round.</p></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h2>Scoring Distribution</h2></div>
+            <div id="rd-distribution" style="padding:0 20px 20px;">
+                <div class="empty-state" style="padding:24px;"><p>No scoring data.</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="card" id="rd-notes-card" style="display:none;">
+        <div class="card-header"><h2>Round Notes</h2></div>
+        <div id="rd-notes" style="padding:0 20px 20px;"></div>
+    </div>
+
+    <!-- Actions + Nav -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:24px; flex-wrap:wrap; gap:12px;">
+        <div style="display:flex; gap:12px;">
+            <a id="rd-view-holes" href="#" class="btn btn-primary">View Hole-by-Hole</a>
+            <a id="rd-view-course" href="#" class="btn btn-secondary">View Course</a>
+        </div>
+        <div id="rd-nav" style="display:flex; gap:12px; align-items:center;"></div>
+    </div>
+</div>
+
 <!-- ===== Course Match Modal ===== -->
 <div class="modal-overlay" id="course-match-modal" style="display:none;">
     <div class="modal">

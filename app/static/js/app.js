@@ -76,17 +76,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleRoute() {
         const hash = window.location.hash.replace('#', '');
 
-        // Round detail route: round/123 or round/123/hole/5
-        const roundMatch = hash.match(/^round\/(\d+)(?:\/hole\/(\d+))?$/);
-        if (roundMatch) {
-            const roundId = parseInt(roundMatch[1]);
-            const holeNum = roundMatch[2] ? parseInt(roundMatch[2]) : null;
+        // Round hole view route: round/123/hole/5 (check FIRST — more specific)
+        const roundHoleMatch = hash.match(/^round\/(\d+)\/hole\/(\d+)$/);
+        if (roundHoleMatch) {
+            const roundId = parseInt(roundHoleMatch[1]);
+            const holeNum = parseInt(roundHoleMatch[2]);
             const round = roundsCache.find(r => r.id === roundId);
             if (round && round.course_id) {
                 navigateTo('section-hole-view');
                 loadHoleView(round.course_id, roundId, holeNum);
             } else {
-                // Round not in cache yet — fetch it
                 fetch(`/api/rounds/${roundId}`).then(r => r.json()).then(data => {
                     if (data.course_id) {
                         navigateTo('section-hole-view');
@@ -94,6 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             }
+            return;
+        }
+
+        // Round detail route: round/123
+        const roundMatch = hash.match(/^round\/(\d+)$/);
+        if (roundMatch) {
+            navigateTo('section-round-detail');
+            loadRoundDetail(parseInt(roundMatch[1]));
             return;
         }
 
@@ -1572,6 +1579,465 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             </div>`;
         }).join('');
+    }
+
+    // ========== Round Detail Page ==========
+
+    let rdCache = null;        // RoundDetailResponse
+    let rdCourseCache = null;  // CourseDetailResponse
+    let rdParMap = {};         // { holeNumber: par }
+
+    function classifySgCategory(shot, par) {
+        if (shot.shot_type === 'PENALTY' || shot.auto_shot_type === 'PENALTY') return null;
+        if (shot.shot_type === 'PUTT') return 'putting';
+        if (shot.shot_type === 'TEE' && par >= 4) return 'off_the_tee';
+        if (shot.shot_type === 'TEE' && par === 3) return 'approach';
+        if (shot.shot_type === 'APPROACH' || shot.shot_type === 'LAYUP') return 'approach';
+        if (shot.shot_type === 'CHIP') return 'short_game';
+        if (shot.green_distance_yards != null && shot.green_distance_yards <= 50 && !shot.on_green) return 'short_game';
+        if (['RECOVERY', 'UNKNOWN'].includes(shot.shot_type) || shot.green_distance_yards != null) return 'approach';
+        return null;
+    }
+
+    async function loadRoundDetail(roundId) {
+        try {
+            const resp = await fetch(`/api/rounds/${roundId}`);
+            if (!resp.ok) throw new Error('Round not found');
+            rdCache = await resp.json();
+        } catch (e) {
+            console.error('Failed to load round:', e);
+            document.getElementById('rd-title').textContent = 'Round not found';
+            return;
+        }
+
+        // Fetch course data for par values
+        rdParMap = {};
+        rdCourseCache = null;
+        if (rdCache.course_id) {
+            try {
+                const cResp = await fetch(`/api/courses/${rdCache.course_id}`);
+                rdCourseCache = await cResp.json();
+                // Find matching tee
+                const tees = rdCourseCache.tees || [];
+                const matchedTee = tees.find(t => t.id === rdCache.tee_id)
+                    || tees.find(t => t.tee_name === rdCache.tee_name)
+                    || tees[0];
+                if (matchedTee && matchedTee.holes) {
+                    for (const h of matchedTee.holes) {
+                        rdParMap[h.hole_number] = h.par;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load course for par data:', e);
+            }
+        }
+
+        renderRdHeader();
+        renderRdStats();
+        renderRdScorecard();
+        renderRdSg();
+        renderRdDistribution();
+        renderRdNotes();
+        renderRdNav();
+
+        // Action links
+        const firstHole = rdCache.holes?.length ? rdCache.holes[0].hole_number : 1;
+        document.getElementById('rd-view-holes').href = `#round/${rdCache.id}/hole/${firstHole}`;
+        if (rdCache.course_id) {
+            document.getElementById('rd-view-course').href = `#course/${rdCache.course_id}`;
+            document.getElementById('rd-view-course').style.display = '';
+        } else {
+            document.getElementById('rd-view-course').style.display = 'none';
+        }
+    }
+
+    function renderRdHeader() {
+        const d = rdCache;
+        // Title: date
+        document.getElementById('rd-title').textContent = d.date;
+
+        // Subtitle: course + tee + holes
+        const parts = [
+            d.course_name,
+            d.tee_name ? `${d.tee_name} tees` : null,
+            `${d.holes_completed || d.holes?.length || '?'} holes`,
+            d.shots_tracked ? `${d.shots_tracked} shots` : null,
+        ].filter(Boolean);
+        document.getElementById('rd-subtitle').textContent = parts.join(' · ');
+
+        // Score badge
+        const badge = document.getElementById('rd-score-badge');
+        if (d.total_strokes) {
+            const vsPar = d.score_vs_par || 0;
+            const vsStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
+            const colorClass = vsPar < 0 ? 'score-birdie' : vsPar === 0 ? 'score-par' : 'score-bogey';
+            badge.innerHTML = `<span class="round-score ${vsPar < 0 ? 'under' : vsPar === 0 ? 'even' : 'over'}" style="font-size:1.5rem;">${d.total_strokes}</span>
+                <span class="round-vs-par ${colorClass}" style="font-size:1.1rem; margin-left:8px;">${vsStr}</span>`;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+
+        // Course link
+        const courseLink = document.getElementById('rd-course-link');
+        if (d.course_id && rdCourseCache) {
+            courseLink.href = `#course/${d.course_id}`;
+            courseLink.textContent = `← ${d.course_name}`;
+            courseLink.style.display = '';
+        } else {
+            courseLink.style.display = 'none';
+        }
+
+        // Badges
+        const badges = [];
+        if (d.exclude_from_stats) badges.push('<span style="background:#f59e0b22; color:#f59e0b; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Excluded from Stats</span>');
+        if (d.game_format && d.game_format !== 'STROKE_PLAY') badges.push(`<span style="background:#3b82f622; color:#3b82f6; padding:2px 8px; border-radius:4px; font-size:0.75rem;">${d.game_format.replace(/_/g, ' ')}</span>`);
+        if (d.weather_temp_f != null) {
+            const wParts = [d.weather_description, `${Math.round(d.weather_temp_f)}°F`].filter(Boolean);
+            badges.push(`<span style="background:#64748b22; color:#94a3b8; padding:2px 8px; border-radius:4px; font-size:0.75rem;">${wParts.join(', ')}</span>`);
+        }
+        if (d.source) badges.push(`<span style="background:#64748b22; color:#64748b; padding:2px 8px; border-radius:4px; font-size:0.75rem;">${d.source}</span>`);
+        document.getElementById('rd-badges').innerHTML = badges.join('');
+    }
+
+    function renderRdStats() {
+        const container = document.getElementById('rd-stat-cards');
+        const holes = rdCache.holes || [];
+        if (!holes.length) {
+            container.innerHTML = '';
+            return;
+        }
+
+        let girCount = 0, girTotal = 0;
+        let fwHit = 0, fwTotal = 0;
+        let puttsSum = 0, puttsHoles = 0;
+        let threePutts = 0, penalties = 0;
+
+        for (const h of holes) {
+            if (h.gir != null) { girTotal++; if (h.gir) girCount++; }
+            if (h.fairway != null) { fwTotal++; if (h.fairway === 'HIT') fwHit++; }
+            if (h.putts != null) { puttsSum += h.putts; puttsHoles++; if (h.putts >= 3) threePutts++; }
+            penalties += h.penalty_strokes || 0;
+        }
+
+        const girPct = girTotal ? (girCount / girTotal * 100).toFixed(1) : '--';
+        const fwPct = fwTotal ? (fwHit / fwTotal * 100).toFixed(1) : '--';
+        const puttsPerHole = puttsHoles ? (puttsSum / puttsHoles).toFixed(2) : '--';
+
+        const vsPar = rdCache.score_vs_par || 0;
+        const vsParStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
+        const vsColor = vsPar <= 0 ? '#22c55e' : vsPar <= 5 ? '#f59e0b' : '#ef4444';
+
+        container.innerHTML = `
+            <div class="stat-card"><div class="stat-label">Score</div><div class="stat-value">${rdCache.total_strokes || '--'}</div></div>
+            <div class="stat-card"><div class="stat-label">vs Par</div><div class="stat-value" style="color:${vsColor}">${rdCache.total_strokes ? vsParStr : '--'}</div></div>
+            <div class="stat-card"><div class="stat-label">GIR %</div><div class="stat-value">${girPct}${girPct !== '--' ? '%' : ''}</div></div>
+            <div class="stat-card"><div class="stat-label">FW %</div><div class="stat-value">${fwPct}${fwPct !== '--' ? '%' : ''}</div></div>
+            <div class="stat-card"><div class="stat-label">Putts/Hole</div><div class="stat-value">${puttsPerHole}</div></div>
+            <div class="stat-card"><div class="stat-label">3-Putts</div><div class="stat-value">${threePutts}</div></div>
+            <div class="stat-card"><div class="stat-label">Penalties</div><div class="stat-value">${penalties}</div></div>
+        `;
+    }
+
+    function renderRdScorecard() {
+        const container = document.getElementById('rd-scorecard');
+        const holes = rdCache.holes || [];
+        if (!holes.length) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No hole data.</p></div>';
+            return;
+        }
+
+        const hasPar = Object.keys(rdParMap).length > 0;
+        const maxHole = Math.max(...holes.map(h => h.hole_number));
+        const is18 = maxHole > 9;
+
+        // Build hole data lookup
+        const holeData = {};
+        for (const h of holes) holeData[h.hole_number] = h;
+
+        function buildHalf(start, end, label) {
+            const nums = [];
+            for (let i = start; i <= end; i++) if (holeData[i]) nums.push(i);
+            if (nums.length === 0) return null;
+
+            let parTotal = 0, scoreTotal = 0, puttsTotal = 0;
+            nums.forEach(n => {
+                parTotal += rdParMap[n] || 0;
+                scoreTotal += holeData[n].strokes || 0;
+                puttsTotal += holeData[n].putts || 0;
+            });
+
+            const holeHeaders = nums.map(n =>
+                `<th style="cursor:pointer; min-width:32px;" onclick="location.hash='round/${rdCache.id}/hole/${n}'">${n}</th>`
+            ).join('') + `<th style="background:var(--bg-hover); min-width:36px;">${label}</th>`;
+
+            const parRow = hasPar ? '<tr><td style="font-weight:600; color:var(--text-dim);">Par</td>' +
+                nums.map(n => `<td>${rdParMap[n] || ''}</td>`).join('') +
+                `<td style="background:var(--bg-hover); font-weight:600;">${parTotal}</td></tr>` : '';
+
+            const scoreRow = '<tr><td style="font-weight:600;">Score</td>' +
+                nums.map(n => {
+                    const h = holeData[n];
+                    const s = h.strokes;
+                    if (!s) return '<td>—</td>';
+                    const par = rdParMap[n];
+                    let bg = '', color = '';
+                    if (hasPar && par) {
+                        const diff = s - par;
+                        if (diff <= -2) { bg = 'background:#22c55e33;'; color = 'color:#22c55e; font-weight:700;'; }
+                        else if (diff === -1) { bg = 'background:#22c55e1a;'; color = 'color:#22c55e;'; }
+                        else if (diff === 0) { color = ''; }
+                        else if (diff === 1) { bg = 'background:#ef44441a;'; color = 'color:#f59e0b;'; }
+                        else { bg = 'background:#ef444433;'; color = 'color:#ef4444; font-weight:700;'; }
+                    }
+                    return `<td style="${bg}${color}">${s}</td>`;
+                }).join('') +
+                `<td style="background:var(--bg-hover); font-weight:700;">${scoreTotal}</td></tr>`;
+
+            const vsParRow = hasPar ? '<tr><td style="font-weight:600; color:var(--text-dim);">+/-</td>' +
+                nums.map(n => {
+                    const s = holeData[n]?.strokes;
+                    const p = rdParMap[n];
+                    if (!s || !p) return '<td>—</td>';
+                    const diff = s - p;
+                    const str = diff > 0 ? `+${diff}` : `${diff}`;
+                    const color = diff < 0 ? 'color:#22c55e;' : diff === 0 ? 'color:var(--text-dim);' : 'color:#ef4444;';
+                    return `<td style="${color}">${str}</td>`;
+                }).join('') +
+                `<td style="background:var(--bg-hover); font-weight:600; ${(scoreTotal - parTotal) > 0 ? 'color:#ef4444;' : (scoreTotal - parTotal) < 0 ? 'color:#22c55e;' : ''}">${(scoreTotal - parTotal) > 0 ? '+' : ''}${scoreTotal - parTotal}</td></tr>` : '';
+
+            const puttsRow = '<tr><td style="font-weight:600; color:var(--text-dim);">Putts</td>' +
+                nums.map(n => {
+                    const p = holeData[n]?.putts;
+                    return p != null ? `<td>${p}</td>` : '<td>—</td>';
+                }).join('') +
+                `<td style="background:var(--bg-hover);">${puttsTotal}</td></tr>`;
+
+            const fwRow = '<tr><td style="font-weight:600; color:var(--text-dim);">FW</td>' +
+                nums.map(n => {
+                    const fw = holeData[n]?.fairway;
+                    if (fw === 'HIT') return '<td style="color:#22c55e;">✓</td>';
+                    if (fw === 'LEFT') return '<td style="color:#f59e0b;">←</td>';
+                    if (fw === 'RIGHT') return '<td style="color:#f59e0b;">→</td>';
+                    return '<td style="color:var(--text-dim);">—</td>';
+                }).join('') +
+                '<td style="background:var(--bg-hover);"></td></tr>';
+
+            const girRow = '<tr><td style="font-weight:600; color:var(--text-dim);">GIR</td>' +
+                nums.map(n => {
+                    const g = holeData[n]?.gir;
+                    if (g === true) return '<td style="color:#22c55e;">●</td>';
+                    if (g === false) return '<td style="color:#ef4444;">○</td>';
+                    return '<td style="color:var(--text-dim);">—</td>';
+                }).join('') +
+                '<td style="background:var(--bg-hover);"></td></tr>';
+
+            return `<tr><td></td>${holeHeaders}</tr>${parRow}${scoreRow}${vsParRow}${puttsRow}${fwRow}${girRow}`;
+        }
+
+        const front = buildHalf(1, 9, 'OUT');
+        const back = is18 ? buildHalf(10, 18, 'IN') : null;
+
+        // Total row for 18-hole
+        let totalRow = '';
+        if (is18 && hasPar) {
+            let totalPar = 0, totalScore = 0, totalPutts = 0;
+            holes.forEach(h => {
+                totalPar += rdParMap[h.hole_number] || 0;
+                totalScore += h.strokes || 0;
+                totalPutts += h.putts || 0;
+            });
+            const totalDiff = totalScore - totalPar;
+            totalRow = `<tr style="border-top:2px solid var(--border);">
+                <td colspan="${is18 ? 10 : (Math.min(maxHole, 9) + 1)}" style="text-align:right; font-weight:700; padding-right:12px;">Total</td>
+                <td style="font-weight:700;">${totalPar}</td>
+                <td style="font-weight:700;">${totalScore}</td>
+                <td style="font-weight:700; ${totalDiff > 0 ? 'color:#ef4444;' : totalDiff < 0 ? 'color:#22c55e;' : ''}">${totalDiff > 0 ? '+' : ''}${totalDiff}</td>
+                <td style="font-weight:700;">${totalPutts}</td>
+                <td colspan="2"></td>
+            </tr>`;
+        }
+
+        container.innerHTML = `<table style="font-size:0.82rem; text-align:center;">
+            <tbody>
+                ${front || ''}
+                ${back ? `<tr><td colspan="20" style="padding:4px;"></td></tr>${back}` : ''}
+            </tbody>
+        </table>`;
+    }
+
+    function renderRdSg() {
+        const sgCard = document.getElementById('rd-sg-card');
+        const container = document.getElementById('rd-sg-breakdown');
+
+        if (!rdCache.shots_tracked) {
+            sgCard.style.display = 'none';
+            return;
+        }
+        sgCard.style.display = '';
+
+        const sgTotals = { off_the_tee: 0, approach: 0, short_game: 0, putting: 0 };
+        let hasData = false;
+
+        for (const hole of (rdCache.holes || [])) {
+            const par = rdParMap[hole.hole_number];
+            for (const shot of (hole.shots || [])) {
+                if (shot.sg_pga == null) continue;
+                const cat = classifySgCategory(shot, par);
+                if (cat && sgTotals.hasOwnProperty(cat)) {
+                    sgTotals[cat] += shot.sg_pga;
+                    hasData = true;
+                }
+            }
+        }
+
+        // Build missing-data notice if course GPS is incomplete
+        function buildMissingDataNotice() {
+            if (!rdCourseCache) return '';
+            const tees = rdCourseCache.tees || [];
+            const matchedTee = tees.find(t => t.id === rdCache.tee_id) || tees[0];
+            const holes = matchedTee?.holes || [];
+            const holesWithTee = holes.filter(h => h.tee_lat).length;
+            const holesWithGreen = holes.filter(h => h.green_boundary).length;
+            const totalHoles = holes.length || rdCache.holes_completed || 18;
+            if (holesWithTee < totalHoles || holesWithGreen < totalHoles) {
+                const courseId = rdCache.course_id;
+                return `<div style="margin-top:10px; padding:8px 12px; background:#f59e0b11; border:1px solid #f59e0b33; border-radius:6px; font-size:0.78rem; color:#f59e0b;">
+                    ⚠ Hole GPS data is incomplete (${holesWithTee}/${totalHoles} tees, ${holesWithGreen}/${totalHoles} greens).
+                    <a href="#course/${courseId}/holes" style="color:#f59e0b; text-decoration:underline;">Edit holes</a> to enable full SG analysis.
+                </div>`;
+            }
+            return '';
+        }
+
+        if (!hasData) {
+            const notice = buildMissingDataNotice();
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No SG data for this round.</p></div>' + notice;
+            return;
+        }
+
+        const cats = [
+            { key: 'off_the_tee', label: 'Off the Tee' },
+            { key: 'approach', label: 'Approach' },
+            { key: 'short_game', label: 'Short Game' },
+            { key: 'putting', label: 'Putting' },
+        ];
+
+        const vals = cats.map(c => sgTotals[c.key]);
+        const maxAbs = Math.max(...vals.map(Math.abs), 0.1);
+
+        // Check if non-putt categories are all zero — likely missing course GPS data
+        const nonPuttZero = sgTotals.off_the_tee === 0 && sgTotals.approach === 0 && sgTotals.short_game === 0;
+        const missingDataNotice = nonPuttZero ? buildMissingDataNotice() : '';
+
+        container.innerHTML = cats.map(c => {
+            const v = Math.round(sgTotals[c.key] * 100) / 100;
+            const color = v >= 0 ? '#22c55e' : '#ef4444';
+            const sign = v > 0 ? '+' : '';
+            const barPct = Math.min(Math.abs(v) / maxAbs * 100, 100);
+            const isPositive = v >= 0;
+            return `<div style="display:flex; align-items:center; margin-bottom:10px; gap:8px;">
+                <span style="width:80px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${c.label}</span>
+                <div style="flex:1; display:flex; height:20px;">
+                    <div style="width:50%; display:flex; justify-content:flex-end;">
+                        ${!isPositive ? `<div style="width:${barPct}%; background:${color}; border-radius:4px 0 0 4px; min-width:2px;"></div>` : ''}
+                    </div>
+                    <div style="width:1px; background:var(--text-dim);"></div>
+                    <div style="width:50%; display:flex;">
+                        ${isPositive ? `<div style="width:${barPct}%; background:${color}; border-radius:0 4px 4px 0; min-width:2px;"></div>` : ''}
+                    </div>
+                </div>
+                <span style="width:50px; text-align:right; font-size:0.85rem; font-weight:600; color:${color}; flex-shrink:0;">${sign}${v.toFixed(2)}</span>
+            </div>`;
+        }).join('') + `<div style="font-size:0.72rem; color:var(--text-dim); margin-top:4px; text-align:right;">total strokes gained this round vs PGA</div>` + missingDataNotice;
+    }
+
+    function renderRdDistribution() {
+        const container = document.getElementById('rd-distribution');
+        const holes = rdCache.holes || [];
+        const hasPar = Object.keys(rdParMap).length > 0;
+
+        if (!holes.length || !hasPar) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No scoring data.</p></div>';
+            return;
+        }
+
+        const dist = { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0, triple: 0 };
+        for (const h of holes) {
+            if (!h.strokes) continue;
+            const par = rdParMap[h.hole_number];
+            if (!par) continue;
+            const diff = h.strokes - par;
+            if (diff <= -2) dist.eagle++;
+            else if (diff === -1) dist.birdie++;
+            else if (diff === 0) dist.par++;
+            else if (diff === 1) dist.bogey++;
+            else if (diff === 2) dist.double++;
+            else dist.triple++;
+        }
+
+        const items = [
+            { label: 'Eagle+', count: dist.eagle, color: '#16a34a' },
+            { label: 'Birdie', count: dist.birdie, color: '#22c55e' },
+            { label: 'Par', count: dist.par, color: '#3b82f6' },
+            { label: 'Bogey', count: dist.bogey, color: '#f59e0b' },
+            { label: 'Double', count: dist.double, color: '#ef4444' },
+            { label: 'Triple+', count: dist.triple, color: '#dc2626' },
+        ].filter(i => i.count > 0);
+
+        const maxCount = Math.max(...items.map(i => i.count), 1);
+
+        container.innerHTML = items.map(i => {
+            const barPct = Math.min(i.count / maxCount * 100, 100);
+            return `<div style="display:flex; align-items:center; margin-bottom:8px; gap:10px;">
+                <span style="width:60px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${i.label}</span>
+                <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:20px; overflow:hidden;">
+                    <div style="width:${barPct}%; background:${i.color}; height:100%; border-radius:4px;"></div>
+                </div>
+                <span style="width:25px; text-align:right; font-size:0.85rem; font-weight:600; color:${i.color}; flex-shrink:0;">${i.count}</span>
+            </div>`;
+        }).join('');
+    }
+
+    function renderRdNotes() {
+        const card = document.getElementById('rd-notes-card');
+        const container = document.getElementById('rd-notes');
+        const d = rdCache;
+
+        if (!d.key_takeaway && !d.overall_rating) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+
+        let html = '';
+        if (d.overall_rating) {
+            const stars = '★'.repeat(d.overall_rating) + '☆'.repeat(5 - d.overall_rating);
+            html += `<div style="font-size:1.2rem; color:#f59e0b; margin-bottom:8px;">${stars}</div>`;
+        }
+        if (d.key_takeaway) {
+            html += `<p style="color:var(--text-muted); font-size:0.9rem; line-height:1.5;">${d.key_takeaway}</p>`;
+        }
+        container.innerHTML = html;
+    }
+
+    function renderRdNav() {
+        const container = document.getElementById('rd-nav');
+        if (!roundsCache.length) { container.innerHTML = ''; return; }
+
+        const idx = roundsCache.findIndex(r => r.id === rdCache.id);
+        // roundsCache is sorted newest first, so "prev" (older) is idx+1, "next" (newer) is idx-1
+        const prevRound = idx >= 0 && idx < roundsCache.length - 1 ? roundsCache[idx + 1] : null;
+        const nextRound = idx > 0 ? roundsCache[idx - 1] : null;
+
+        let html = '';
+        if (prevRound) {
+            html += `<a href="#round/${prevRound.id}" class="btn btn-ghost btn-sm" style="font-size:0.8rem;">← ${prevRound.date}</a>`;
+        }
+        if (nextRound) {
+            html += `<a href="#round/${nextRound.id}" class="btn btn-ghost btn-sm" style="font-size:0.8rem;">${nextRound.date} →</a>`;
+        }
+        container.innerHTML = html;
     }
 
     // ========== View Holes Button ==========

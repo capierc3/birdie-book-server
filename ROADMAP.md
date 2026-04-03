@@ -201,21 +201,37 @@
 
 ---
 
-## 9. Round Comparison
+## 9. Round Detail & Comparison
 
-**Goal:** Compare rounds side-by-side to understand what changed.
+**Goal:** Give each round its own detail page with a full breakdown, then layer on comparison tools to understand what changed between rounds or vs historical averages.
 
-### 9a. Side-by-Side Round Comparison `[ ]`
-- Select two rounds (ideally same course) and compare:
-  - Hole-by-hole scores
-  - Fairways hit, GIR, putts
-  - SG breakdown by category
-- Highlight differences: "Round B had 4 more GIRs and 3 fewer putts"
+### 9a. Round Detail Page `[ ]`
+- New route: `#round/{roundId}` → dedicated round summary page (currently skips straight to hole view)
+- **Header:** Date, course name (linked), tee played, score, vs par
+- **Stat cards:** Score, vs Par, GIR%, FW%, Putts, Putts/Hole, 3-Putt count
+- **Scorecard table:** Hole-by-hole grid showing par, score, vs par, putts, fairway, GIR per hole
+  - Color-coded: birdie/par/bogey/double+
+  - Front 9 / Back 9 / Total subtotals
+- **SG breakdown:** Per-category SG for this round (Off the Tee, Approach, Short Game, Putting)
+- **Scoring distribution:** Birdie/par/bogey/double+ counts for this round
+- **Action links:** View Holes Map, View Course, Previous/Next round navigation
 
-### 9b. Best Round Replay `[ ]`
+### 9b. Round Comparison `[ ]`
+- Compare this round against a baseline:
+  - Another specific round (ideally same course)
+  - Your historical average (all rounds)
+  - Last 5 / Last 10 / Last 20 rounds
+  - Course average (all rounds at this course)
+  - Date range (last month, last 3 months, etc.)
+- Side-by-side stat cards: this round vs baseline (with delta arrows)
+- Hole-by-hole comparison table: score, vs par, putts — highlighted where this round was better/worse
+- SG category comparison: "You gained 1.2 strokes putting vs your last 10 avg"
+
+### 9c. Best Round Replay `[ ]`
 - For any round, show what went right
 - Which holes had the biggest SG gains
 - What clubs performed best that day
+- Highlight streaks (e.g. "4 pars in a row on holes 5-8")
 
 ---
 
@@ -487,6 +503,67 @@
 - Scramble-specific stats page or filtered view
 - Game format tagging (stroke play, scramble, best ball, etc.)
 - Filter stats/trends by game format
+
+---
+
+## 14. Hole-by-Hole Screen Overhaul
+
+**Goal:** Rebuild the hole view screen with rich historical data, strategy insights, and improved visualization. Best tackled after the Round screen (9) is complete.
+
+### 14a. Per-Hole Historical Stats `[ ]`
+- Integrate course-level hole difficulty data (from 7b) into the hole view
+- Show avg score, avg vs par, birdie/par/bogey percentages for each hole
+- Miss tendency summary: "You miss left 68% of the time on this hole"
+- SG breakdown per hole across all rounds
+
+### 14b. Club Usage & Strategy `[ ]`
+- Club usage history per hole ("Driver 4/5 times, fairway 60%")
+- Most common miss by club on this hole
+- Best club choice historically based on scoring outcomes
+- Personal strategy notes field per hole for game planning
+
+### 14c. Shot Pattern Visualization `[ ]`
+- Shot pattern overlay on the hole map (all historical shots)
+- Dispersion visualization: where tee shots land, approach miss patterns
+- Side-by-side: historical patterns vs a specific round's actual shots
+- Color-coded by outcome (fairway, rough, hazard, green)
+
+### 14d. Course Strategy Insights `[ ]`
+- Per-hole: "On #14, laying up to 100 yards has produced better scores than going for it"
+- Risk/reward analysis based on historical outcomes
+- Suggested play based on your data (club off tee, target areas)
+
+---
+
+## 15. Course Data & OSM Contribution
+
+**Goal:** Improve the hole data editing workflow and contribute course data back to OpenStreetMap so the wider golf community benefits.
+
+### 15a. Hole Data Editor Improvements `[ ]`
+- Streamlined workflow for adding/editing tee positions, green boundaries, fairway paths per hole
+- Bulk import from GPS traces (Garmin shot data can seed tee/green positions)
+- Auto-detect tee/green positions from round shot data (first shot = tee, last non-putt = green area)
+- Visual validation: show data completeness per hole (tee ✓, green ✓, fairway ✓, hazards ✓)
+- "Data health" dashboard for each course showing what's missing
+
+### 15b. Hazard & Feature Management `[ ]`
+- Improved hazard editor: draw bunkers, water, OB boundaries on the map
+- Import hazards from OSM if available
+- Classify hazard types (fairway bunker, greenside bunker, water carry, lateral water, OB)
+- Attach hazards to specific holes for strategy context
+
+### 15c. OSM Data Export & Contribution `[ ]`
+- Export course data (tee positions, green boundaries, fairway paths, hazards) in OSM-compatible format
+- Generate OSM changesets from Birdie Book course data
+- Guided workflow: review data quality → preview changeset → submit to OSM
+- Track which courses have been contributed, show "Contributed to OSM" badge
+- Respect OSM contribution guidelines and tagging conventions (golf=hole, ref=hole_number, par=X, etc.)
+
+### 15d. Community Course Data `[ ]`
+- Share course data between Birdie Book users (opt-in)
+- "Verified by N players" badge for community-validated hole data
+- Merge/conflict resolution when multiple users have data for the same course
+- Course data quality scoring based on GPS precision and completeness
 
 ---
 

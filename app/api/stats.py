@@ -511,6 +511,259 @@ def get_strokes_gained_by_club(
     return SGByClubResponse(clubs=clubs, worst_club=worst, best_club=best)
 
 
+# ── Scoring Trends & Key Stats ──────────────────────────────────────
+
+class ScoringDistribution(BaseModel):
+    birdie_or_better: int = 0
+    par: int = 0
+    bogey: int = 0
+    double: int = 0
+    triple_plus: int = 0
+
+
+class ParBreakdown(BaseModel):
+    par: int
+    count: int = 0
+    avg_score: float = 0.0
+    avg_vs_par: float = 0.0
+    birdie_pct: float = 0.0
+    par_pct: float = 0.0
+    bogey_pct: float = 0.0
+    double_plus_pct: float = 0.0
+
+
+class ScoringRound(BaseModel):
+    round_id: int
+    date: date
+    course_name: str
+    holes_played: int
+    score: int
+    score_vs_par: int
+    gir_pct: Optional[float] = None
+    fw_pct: Optional[float] = None
+    putts: Optional[int] = None
+    putts_per_hole: Optional[float] = None
+    three_putts: int = 0
+    birdie_or_better: int = 0
+    pars: int = 0
+    bogeys: int = 0
+    doubles: int = 0
+    triple_plus: int = 0
+
+
+class ScoringResponse(BaseModel):
+    gir_pct: Optional[float] = None
+    fairway_pct: Optional[float] = None
+    avg_putts_per_hole: Optional[float] = None
+    putts_per_gir: Optional[float] = None
+    scramble_pct: Optional[float] = None
+    three_putt_pct: Optional[float] = None
+    scoring_distribution: ScoringDistribution
+    par_breakdown: list[ParBreakdown]
+    per_round: list[ScoringRound]
+
+
+@router.get("/scoring", response_model=ScoringResponse)
+def get_scoring_stats(db: Session = Depends(get_db)):
+    from sqlalchemy import func as sqlfunc
+
+    # Query all played holes with course par data
+    rows = (
+        db.query(RoundHole, Round, CourseHole, Course, GolfClub)
+        .join(Round, RoundHole.round_id == Round.id)
+        .join(
+            CourseHole,
+            (CourseHole.tee_id == Round.tee_id)
+            & (CourseHole.hole_number == RoundHole.hole_number),
+        )
+        .join(Course, Round.course_id == Course.id)
+        .join(GolfClub, Course.golf_club_id == GolfClub.id)
+        .filter(
+            Round.exclude_from_stats != True,
+            Round.tee_id.isnot(None),
+            RoundHole.strokes > 0,
+        )
+        .all()
+    )
+
+    # Aggregate stats
+    total_holes = 0
+    gir_holes = 0
+    gir_eligible = 0  # holes with putt data (needed for GIR calc)
+    fw_hit = 0
+    fw_eligible = 0
+    total_putts = 0
+    putt_holes = 0
+    gir_putts = 0
+    gir_putt_holes = 0
+    non_gir_par_or_better = 0
+    non_gir_total = 0
+    three_putts = 0
+
+    # Scoring distribution
+    dist = {"birdie_or_better": 0, "par": 0, "bogey": 0, "double": 0, "triple_plus": 0}
+
+    # Par breakdown
+    par_data: dict[int, dict] = {}  # par -> {scores: [], diffs: []}
+
+    # Per-round aggregation
+    round_agg: dict[int, dict] = {}
+
+    for rh, rnd, ch, course, club in rows:
+        total_holes += 1
+        vs_par = rh.strokes - ch.par
+
+        # Scoring distribution
+        if vs_par <= -1:
+            dist["birdie_or_better"] += 1
+        elif vs_par == 0:
+            dist["par"] += 1
+        elif vs_par == 1:
+            dist["bogey"] += 1
+        elif vs_par == 2:
+            dist["double"] += 1
+        else:
+            dist["triple_plus"] += 1
+
+        # Par breakdown
+        if ch.par not in par_data:
+            par_data[ch.par] = {"scores": [], "diffs": []}
+        par_data[ch.par]["scores"].append(rh.strokes)
+        par_data[ch.par]["diffs"].append(vs_par)
+
+        # Fairway (only for par 4+ where fairway is tracked)
+        if rh.fairway is not None:
+            fw_eligible += 1
+            if rh.fairway == "HIT":
+                fw_hit += 1
+
+        # Putts
+        if rh.putts is not None:
+            total_putts += rh.putts
+            putt_holes += 1
+            if rh.putts >= 3:
+                three_putts += 1
+
+            # GIR: reached green in (par - 2) strokes or fewer
+            approach_strokes = rh.strokes - rh.putts
+            gir_eligible += 1
+            is_gir = approach_strokes <= ch.par - 2
+            if is_gir:
+                gir_holes += 1
+                gir_putts += rh.putts
+                gir_putt_holes += 1
+            else:
+                non_gir_total += 1
+                if rh.strokes <= ch.par:
+                    non_gir_par_or_better += 1
+
+        # Per-round
+        rid = rnd.id
+        if rid not in round_agg:
+            if course.name:
+                display_name = f"{club.name} — {course.name}"
+            else:
+                display_name = club.name
+            round_agg[rid] = {
+                "round_id": rid,
+                "date": rnd.date,
+                "course_name": display_name,
+                "holes": 0,
+                "score": 0,
+                "par_total": 0,
+                "gir": 0,
+                "gir_eligible": 0,
+                "fw_hit": 0,
+                "fw_eligible": 0,
+                "putts": 0,
+                "putt_holes": 0,
+                "three_putts": 0,
+                "birdie_or_better": 0,
+                "pars": 0,
+                "bogeys": 0,
+                "doubles": 0,
+                "triple_plus": 0,
+            }
+        ra = round_agg[rid]
+        ra["holes"] += 1
+        ra["score"] += rh.strokes
+        ra["par_total"] += ch.par
+        # Per-round scoring distribution
+        if vs_par <= -1:
+            ra["birdie_or_better"] += 1
+        elif vs_par == 0:
+            ra["pars"] += 1
+        elif vs_par == 1:
+            ra["bogeys"] += 1
+        elif vs_par == 2:
+            ra["doubles"] += 1
+        else:
+            ra["triple_plus"] += 1
+        if rh.fairway is not None:
+            ra["fw_eligible"] += 1
+            if rh.fairway == "HIT":
+                ra["fw_hit"] += 1
+        if rh.putts is not None:
+            ra["putts"] += rh.putts
+            ra["putt_holes"] += 1
+            ra["gir_eligible"] += 1
+            if rh.strokes - rh.putts <= ch.par - 2:
+                ra["gir"] += 1
+            if rh.putts >= 3:
+                ra["three_putts"] += 1
+
+    # Build par breakdown
+    par_breakdown = []
+    for p in sorted(par_data.keys()):
+        scores = par_data[p]["scores"]
+        diffs = par_data[p]["diffs"]
+        n = len(scores)
+        par_breakdown.append(ParBreakdown(
+            par=p,
+            count=n,
+            avg_score=round(sum(scores) / n, 2),
+            avg_vs_par=round(sum(diffs) / n, 2),
+            birdie_pct=round(sum(1 for d in diffs if d <= -1) / n * 100, 1),
+            par_pct=round(sum(1 for d in diffs if d == 0) / n * 100, 1),
+            bogey_pct=round(sum(1 for d in diffs if d == 1) / n * 100, 1),
+            double_plus_pct=round(sum(1 for d in diffs if d >= 2) / n * 100, 1),
+        ))
+
+    # Build per-round list
+    per_round = []
+    for ra in sorted(round_agg.values(), key=lambda x: x["date"]):
+        per_round.append(ScoringRound(
+            round_id=ra["round_id"],
+            date=ra["date"],
+            course_name=ra["course_name"],
+            holes_played=ra["holes"],
+            score=ra["score"],
+            score_vs_par=ra["score"] - ra["par_total"],
+            gir_pct=round(ra["gir"] / ra["gir_eligible"] * 100, 1) if ra["gir_eligible"] else None,
+            fw_pct=round(ra["fw_hit"] / ra["fw_eligible"] * 100, 1) if ra["fw_eligible"] else None,
+            putts=ra["putts"] if ra["putt_holes"] else None,
+            putts_per_hole=round(ra["putts"] / ra["putt_holes"], 2) if ra["putt_holes"] else None,
+            three_putts=ra["three_putts"],
+            birdie_or_better=ra["birdie_or_better"],
+            pars=ra["pars"],
+            bogeys=ra["bogeys"],
+            doubles=ra["doubles"],
+            triple_plus=ra["triple_plus"],
+        ))
+
+    return ScoringResponse(
+        gir_pct=round(gir_holes / gir_eligible * 100, 1) if gir_eligible else None,
+        fairway_pct=round(fw_hit / fw_eligible * 100, 1) if fw_eligible else None,
+        avg_putts_per_hole=round(total_putts / putt_holes, 2) if putt_holes else None,
+        putts_per_gir=round(gir_putts / gir_putt_holes, 2) if gir_putt_holes else None,
+        scramble_pct=round(non_gir_par_or_better / non_gir_total * 100, 1) if non_gir_total else None,
+        three_putt_pct=round(three_putts / putt_holes * 100, 1) if putt_holes else None,
+        scoring_distribution=ScoringDistribution(**dist),
+        par_breakdown=par_breakdown,
+        per_round=per_round,
+    )
+
+
 # ── Handicap Tracking ───────────────────────────────────────────────
 
 # USGA: how many of the lowest differentials to use based on count available
@@ -540,11 +793,19 @@ class HandicapTrendPoint(BaseModel):
     differentials_available: int
 
 
+class HandicapProjection(BaseModel):
+    milestone: float
+    rounds_away: Optional[int] = None  # None = not on current trajectory
+    label: str
+
+
 class HandicapResponse(BaseModel):
     handicap_index: Optional[float] = None
     differentials_used: int = 0
     differentials_available: int = 0
     low_index: Optional[float] = None
+    improvement_per_round: Optional[float] = None  # negative = improving
+    projections: list[HandicapProjection] = []
     trend: list[HandicapTrendPoint]
     differentials: list[HandicapDifferential]
 
@@ -741,11 +1002,52 @@ def get_handicap(db: Session = Depends(get_db)):
             if low_index is None or idx < low_index:
                 low_index = idx
 
+    # Compute improvement rate via linear regression on handicap trend
+    hcp_points = [(i, t.handicap_index) for i, t in enumerate(trend) if t.handicap_index is not None]
+    improvement_per_round = None
+    projections = []
+
+    if len(hcp_points) >= 3:
+        xs = [p[0] for p in hcp_points]
+        ys = [p[1] for p in hcp_points]
+        x_mean = sum(xs) / len(xs)
+        y_mean = sum(ys) / len(ys)
+        denom = sum((x - x_mean) ** 2 for x in xs)
+        if denom > 0:
+            slope = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys)) / denom
+            improvement_per_round = round(slope, 2)
+
+            # Project milestones
+            if current_index is not None and slope < 0:
+                milestones = [
+                    (30, "Break 30"),
+                    (25, "Break 25"),
+                    (20, "Break 20"),
+                    (18, "Break 18"),
+                    (15, "Break 15"),
+                    (10, "Single digits"),
+                    (5, "Break 5"),
+                    (0, "Scratch golfer"),
+                ]
+                last_idx = len(trend) - 1
+                for target, label in milestones:
+                    if current_index <= target:
+                        continue  # already past this milestone
+                    rounds_needed = int((target - current_index) / slope)
+                    if rounds_needed > 0:
+                        projections.append(HandicapProjection(
+                            milestone=target,
+                            rounds_away=rounds_needed,
+                            label=label,
+                        ))
+
     return HandicapResponse(
         handicap_index=current_index,
         differentials_used=use_count,
         differentials_available=len(last_20),
         low_index=low_index,
+        improvement_per_round=improvement_per_round,
+        projections=projections,
         trend=trend,
         differentials=diffs,
     )

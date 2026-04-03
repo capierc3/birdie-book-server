@@ -56,6 +56,23 @@
         <div id="sg-summary-bars" style="padding:0 20px 20px;"></div>
     </div>
 
+    <!-- Key Stats Summary Card -->
+    <div class="card" id="scoring-summary-card" style="display:none; margin-bottom:28px; cursor:pointer;" onclick="location.hash='scoring'">
+        <div class="card-header">
+            <h2>Key Stats</h2>
+            <a href="#scoring" class="btn btn-ghost btn-sm nav-link" data-section="section-scoring">Details</a>
+        </div>
+        <div style="padding:0 12px 16px;">
+            <div class="stats-row">
+                <div class="stat-card"><div class="stat-label">GIR %</div><div class="stat-value" id="dash-gir">--</div></div>
+                <div class="stat-card"><div class="stat-label">Fairway %</div><div class="stat-value" id="dash-fw">--</div></div>
+                <div class="stat-card"><div class="stat-label">Putts/Hole</div><div class="stat-value" id="dash-putts">--</div></div>
+                <div class="stat-card"><div class="stat-label">Scramble %</div><div class="stat-value" id="dash-scramble">--</div></div>
+                <div class="stat-card"><div class="stat-label">3-Putt %</div><div class="stat-value" id="dash-3putt">--</div></div>
+            </div>
+        </div>
+    </div>
+
     <div class="grid-2">
         <div class="card">
             <div class="card-header">
@@ -223,6 +240,98 @@
     </div>
 </div>
 
+<!-- ===== Course Stats Section ===== -->
+<div class="content-section" id="section-course-stats">
+    <div class="page-header">
+        <div style="display:flex; gap:12px; align-items:center; margin-bottom:4px;">
+            <a href="#courses" class="btn btn-ghost btn-sm nav-link" data-section="section-courses">&larr; All Courses</a>
+            <a href="#" id="cs-club-link" class="btn btn-ghost btn-sm" style="display:none;">&larr; Club</a>
+        </div>
+        <h1 id="cs-course-name">Course</h1>
+        <p id="cs-course-subtitle"></p>
+    </div>
+
+    <!-- Summary stat cards -->
+    <div class="stats-row" id="cs-stat-cards">
+        <div class="stat-card"><div class="stat-label">Rounds</div><div class="stat-value" id="cs-rounds">--</div></div>
+        <div class="stat-card"><div class="stat-label">Avg Score</div><div class="stat-value" id="cs-avg-score">--</div></div>
+        <div class="stat-card"><div class="stat-label">Best</div><div class="stat-value" id="cs-best">--</div></div>
+        <div class="stat-card"><div class="stat-label">Avg vs Par</div><div class="stat-value" id="cs-avg-vs-par">--</div></div>
+        <div class="stat-card"><div class="stat-label">GIR %</div><div class="stat-value" id="cs-gir">--</div></div>
+        <div class="stat-card"><div class="stat-label">FW %</div><div class="stat-value" id="cs-fw">--</div></div>
+        <div class="stat-card"><div class="stat-label">Putts/Hole</div><div class="stat-value" id="cs-putts">--</div></div>
+    </div>
+
+    <!-- SG breakdown + Handicap differential -->
+    <div class="grid-2" id="cs-sg-hcp-row">
+        <div class="card">
+            <div class="card-header">
+                <h2>Strokes Gained</h2>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-ghost btn-sm cs-sg-mode active" data-mode="pga">vs PGA</button>
+                    <button class="btn btn-ghost btn-sm cs-sg-mode" data-mode="personal">vs Personal</button>
+                </div>
+            </div>
+            <div id="cs-sg-breakdown" style="padding:0 20px 20px;">
+                <div class="empty-state" style="padding:24px;"><p>No SG data yet.</p></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h2>Handicap at this Course</h2></div>
+            <div id="cs-handicap" style="padding:0 20px 20px;">
+                <div class="empty-state" style="padding:24px;"><p>No handicap data yet.</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Score trend chart -->
+    <div class="card" id="cs-trend-card" style="display:none;">
+        <div class="card-header"><h2>Score Trend</h2></div>
+        <div style="height:250px; padding:0 20px 20px; position:relative;">
+            <canvas id="cs-trend-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Hole difficulty + Scoring distribution -->
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-header">
+                <h2>Hole Difficulty</h2>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn btn-ghost btn-sm cs-sort-btn active" data-sort="difficulty">Hardest</button>
+                    <button class="btn btn-ghost btn-sm cs-sort-btn" data-sort="number">By Hole</button>
+                </div>
+            </div>
+            <div class="table-wrap" id="cs-hole-table-wrap">
+                <div class="empty-state" style="padding:24px;"><p>No hole data yet.</p></div>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h2>Scoring Distribution</h2></div>
+            <div id="cs-distribution" style="padding:0 20px 20px;">
+                <div class="empty-state" style="padding:24px;"><p>No scoring data yet.</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Round history -->
+    <div class="card">
+        <div class="card-header">
+            <h2>Round History</h2>
+            <span class="badge" id="cs-round-count">0</span>
+        </div>
+        <div id="cs-rounds-list">
+            <div class="empty-state" style="padding:24px;"><p>No rounds recorded at this course.</p></div>
+        </div>
+    </div>
+
+    <!-- Action buttons -->
+    <div style="margin-top:24px; display:flex; gap:12px;">
+        <a id="cs-view-holes" href="#" class="btn btn-primary">View Holes Map</a>
+        <a id="cs-view-club" href="#" class="btn btn-secondary">View Club</a>
+    </div>
+</div>
+
 <!-- ===== Course Match Modal ===== -->
 <div class="modal-overlay" id="course-match-modal" style="display:none;">
     <div class="modal">
@@ -344,8 +453,8 @@
 <div class="content-section" id="section-clubs">
     <div class="page-header" style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-            <h1>Clubs</h1>
-            <p>Your bag and club performance</p>
+            <h1>My Bag</h1>
+            <p>Your clubs and performance</p>
         </div>
         <button class="btn btn-primary btn-sm" id="btn-add-club">Add Club</button>
     </div>
@@ -453,7 +562,7 @@
 <!-- ===== Club Detail Section ===== -->
 <div class="content-section" id="section-club-detail">
     <div class="range-controls">
-        <a href="#clubs" class="btn btn-ghost btn-sm nav-link" data-section="section-clubs">&larr; Clubs</a>
+        <a href="#clubs" class="btn btn-ghost btn-sm nav-link" data-section="section-clubs">&larr; My Bag</a>
         <div id="club-detail-header-info" style="display:flex; align-items:center; gap:12px;"></div>
     </div>
 
@@ -899,17 +1008,17 @@
             <h2>SG Trends Over Time</h2>
             <div style="display:flex; gap:8px; align-items:center; font-size:0.82rem;">
                 <select id="sg-trend-axis" class="club-window-select" style="font-size:0.82rem;">
-                    <option value="date" selected>By Date</option>
-                    <option value="rounds">By Round</option>
+                    <option value="date">By Date</option>
+                    <option value="rounds" selected>By Round</option>
                 </select>
-                <select id="sg-trend-range" class="club-window-select" style="font-size:0.82rem;">
+                <select id="sg-trend-range" class="club-window-select" style="font-size:0.82rem; display:none;">
                     <option value="1">1 Month</option>
                     <option value="3">3 Months</option>
                     <option value="6">6 Months</option>
                     <option value="12">1 Year</option>
                     <option value="all" selected>All Time</option>
                 </select>
-                <select id="sg-trend-round-range" class="club-window-select" style="font-size:0.82rem; display:none;">
+                <select id="sg-trend-round-range" class="club-window-select" style="font-size:0.82rem;">
                     <option value="5">Last 5 Rounds</option>
                     <option value="10">Last 10 Rounds</option>
                     <option value="20">Last 20 Rounds</option>
@@ -957,6 +1066,102 @@
     </div>
 </div>
 
+<!-- ===== Scoring Stats Section ===== -->
+<div class="content-section" id="section-scoring">
+    <div class="page-header">
+        <h1>Scoring Stats</h1>
+        <p>Traditional golf statistics and scoring trends</p>
+    </div>
+
+    <!-- Key stats cards -->
+    <div class="stats-row" id="scoring-stat-cards">
+        <div class="stat-card"><div class="stat-label">GIR %</div><div class="stat-value" id="sc-gir">--</div></div>
+        <div class="stat-card"><div class="stat-label">Fairway %</div><div class="stat-value" id="sc-fw">--</div></div>
+        <div class="stat-card"><div class="stat-label">Putts/Hole</div><div class="stat-value" id="sc-putts">--</div></div>
+        <div class="stat-card"><div class="stat-label">Putts/GIR</div><div class="stat-value" id="sc-putts-gir">--</div></div>
+        <div class="stat-card"><div class="stat-label">Scramble %</div><div class="stat-value" id="sc-scramble">--</div></div>
+        <div class="stat-card"><div class="stat-label">3-Putt %</div><div class="stat-value" id="sc-3putt">--</div></div>
+    </div>
+
+    <!-- Score over time chart -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>Score Over Time</h2>
+            <div style="display:flex; gap:8px; align-items:center; font-size:0.82rem;">
+                <select id="sc-trend-axis" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="date">By Date</option>
+                    <option value="rounds" selected>By Round</option>
+                </select>
+                <select id="sc-trend-range" class="club-window-select" style="font-size:0.82rem; display:none;">
+                    <option value="1">1 Month</option>
+                    <option value="3">3 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12">1 Year</option>
+                    <option value="all" selected>All Time</option>
+                </select>
+                <select id="sc-trend-round-range" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="5">Last 5 Rounds</option>
+                    <option value="10">Last 10 Rounds</option>
+                    <option value="20">Last 20 Rounds</option>
+                    <option value="all" selected>All Rounds</option>
+                </select>
+            </div>
+        </div>
+        <div style="height:300px; padding:0 20px 20px; position:relative;">
+            <canvas id="sc-trend-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Scoring distribution + Par breakdown side by side -->
+    <div class="grid-2" style="margin-top:24px;">
+        <div class="card">
+            <div class="card-header"><h2>Scoring Distribution</h2></div>
+            <div id="sc-distribution" style="padding:0 20px 20px;"></div>
+        </div>
+        <div class="card">
+            <div class="card-header"><h2>Par Breakdown</h2></div>
+            <div id="sc-par-breakdown" style="padding:0 20px 20px;"></div>
+        </div>
+    </div>
+
+    <!-- Scoring distribution trend -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>Scoring Trend</h2>
+            <div style="display:flex; gap:8px; align-items:center; font-size:0.82rem;">
+                <select id="sc-dist-axis" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="date">By Date</option>
+                    <option value="rounds" selected>By Round</option>
+                </select>
+                <select id="sc-dist-range" class="club-window-select" style="font-size:0.82rem; display:none;">
+                    <option value="1">1 Month</option>
+                    <option value="3">3 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12">1 Year</option>
+                    <option value="all" selected>All Time</option>
+                </select>
+                <select id="sc-dist-round-range" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="5">Last 5 Rounds</option>
+                    <option value="10">Last 10 Rounds</option>
+                    <option value="20">Last 20 Rounds</option>
+                    <option value="all" selected>All Rounds</option>
+                </select>
+            </div>
+        </div>
+        <div style="height:300px; padding:0 20px 20px; position:relative;">
+            <canvas id="sc-dist-trend-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Per-round table -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>Stats by Round</h2>
+        </div>
+        <div id="sc-round-table" style="overflow-x:auto;"></div>
+    </div>
+</div>
+
 <!-- ===== Handicap Section ===== -->
 <div class="content-section" id="section-handicap">
     <div class="page-header">
@@ -990,17 +1195,17 @@
             <h2>Handicap Trend</h2>
             <div style="display:flex; gap:8px; align-items:center; font-size:0.82rem;">
                 <select id="hcp-trend-axis" class="club-window-select" style="font-size:0.82rem;">
-                    <option value="date" selected>By Date</option>
-                    <option value="rounds">By Round</option>
+                    <option value="date">By Date</option>
+                    <option value="rounds" selected>By Round</option>
                 </select>
-                <select id="hcp-trend-range" class="club-window-select" style="font-size:0.82rem;">
+                <select id="hcp-trend-range" class="club-window-select" style="font-size:0.82rem; display:none;">
                     <option value="1">1 Month</option>
                     <option value="3">3 Months</option>
                     <option value="6">6 Months</option>
                     <option value="12">1 Year</option>
                     <option value="all" selected>All Time</option>
                 </select>
-                <select id="hcp-trend-round-range" class="club-window-select" style="font-size:0.82rem; display:none;">
+                <select id="hcp-trend-round-range" class="club-window-select" style="font-size:0.82rem;">
                     <option value="5">Last 5 Rounds</option>
                     <option value="10">Last 10 Rounds</option>
                     <option value="20">Last 20 Rounds</option>
@@ -1011,6 +1216,12 @@
         <div style="height:300px; padding:0 20px 20px; position:relative;">
             <canvas id="hcp-trend-chart"></canvas>
         </div>
+    </div>
+
+    <!-- Projection -->
+    <div class="card" style="margin-top:24px;" id="hcp-projection-card">
+        <div class="card-header"><h2>Projection</h2></div>
+        <div id="hcp-projection" style="padding:0 20px 20px;"></div>
     </div>
 
     <!-- Differentials table -->

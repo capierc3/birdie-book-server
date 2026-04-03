@@ -41,6 +41,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sectionId === 'section-handicap') {
             loadHandicap();
         }
+        if (sectionId === 'section-scoring') {
+            loadScoringStats();
+        }
     }
 
     // Sidebar nav clicks
@@ -118,11 +121,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Course detail route: course/123 (legacy — redirect to club view)
+        // Course stats route: course/123
         const courseMatch = hash.match(/^course\/(\d+)$/);
         if (courseMatch) {
-            navigateTo('section-course-detail');
-            loadCourseDetail(parseInt(courseMatch[1]));
+            navigateTo('section-course-stats');
+            loadCourseStats(parseInt(courseMatch[1]));
             return;
         }
 
@@ -143,6 +146,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hash === 'strokes-gained') {
             navigateTo('section-strokes-gained');
             loadStrokesGained();
+            return;
+        }
+
+        // Scoring stats route
+        if (hash === 'scoring') {
+            navigateTo('section-scoring');
+            loadScoringStats();
             return;
         }
 
@@ -781,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ? `${c.slope_min}`
                         : `${c.slope_min}\u2013${c.slope_max}`;
                 }
-                return `<tr class="clickable" onclick="location.hash='course/${c.id}/holes'">
+                return `<tr class="clickable" onclick="location.hash='course/${c.id}'">
                     <td>${c.name || '(Main)'}</td>
                     <td>${c.holes || '\u2014'}</td>
                     <td>${c.par || '\u2014'}</td>
@@ -827,6 +837,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCourseDetail = null;
     let currentClubDetail = null;  // { club data + all course details }
     let currentClubCourses = [];   // array of CourseDetailResponse
+    let csDataCache = null;        // course stats cache
+    let csTrendChart = null;       // Chart.js instance for course trend
 
     async function loadCourseDetail(courseId) {
         try {
@@ -948,7 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             return `<div class="card">
                 <div class="card-header">
-                    <h2>${cc.course_name || '(Main Course)'} <span style="color:var(--text-muted); font-size:0.84rem;">${cc.holes || 18} holes \u00b7 Par ${cc.par || '\u2014'}</span></h2>
+                    <h2><a href="#course/${cc.id}" style="color:inherit; text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='inherit'">${cc.course_name || '(Main Course)'}</a> <span style="color:var(--text-muted); font-size:0.84rem;">${cc.holes || 18} holes \u00b7 Par ${cc.par || '\u2014'}</span></h2>
                     <div style="display:flex; gap:6px; align-items:center;">
                         ${mergeHtml}
                         <button class="btn btn-primary btn-sm" onclick="location.hash='course/${cc.id}/holes'">View Holes</button>
@@ -1172,6 +1184,394 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
+    }
+
+    // ========== Course Stats Page ==========
+
+    async function loadCourseStats(courseId) {
+        try {
+            const resp = await fetch(`/api/courses/${courseId}/stats`);
+            if (!resp.ok) throw new Error('Course not found');
+            csDataCache = await resp.json();
+        } catch (e) {
+            console.error('Failed to load course stats:', e);
+            document.getElementById('cs-course-name').textContent = 'Course not found';
+            return;
+        }
+
+        const d = csDataCache;
+        const courseName = d.course_name ? `${d.club_name} — ${d.course_name}` : d.club_name;
+        document.getElementById('cs-course-name').textContent = courseName;
+        document.getElementById('cs-course-subtitle').textContent =
+            [d.holes ? `${d.holes} holes` : null, d.par ? `Par ${d.par}` : null].filter(Boolean).join(' · ') || '';
+
+        // Breadcrumb links
+        const clubLink = document.getElementById('cs-club-link');
+        clubLink.href = `#club/${d.club_id}`;
+        clubLink.textContent = `← ${d.club_name}`;
+        clubLink.style.display = '';
+
+        document.getElementById('cs-view-holes').href = `#course/${courseId}/holes`;
+        document.getElementById('cs-view-club').href = `#club/${d.club_id}`;
+
+        // Stat cards
+        const fmt = (v, decimals = 1) => v != null ? v.toFixed(decimals) : '--';
+        const fmtVsPar = v => {
+            if (v == null) return '--';
+            const s = v.toFixed(1);
+            return v > 0 ? `+${s}` : s;
+        };
+        const roundsEl = document.getElementById('cs-rounds');
+        roundsEl.textContent = d.rounds_played;
+        if (d.excluded_rounds > 0) {
+            roundsEl.innerHTML += `<div style="font-size:0.65rem; color:var(--text-dim); font-weight:400; margin-top:2px;">${d.excluded_rounds} excluded</div>`;
+        }
+        document.getElementById('cs-avg-score').textContent = fmt(d.avg_score);
+        document.getElementById('cs-best').textContent = d.best_score ?? '--';
+        const vsParEl = document.getElementById('cs-avg-vs-par');
+        vsParEl.textContent = fmtVsPar(d.avg_vs_par);
+        vsParEl.style.color = d.avg_vs_par == null ? '' : d.avg_vs_par <= 0 ? '#22c55e' : d.avg_vs_par <= 5 ? '#f59e0b' : '#ef4444';
+        document.getElementById('cs-gir').textContent = d.gir_pct != null ? `${d.gir_pct}%` : '--';
+        document.getElementById('cs-fw').textContent = d.fairway_pct != null ? `${d.fairway_pct}%` : '--';
+        document.getElementById('cs-putts').textContent = fmt(d.avg_putts_per_hole, 2);
+
+        document.getElementById('cs-round-count').textContent = d.rounds_played;
+
+        renderCsSgBreakdown();
+        renderCsHandicap();
+        renderCsTrendChart();
+        renderCsHoleTable('difficulty');
+        renderCsDistribution();
+        renderCsRoundsList();
+
+        // Sort toggle handlers
+        document.querySelectorAll('.cs-sort-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.cs-sort-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderCsHoleTable(btn.dataset.sort);
+            };
+        });
+
+        // SG mode toggle handlers
+        document.querySelectorAll('.cs-sg-mode').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.cs-sg-mode').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderCsSgBreakdown(btn.dataset.mode);
+            };
+        });
+    }
+
+    function renderCsSgBreakdown(mode = 'pga') {
+        const container = document.getElementById('cs-sg-breakdown');
+        if (!container || !csDataCache) return;
+
+        const sg = csDataCache.sg_categories;
+        if (!sg || Object.values(sg).every(c => c.round_count === 0)) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No SG data yet.</p></div>';
+            return;
+        }
+
+        const isPersonal = mode === 'personal';
+        const valKey = isPersonal ? 'personal_per_round' : 'per_round';
+        const label = isPersonal ? 'per round vs your avg' : 'per round vs PGA avg';
+
+        const cats = [
+            { key: 'off_the_tee', label: 'Off the Tee' },
+            { key: 'approach', label: 'Approach' },
+            { key: 'short_game', label: 'Short Game' },
+            { key: 'putting', label: 'Putting' },
+        ];
+
+        // Check if personal data exists
+        const hasPersonal = cats.some(c => sg[c.key]?.[valKey] != null);
+        if (isPersonal && !hasPersonal) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No personal SG baseline yet. Play more rounds to build one.</p></div>';
+            return;
+        }
+
+        const vals = cats.map(c => sg[c.key]?.[valKey] || 0);
+        const maxAbs = Math.max(...vals.map(Math.abs), 0.1);
+
+        container.innerHTML = cats.map(c => {
+            const d = sg[c.key] || {};
+            const v = d[valKey] ?? 0;
+            const color = v >= 0 ? '#22c55e' : '#ef4444';
+            const sign = v > 0 ? '+' : '';
+            const barPct = Math.min(Math.abs(v) / maxAbs * 100, 100);
+            const isPositive = v >= 0;
+
+            return `<div style="display:flex; align-items:center; margin-bottom:10px; gap:8px;">
+                <span style="width:80px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${c.label}</span>
+                <div style="flex:1; display:flex; height:20px;">
+                    <div style="width:50%; display:flex; justify-content:flex-end;">
+                        ${!isPositive ? `<div style="width:${barPct}%; background:${color}; border-radius:4px 0 0 4px; min-width:2px;"></div>` : ''}
+                    </div>
+                    <div style="width:1px; background:var(--text-dim);"></div>
+                    <div style="width:50%; display:flex;">
+                        ${isPositive ? `<div style="width:${barPct}%; background:${color}; border-radius:0 4px 4px 0; min-width:2px;"></div>` : ''}
+                    </div>
+                </div>
+                <span style="width:50px; text-align:right; font-size:0.85rem; font-weight:600; color:${color}; flex-shrink:0;">${sign}${v.toFixed(2)}</span>
+            </div>`;
+        }).join('') + `<div style="font-size:0.72rem; color:var(--text-dim); margin-top:4px; text-align:right;">${label}</div>`;
+    }
+
+    function renderCsHandicap() {
+        const container = document.getElementById('cs-handicap');
+        if (!container || !csDataCache) return;
+
+        const diffs = csDataCache.differentials;
+        if (!diffs || !diffs.length) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No handicap data yet.</p></div>';
+            return;
+        }
+
+        const avgDiff = csDataCache.avg_differential;
+        const bestDiff = csDataCache.best_differential;
+
+        container.innerHTML = `
+            <div style="display:flex; gap:16px; margin-bottom:16px;">
+                <div style="flex:1; text-align:center; padding:12px; background:var(--bg-hover); border-radius:8px;">
+                    <div style="font-size:0.75rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">Avg Differential</div>
+                    <div style="font-size:1.5rem; font-weight:700; margin-top:4px;">${avgDiff != null ? avgDiff.toFixed(1) : '--'}</div>
+                </div>
+                <div style="flex:1; text-align:center; padding:12px; background:var(--bg-hover); border-radius:8px;">
+                    <div style="font-size:0.75rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">Best Differential</div>
+                    <div style="font-size:1.5rem; font-weight:700; color:#22c55e; margin-top:4px;">${bestDiff != null ? bestDiff.toFixed(1) : '--'}</div>
+                </div>
+            </div>
+            <div style="font-size:0.82rem; color:var(--text-muted);">
+                ${diffs.map(d => {
+                    const diffColor = d.differential <= (avgDiff || 999) ? '#22c55e' : '#f59e0b';
+                    return `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);">
+                        <span>${d.date}</span>
+                        <span>Score ${d.score} · Rating ${d.rating} · Slope ${d.slope}</span>
+                        <span style="color:${diffColor}; font-weight:600;">${d.differential.toFixed(1)}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    function renderCsTrendChart() {
+        const canvas = document.getElementById('cs-trend-chart');
+        const card = document.getElementById('cs-trend-card');
+        if (!canvas || !csDataCache) return;
+        if (csTrendChart) { csTrendChart.destroy(); csTrendChart = null; }
+
+        const rounds = csDataCache.rounds;
+        if (rounds.length < 2) {
+            card.style.display = 'none';
+            return;
+        }
+        card.style.display = '';
+
+        // Cumulative average (per-hole normalized)
+        let sum = 0;
+        const avgData = rounds.map((r, i) => {
+            sum += r.vs_par_per_hole;
+            return { x: r.date, y: Math.round((sum / (i + 1)) * 100) / 100 };
+        });
+
+        csTrendChart = new Chart(canvas, {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Cumulative Avg',
+                        data: avgData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: '#3b82f633',
+                        borderWidth: 2.5,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                        tension: 0.3,
+                        fill: true,
+                    },
+                    {
+                        label: 'vs Par / Hole',
+                        data: rounds.map(r => ({ x: r.date, y: r.vs_par_per_hole })),
+                        borderColor: '#8b8f9866',
+                        borderWidth: 1,
+                        borderDash: [4, 3],
+                        pointRadius: 2,
+                        pointHoverRadius: 4,
+                        pointBackgroundColor: '#8b8f9899',
+                        tension: 0.2,
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    if (idx >= 0 && idx < rounds.length) {
+                        window.location.hash = `round/${rounds[idx].round_id}`;
+                    }
+                },
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                },
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle' } },
+                    tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#e2e8f0',
+                        bodyColor: '#e2e8f0',
+                        callbacks: {
+                            title: ctxs => {
+                                if (!ctxs[0]) return '';
+                                const i = ctxs[0].dataIndex;
+                                const r = rounds[i];
+                                return r ? `${ctxs[0].label} — ${r.holes_played}h (${r.score_vs_par > 0 ? '+' : ''}${r.score_vs_par} total)` : '';
+                            },
+                            label: ctx => {
+                                const v = ctx.raw?.y;
+                                if (v == null) return '';
+                                const sign = v > 0 ? '+' : '';
+                                return `${ctx.dataset.label}: ${sign}${v}`;
+                            }
+                        }
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'month', displayFormats: { month: 'MMM yyyy' }, tooltipFormat: 'MMM d, yyyy' },
+                        ticks: { color: '#64748b', font: { size: 11 } },
+                        grid: { color: '#1e293b' },
+                    },
+                    y: {
+                        ticks: { color: '#64748b', callback: v => (v > 0 ? '+' : '') + v.toFixed(1), font: { size: 11 } },
+                        grid: { color: '#1e293b' },
+                        title: { display: true, text: 'vs Par / Hole', color: '#64748b', font: { size: 11 } },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderCsHoleTable(sortMode) {
+        const container = document.getElementById('cs-hole-table-wrap');
+        if (!container || !csDataCache) return;
+
+        const holes = [...csDataCache.hole_stats];
+        if (!holes.length) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No hole data yet.</p></div>';
+            return;
+        }
+
+        if (sortMode === 'difficulty') {
+            holes.sort((a, b) => b.avg_vs_par - a.avg_vs_par);
+        } else {
+            holes.sort((a, b) => a.hole_number - b.hole_number);
+        }
+
+        container.innerHTML = `<table>
+            <thead>
+                <tr>
+                    <th>Hole</th>
+                    <th>Par</th>
+                    <th>Yds</th>
+                    <th>Avg</th>
+                    <th>vs Par</th>
+                    <th>Birdie</th>
+                    <th>Par</th>
+                    <th>Bogey</th>
+                    <th>Dbl+</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${holes.map(h => {
+                    const vsStr = h.avg_vs_par > 0 ? `+${h.avg_vs_par.toFixed(2)}` : h.avg_vs_par.toFixed(2);
+                    const vsColor = h.avg_vs_par <= -0.1 ? '#22c55e' : h.avg_vs_par <= 0.3 ? '#3b82f6' : h.avg_vs_par <= 0.8 ? '#f59e0b' : '#ef4444';
+                    return `<tr>
+                        <td><strong>${h.hole_number}</strong></td>
+                        <td>${h.par}</td>
+                        <td>${h.yardage || '—'}</td>
+                        <td>${h.avg_score.toFixed(1)}</td>
+                        <td style="color:${vsColor}; font-weight:600;">${vsStr}</td>
+                        <td style="color:#22c55e;">${h.birdie_pct}%</td>
+                        <td style="color:#3b82f6;">${h.par_pct}%</td>
+                        <td style="color:#f59e0b;">${h.bogey_pct}%</td>
+                        <td style="color:#ef4444;">${h.double_plus_pct}%</td>
+                    </tr>`;
+                }).join('')}
+            </tbody>
+        </table>`;
+    }
+
+    function renderCsDistribution() {
+        const container = document.getElementById('cs-distribution');
+        if (!container || !csDataCache) return;
+
+        const d = csDataCache.scoring_distribution;
+        if (!d || Object.values(d).every(v => v === 0)) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No scoring data yet.</p></div>';
+            return;
+        }
+
+        const items = [
+            { label: 'Birdie+', count: d.birdie_or_better, color: '#22c55e' },
+            { label: 'Par', count: d.par, color: '#3b82f6' },
+            { label: 'Bogey', count: d.bogey, color: '#f59e0b' },
+            { label: 'Double', count: d.double, color: '#ef4444' },
+            { label: 'Triple+', count: d.triple_plus, color: '#dc2626' },
+        ];
+        const total = items.reduce((s, i) => s + i.count, 0);
+        const maxCount = Math.max(...items.map(i => i.count), 1);
+
+        container.innerHTML = items.map(i => {
+            const pct = total ? (i.count / total * 100).toFixed(1) : '0';
+            const barPct = Math.min(i.count / maxCount * 100, 100);
+            return `<div style="display:flex; align-items:center; margin-bottom:8px; gap:10px;">
+                <span style="width:60px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${i.label}</span>
+                <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:20px; overflow:hidden;">
+                    <div style="width:${barPct}%; background:${i.color}; height:100%; border-radius:4px;"></div>
+                </div>
+                <span style="width:35px; text-align:right; font-size:0.8rem; font-weight:600; color:${i.color}; flex-shrink:0;">${i.count}</span>
+                <span style="width:40px; text-align:right; font-size:0.75rem; color:var(--text-dim); flex-shrink:0;">${pct}%</span>
+            </div>`;
+        }).join('');
+    }
+
+    function renderCsRoundsList() {
+        const container = document.getElementById('cs-rounds-list');
+        if (!container || !csDataCache) return;
+
+        const rounds = [...csDataCache.rounds].reverse(); // newest first
+        if (!rounds.length) {
+            container.innerHTML = '<div class="empty-state" style="padding:24px;"><p>No rounds recorded at this course.</p></div>';
+            return;
+        }
+
+        container.innerHTML = rounds.map(r => {
+            const vsPar = r.score_vs_par || 0;
+            const vsParStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
+            const scoreClass = vsPar < 0 ? 'under' : vsPar === 0 ? 'even' : 'over';
+            const colorClass = vsPar < 0 ? 'score-birdie' : vsPar === 0 ? 'score-par' : 'score-bogey';
+            const stats = [
+                r.gir_pct != null ? `GIR ${r.gir_pct}%` : null,
+                r.fw_pct != null ? `FW ${r.fw_pct}%` : null,
+                r.putts != null ? `${r.putts} putts` : null,
+            ].filter(Boolean).join(' · ');
+            return `<div class="recent-round" onclick="location.hash='round/${r.round_id}'">
+                <div class="round-score ${scoreClass}">${r.score || '—'}</div>
+                <div class="round-info">
+                    <div class="round-course">${r.date}${r.tee_name ? ` · ${r.tee_name} tees` : ''}</div>
+                    <div class="round-meta">${r.holes_played} holes${stats ? ' · ' + stats : ''}</div>
+                </div>
+                <div class="round-detail">
+                    <div class="round-vs-par ${colorClass}">${vsParStr}</div>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     // ========== View Holes Button ==========
@@ -4597,6 +4997,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // SG summary card
         loadSGSummary();
         loadHandicapSummary();
+        loadScoringSummary();
     }
 
     function renderDashCourses() {
@@ -7950,6 +8351,422 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSGTrendsChart();
     });
 
+    // ========== Scoring Stats ==========
+
+    let scTrendChart = null;
+    let scDataCache = null;
+
+    async function loadScoringSummary() {
+        try {
+            const resp = await fetch('/api/stats/scoring');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const card = document.getElementById('scoring-summary-card');
+            if (!card) return;
+
+            document.getElementById('dash-gir').textContent = data.gir_pct != null ? data.gir_pct + '%' : '--';
+            document.getElementById('dash-fw').textContent = data.fairway_pct != null ? data.fairway_pct + '%' : '--';
+            document.getElementById('dash-putts').textContent = data.avg_putts_per_hole != null ? data.avg_putts_per_hole.toFixed(2) : '--';
+            document.getElementById('dash-scramble').textContent = data.scramble_pct != null ? data.scramble_pct + '%' : '--';
+            document.getElementById('dash-3putt').textContent = data.three_putt_pct != null ? data.three_putt_pct + '%' : '--';
+            card.style.display = '';
+        } catch (e) {
+            console.error('Failed to load scoring summary:', e);
+        }
+    }
+
+    async function loadScoringStats() {
+        try {
+            const resp = await fetch('/api/stats/scoring');
+            if (!resp.ok) return;
+            scDataCache = await resp.json();
+
+            // Stat cards
+            document.getElementById('sc-gir').textContent = scDataCache.gir_pct != null ? scDataCache.gir_pct + '%' : '--';
+            document.getElementById('sc-fw').textContent = scDataCache.fairway_pct != null ? scDataCache.fairway_pct + '%' : '--';
+            document.getElementById('sc-putts').textContent = scDataCache.avg_putts_per_hole != null ? scDataCache.avg_putts_per_hole.toFixed(2) : '--';
+            document.getElementById('sc-putts-gir').textContent = scDataCache.putts_per_gir != null ? scDataCache.putts_per_gir.toFixed(2) : '--';
+            document.getElementById('sc-scramble').textContent = scDataCache.scramble_pct != null ? scDataCache.scramble_pct + '%' : '--';
+            document.getElementById('sc-3putt').textContent = scDataCache.three_putt_pct != null ? scDataCache.three_putt_pct + '%' : '--';
+
+            renderScTrendChart();
+            renderScDistribution();
+            renderScParBreakdown();
+            renderScDistTrendChart();
+            renderScRoundTable();
+        } catch (e) {
+            console.error('Failed to load scoring stats:', e);
+        }
+    }
+
+    function renderScTrendChart() {
+        const canvas = document.getElementById('sc-trend-chart');
+        if (!canvas || !scDataCache?.per_round?.length) return;
+        if (scTrendChart) { scTrendChart.destroy(); scTrendChart = null; }
+
+        const axisMode = document.getElementById('sc-trend-axis')?.value || 'date';
+        const rangeMonths = document.getElementById('sc-trend-range')?.value || 'all';
+        const roundRange = document.getElementById('sc-trend-round-range')?.value || 'all';
+
+        let allRounds = scDataCache.per_round;
+        if (axisMode === 'rounds' && roundRange !== 'all') {
+            allRounds = allRounds.slice(-parseInt(roundRange));
+        }
+
+        const now = new Date();
+        const xMax = now.toISOString().slice(0, 10);
+        let xMin = null;
+        if (axisMode === 'date' && rangeMonths !== 'all') {
+            const cutoff = new Date();
+            cutoff.setMonth(cutoff.getMonth() - parseInt(rangeMonths));
+            xMin = cutoff.toISOString().slice(0, 10);
+        }
+
+        const pt = (r, i, val) => axisMode === 'rounds' ? { x: i + 1, y: val } : { x: r.date, y: val };
+
+        // Cumulative average
+        let sum = 0;
+        const avgData = allRounds.map((r, i) => {
+            sum += r.score_vs_par;
+            return pt(r, i, Math.round((sum / (i + 1)) * 10) / 10);
+        });
+
+        const datasets = [
+            {
+                label: 'Cumulative Avg vs Par',
+                data: avgData,
+                borderColor: '#3b82f6',
+                backgroundColor: '#3b82f633',
+                borderWidth: 2.5,
+                pointRadius: 3,
+                pointHoverRadius: 5,
+                tension: 0.3,
+                fill: true,
+            },
+            {
+                label: 'Score vs Par',
+                data: allRounds.map((r, i) => pt(r, i, r.score_vs_par)),
+                borderColor: '#8b8f9866',
+                borderWidth: 1,
+                borderDash: [4, 3],
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                pointBackgroundColor: '#8b8f9899',
+                tension: 0.2,
+                fill: false,
+            },
+        ];
+
+        let xAxisConfig;
+        if (axisMode === 'rounds') {
+            xAxisConfig = {
+                type: 'linear',
+                ticks: { color: '#64748b', font: { size: 11 }, stepSize: 1, callback: v => `R${v}` },
+                title: { display: true, text: 'Round', color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+        } else {
+            xAxisConfig = {
+                type: 'time',
+                time: { unit: rangeMonths === '1' ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM yyyy' }, tooltipFormat: 'MMM d, yyyy' },
+                ticks: { color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+            if (xMin) xAxisConfig.min = xMin;
+            xAxisConfig.max = xMax;
+        }
+
+        scTrendChart = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    if (idx >= 0 && idx < allRounds.length) {
+                        window.location.hash = `round/${allRounds[idx].round_id}`;
+                    }
+                },
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle' },
+                    },
+                    tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#e2e8f0',
+                        bodyColor: '#e2e8f0',
+                        callbacks: {
+                            title: ctxs => {
+                                if (axisMode === 'rounds' && ctxs[0]) {
+                                    const i = ctxs[0].dataIndex;
+                                    const r = allRounds[i];
+                                    return r ? `Round ${ctxs[0].raw.x} — ${r.course_name}` : '';
+                                }
+                                return undefined;
+                            },
+                            label: ctx => {
+                                const v = ctx.raw?.y;
+                                if (v == null) return '';
+                                const sign = v > 0 ? '+' : '';
+                                return `${ctx.dataset.label}: ${sign}${v}`;
+                            }
+                        }
+                    },
+                },
+                scales: {
+                    x: xAxisConfig,
+                    y: {
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => (v > 0 ? '+' : '') + v,
+                            font: { size: 11 },
+                        },
+                        grid: { color: '#1e293b' },
+                        title: { display: true, text: 'vs Par', color: '#64748b', font: { size: 11 } },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderScDistribution() {
+        const container = document.getElementById('sc-distribution');
+        if (!container || !scDataCache) return;
+
+        const d = scDataCache.scoring_distribution;
+        const items = [
+            { label: 'Birdie+', count: d.birdie_or_better, color: '#22c55e' },
+            { label: 'Par', count: d.par, color: '#3b82f6' },
+            { label: 'Bogey', count: d.bogey, color: '#f59e0b' },
+            { label: 'Double', count: d.double, color: '#ef4444' },
+            { label: 'Triple+', count: d.triple_plus, color: '#dc2626' },
+        ];
+        const total = items.reduce((s, i) => s + i.count, 0);
+        const maxCount = Math.max(...items.map(i => i.count), 1);
+
+        container.innerHTML = items.map(i => {
+            const pct = total ? (i.count / total * 100).toFixed(1) : '0';
+            const barPct = Math.min(i.count / maxCount * 100, 100);
+            return `<div style="display:flex; align-items:center; margin-bottom:8px; gap:10px;">
+                <span style="width:60px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${i.label}</span>
+                <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:20px; overflow:hidden;">
+                    <div style="width:${barPct}%; background:${i.color}; height:100%; border-radius:4px;"></div>
+                </div>
+                <span style="width:35px; text-align:right; font-size:0.8rem; font-weight:600; color:${i.color}; flex-shrink:0;">${i.count}</span>
+                <span style="width:40px; text-align:right; font-size:0.75rem; color:var(--text-dim); flex-shrink:0;">${pct}%</span>
+            </div>`;
+        }).join('');
+    }
+
+    function renderScParBreakdown() {
+        const container = document.getElementById('sc-par-breakdown');
+        if (!container || !scDataCache?.par_breakdown?.length) return;
+
+        container.innerHTML = scDataCache.par_breakdown.map(p => {
+            const vsParStr = p.avg_vs_par > 0 ? `+${p.avg_vs_par.toFixed(2)}` : p.avg_vs_par.toFixed(2);
+            const vsColor = p.avg_vs_par <= 0 ? '#22c55e' : p.avg_vs_par <= 1 ? '#f59e0b' : '#ef4444';
+            return `<div style="margin-bottom:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;">
+                    <span style="font-size:0.95rem; font-weight:600;">Par ${p.par}</span>
+                    <span style="font-size:0.82rem; color:var(--text-dim);">${p.count} holes</span>
+                </div>
+                <div style="display:flex; gap:12px; margin-bottom:4px;">
+                    <span style="font-size:0.85rem;">Avg: <strong>${p.avg_score.toFixed(1)}</strong></span>
+                    <span style="font-size:0.85rem; color:${vsColor}">(${vsParStr})</span>
+                </div>
+                <div style="display:flex; gap:8px; font-size:0.75rem; color:var(--text-dim);">
+                    <span style="color:#22c55e;">${p.birdie_pct}% birdie</span>
+                    <span style="color:#3b82f6;">${p.par_pct}% par</span>
+                    <span style="color:#f59e0b;">${p.bogey_pct}% bogey</span>
+                    <span style="color:#ef4444;">${p.double_plus_pct}% double+</span>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    let scDistTrendChart = null;
+
+    function renderScDistTrendChart() {
+        const canvas = document.getElementById('sc-dist-trend-chart');
+        if (!canvas || !scDataCache?.per_round?.length) return;
+        if (scDistTrendChart) { scDistTrendChart.destroy(); scDistTrendChart = null; }
+
+        const axisMode = document.getElementById('sc-dist-axis')?.value || 'date';
+        const rangeMonths = document.getElementById('sc-dist-range')?.value || 'all';
+        const roundRange = document.getElementById('sc-dist-round-range')?.value || 'all';
+
+        let rounds = scDataCache.per_round;
+        if (axisMode === 'rounds' && roundRange !== 'all') {
+            rounds = rounds.slice(-parseInt(roundRange));
+        }
+
+        const now = new Date();
+        const xMax = now.toISOString().slice(0, 10);
+        let xMin = null;
+        if (axisMode === 'date' && rangeMonths !== 'all') {
+            const cutoff = new Date();
+            cutoff.setMonth(cutoff.getMonth() - parseInt(rangeMonths));
+            xMin = cutoff.toISOString().slice(0, 10);
+        }
+
+        const cats = [
+            { key: 'birdie_or_better', label: 'Birdie+', color: '#22c55e' },
+            { key: 'pars', label: 'Par', color: '#3b82f6' },
+            { key: 'bogeys', label: 'Bogey', color: '#f59e0b' },
+            { key: 'doubles', label: 'Double', color: '#ef4444' },
+            { key: 'triple_plus', label: 'Triple+', color: '#dc2626' },
+        ];
+
+        const datasets = cats.map(c => ({
+            label: c.label,
+            data: rounds.map((r, i) => {
+                const total = r.birdie_or_better + r.pars + r.bogeys + r.doubles + r.triple_plus;
+                const y = total ? Math.round(r[c.key] / total * 1000) / 10 : 0;
+                return axisMode === 'rounds' ? { x: i + 1, y } : { x: r.date, y };
+            }),
+            backgroundColor: c.color + '99',
+            borderColor: c.color,
+            borderWidth: 1,
+            fill: true,
+            pointRadius: 2,
+            pointHoverRadius: 4,
+            tension: 0.3,
+        }));
+
+        let xAxisConfig;
+        if (axisMode === 'rounds') {
+            xAxisConfig = {
+                type: 'linear',
+                ticks: { color: '#64748b', font: { size: 11 }, stepSize: 1, callback: v => `R${v}` },
+                title: { display: true, text: 'Round', color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+        } else {
+            xAxisConfig = {
+                type: 'time',
+                time: { unit: rangeMonths === '1' ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM yyyy' }, tooltipFormat: 'MMM d, yyyy' },
+                ticks: { color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+            if (xMin) xAxisConfig.min = xMin;
+            xAxisConfig.max = xMax;
+        }
+
+        scDistTrendChart = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    if (idx >= 0 && idx < rounds.length) {
+                        window.location.hash = `round/${rounds[idx].round_id}`;
+                    }
+                },
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                },
+                scales: {
+                    x: xAxisConfig,
+                    y: {
+                        stacked: true,
+                        min: 0,
+                        max: 100,
+                        ticks: {
+                            color: '#64748b',
+                            callback: v => v + '%',
+                            font: { size: 11 },
+                        },
+                        grid: { color: '#1e293b' },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle' },
+                    },
+                    tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#e2e8f0',
+                        bodyColor: '#e2e8f0',
+                        callbacks: {
+                            title: ctxs => {
+                                if (ctxs[0]) {
+                                    const idx = ctxs[0].dataIndex;
+                                    const r = rounds[idx];
+                                    if (!r) return '';
+                                    const d = new Date(r.date).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'});
+                                    return axisMode === 'rounds' ? `Round ${idx+1} — ${r.course_name} (${d})` : `${r.course_name}`;
+                                }
+                                return '';
+                            },
+                            label: ctx => `${ctx.dataset.label}: ${ctx.raw?.y ?? ctx.raw}%`,
+                        }
+                    },
+                },
+            },
+        });
+    }
+
+    function renderScRoundTable() {
+        const container = document.getElementById('sc-round-table');
+        if (!container || !scDataCache?.per_round?.length) return;
+
+        const rounds = [...scDataCache.per_round].reverse();
+
+        const header = `<tr>
+            <th>Date</th><th>Course</th><th style="text-align:right">Holes</th>
+            <th style="text-align:right">Score</th><th style="text-align:right">vs Par</th>
+            <th style="text-align:right">GIR%</th><th style="text-align:right">FW%</th>
+            <th style="text-align:right">Putts</th><th style="text-align:right">3-Putts</th>
+        </tr>`;
+
+        const rows = rounds.map(r => {
+            const d = new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+            const vpColor = r.score_vs_par <= 0 ? '#22c55e' : '#ef4444';
+            const vpStr = r.score_vs_par > 0 ? `+${r.score_vs_par}` : `${r.score_vs_par}`;
+            return `<tr onclick="location.hash='round/${r.round_id}'" style="cursor:pointer;">
+                <td>${d}</td>
+                <td>${r.course_name}</td>
+                <td style="text-align:right">${r.holes_played}</td>
+                <td style="text-align:right">${r.score}</td>
+                <td style="text-align:right; color:${vpColor}; font-weight:600;">${vpStr}</td>
+                <td style="text-align:right">${r.gir_pct != null ? r.gir_pct + '%' : '--'}</td>
+                <td style="text-align:right">${r.fw_pct != null ? r.fw_pct + '%' : '--'}</td>
+                <td style="text-align:right">${r.putts != null ? r.putts : '--'}</td>
+                <td style="text-align:right">${r.three_putts || '--'}</td>
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `<table class="data-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+    }
+
+    // Scoring chart controls
+    document.getElementById('sc-trend-range')?.addEventListener('change', () => renderScTrendChart());
+    document.getElementById('sc-trend-round-range')?.addEventListener('change', () => renderScTrendChart());
+    document.getElementById('sc-trend-axis')?.addEventListener('change', () => {
+        const mode = document.getElementById('sc-trend-axis')?.value;
+        document.getElementById('sc-trend-range').style.display = mode === 'date' ? '' : 'none';
+        document.getElementById('sc-trend-round-range').style.display = mode === 'rounds' ? '' : 'none';
+        renderScTrendChart();
+    });
+    document.getElementById('sc-dist-range')?.addEventListener('change', () => renderScDistTrendChart());
+    document.getElementById('sc-dist-round-range')?.addEventListener('change', () => renderScDistTrendChart());
+    document.getElementById('sc-dist-axis')?.addEventListener('change', () => {
+        const mode = document.getElementById('sc-dist-axis')?.value;
+        document.getElementById('sc-dist-range').style.display = mode === 'date' ? '' : 'none';
+        document.getElementById('sc-dist-round-range').style.display = mode === 'rounds' ? '' : 'none';
+        renderScDistTrendChart();
+    });
+
     // ========== Handicap Tracking ==========
 
     let hcpTrendChart = null;
@@ -7983,6 +8800,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             hcpDataCache = data;
             renderHcpTrendChart(data);
+            renderHcpProjection(data);
             renderHcpDiffTable(data);
         } catch (e) {
             console.error('Failed to load handicap:', e);
@@ -8140,6 +8958,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
             },
         });
+    }
+
+    function renderHcpProjection(data) {
+        const container = document.getElementById('hcp-projection');
+        const card = document.getElementById('hcp-projection-card');
+        if (!container || !card) return;
+
+        const rate = data.improvement_per_round;
+        const projections = data.projections || [];
+
+        if (rate == null || data.handicap_index == null) {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = '';
+        let html = '';
+
+        // Improvement rate
+        const rateColor = rate < 0 ? '#22c55e' : rate > 0 ? '#ef4444' : 'var(--text-muted)';
+        const rateDir = rate < 0 ? 'improving' : rate > 0 ? 'increasing' : 'stable';
+        const rateAbs = Math.abs(rate).toFixed(2);
+        html += `<p style="font-size:0.9rem; margin-bottom:16px; color:var(--text-muted);">
+            Your handicap is <strong style="color:${rateColor}">${rateDir}</strong> by
+            <strong style="color:${rateColor}">${rateAbs}</strong> strokes per round.
+        </p>`;
+
+        if (projections.length > 0) {
+            html += `<div style="display:flex; flex-direction:column; gap:8px;">`;
+            for (const p of projections) {
+                html += `<div style="display:flex; align-items:center; gap:12px;">
+                    <span style="width:120px; font-size:0.85rem; font-weight:600; color:var(--text);">${p.label}</span>
+                    <span style="font-size:0.85rem; color:var(--text-muted);">~${p.rounds_away} rounds away</span>
+                </div>`;
+            }
+            html += `</div>`;
+        } else if (rate >= 0) {
+            html += `<p style="font-size:0.85rem; color:var(--text-dim);">
+                At the current trend, no improvement milestones are projected. Keep practicing!
+            </p>`;
+        }
+
+        container.innerHTML = html;
     }
 
     function renderHcpDiffTable(data) {

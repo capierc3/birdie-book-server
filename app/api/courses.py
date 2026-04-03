@@ -14,6 +14,7 @@ from app.services.golf_course_api import search_course_candidates, apply_golf_co
 from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
 from app.services.course_calc_service import recalc_hole_shots, recalc_course_shots
+from app.services.strokes_gained import expected_strokes, personal_expected_strokes
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -285,6 +286,369 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
         tees=tee_responses,
         hazards=hazard_responses,
         osm_holes=osm_responses,
+    )
+
+
+# --- Course Stats ---
+
+class CourseHoleStatsItem(BaseModel):
+    hole_number: int
+    par: int
+    yardage: Optional[int] = None
+    handicap: Optional[int] = None
+    avg_score: float
+    avg_vs_par: float
+    birdie_pct: float = 0.0
+    par_pct: float = 0.0
+    bogey_pct: float = 0.0
+    double_plus_pct: float = 0.0
+    times_played: int = 0
+
+
+class CourseStatsRound(BaseModel):
+    round_id: int
+    date: str
+    tee_name: Optional[str] = None
+    holes_played: int
+    score: int
+    score_vs_par: int
+    vs_par_per_hole: float
+    gir_pct: Optional[float] = None
+    fw_pct: Optional[float] = None
+    putts: Optional[int] = None
+    putts_per_hole: Optional[float] = None
+
+
+class CourseStatsResponse(BaseModel):
+    course_id: int
+    course_name: Optional[str] = None
+    club_name: str
+    club_id: int
+    par: Optional[int] = None
+    holes: Optional[int] = None
+    # Summary stats
+    rounds_played: int = 0
+    avg_score: Optional[float] = None
+    best_score: Optional[int] = None
+    worst_score: Optional[int] = None
+    avg_vs_par: Optional[float] = None
+    gir_pct: Optional[float] = None
+    fairway_pct: Optional[float] = None
+    avg_putts_per_hole: Optional[float] = None
+    scramble_pct: Optional[float] = None
+    three_putt_pct: Optional[float] = None
+    scoring_distribution: dict = {}
+    hole_stats: list[CourseHoleStatsItem] = []
+    rounds: list[CourseStatsRound] = []
+    # SG category breakdown
+    sg_categories: dict = {}  # {off_the_tee, approach, short_game, putting} -> {per_round, total, shots}
+    # Handicap differentials
+    avg_differential: Optional[float] = None
+    best_differential: Optional[float] = None
+    differentials: list[dict] = []  # [{round_id, date, differential, score, rating, slope}]
+    excluded_rounds: int = 0  # count of rounds excluded from stats
+
+
+@router.get("/{course_id}/stats", response_model=CourseStatsResponse)
+def get_course_stats(course_id: int, db: Session = Depends(get_db)):
+    """Per-course scoring stats, hole difficulty, and round history."""
+    course = db.query(Course).options(joinedload(Course.club)).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Count excluded rounds at this course
+    excluded_count = (
+        db.query(Round.id)
+        .filter(
+            Round.course_id == course_id,
+            Round.exclude_from_stats == True,
+        )
+        .count()
+    )
+
+    # Query all played holes at this course (same pattern as stats.py scoring)
+    rows = (
+        db.query(RoundHole, Round, CourseHole)
+        .join(Round, RoundHole.round_id == Round.id)
+        .join(
+            CourseHole,
+            (CourseHole.tee_id == Round.tee_id)
+            & (CourseHole.hole_number == RoundHole.hole_number),
+        )
+        .filter(
+            Round.course_id == course_id,
+            Round.exclude_from_stats != True,
+            Round.tee_id.isnot(None),
+            RoundHole.strokes > 0,
+        )
+        .all()
+    )
+
+    # Aggregation accumulators
+    total_holes = 0
+    gir_holes = 0
+    gir_eligible = 0
+    fw_hit = 0
+    fw_eligible = 0
+    total_putts = 0
+    putt_holes = 0
+    non_gir_par_or_better = 0
+    non_gir_total = 0
+    three_putts = 0
+    dist = {"birdie_or_better": 0, "par": 0, "bogey": 0, "double": 0, "triple_plus": 0}
+
+    # Per-hole stats: hole_number -> {scores, diffs, par, yardage, handicap}
+    hole_data: dict[int, dict] = {}
+    # Per-round stats
+    round_agg: dict[int, dict] = {}
+
+    for rh, rnd, ch in rows:
+        total_holes += 1
+        vs_par = rh.strokes - ch.par
+
+        # Scoring distribution
+        if vs_par <= -1:
+            dist["birdie_or_better"] += 1
+        elif vs_par == 0:
+            dist["par"] += 1
+        elif vs_par == 1:
+            dist["bogey"] += 1
+        elif vs_par == 2:
+            dist["double"] += 1
+        else:
+            dist["triple_plus"] += 1
+
+        # Per-hole accumulation
+        hn = rh.hole_number
+        if hn not in hole_data:
+            hole_data[hn] = {
+                "scores": [], "diffs": [],
+                "par": ch.par, "yardage": ch.yardage, "handicap": ch.handicap,
+            }
+        hole_data[hn]["scores"].append(rh.strokes)
+        hole_data[hn]["diffs"].append(vs_par)
+        # Keep most recent yardage/par/handicap
+        hole_data[hn]["par"] = ch.par
+        if ch.yardage:
+            hole_data[hn]["yardage"] = ch.yardage
+        if ch.handicap:
+            hole_data[hn]["handicap"] = ch.handicap
+
+        # Fairway
+        if rh.fairway is not None:
+            fw_eligible += 1
+            if rh.fairway == "HIT":
+                fw_hit += 1
+
+        # Putts & GIR
+        if rh.putts is not None:
+            total_putts += rh.putts
+            putt_holes += 1
+            if rh.putts >= 3:
+                three_putts += 1
+            gir_eligible += 1
+            is_gir = (rh.strokes - rh.putts) <= ch.par - 2
+            if is_gir:
+                gir_holes += 1
+            else:
+                non_gir_total += 1
+                if rh.strokes <= ch.par:
+                    non_gir_par_or_better += 1
+
+        # Per-round accumulation
+        rid = rnd.id
+        if rid not in round_agg:
+            round_agg[rid] = {
+                "round_id": rid,
+                "date": str(rnd.date),
+                "tee_name": rnd.tee.tee_name if rnd.tee_id and rnd.tee else None,
+                "holes": 0, "score": 0, "par_total": 0,
+                "gir": 0, "gir_eligible": 0,
+                "fw_hit": 0, "fw_eligible": 0,
+                "putts": 0, "putt_holes": 0,
+            }
+        ra = round_agg[rid]
+        ra["holes"] += 1
+        ra["score"] += rh.strokes
+        ra["par_total"] += ch.par
+        if rh.fairway is not None:
+            ra["fw_eligible"] += 1
+            if rh.fairway == "HIT":
+                ra["fw_hit"] += 1
+        if rh.putts is not None:
+            ra["putts"] += rh.putts
+            ra["putt_holes"] += 1
+            ra["gir_eligible"] += 1
+            if (rh.strokes - rh.putts) <= ch.par - 2:
+                ra["gir"] += 1
+
+    # Build hole stats list
+    hole_stats = []
+    for hn in sorted(hole_data.keys()):
+        hd = hole_data[hn]
+        n = len(hd["scores"])
+        avg_vs = sum(hd["diffs"]) / n
+        hole_stats.append(CourseHoleStatsItem(
+            hole_number=hn,
+            par=hd["par"],
+            yardage=hd["yardage"],
+            handicap=hd["handicap"],
+            avg_score=round(sum(hd["scores"]) / n, 2),
+            avg_vs_par=round(avg_vs, 2),
+            birdie_pct=round(sum(1 for d in hd["diffs"] if d <= -1) / n * 100, 1),
+            par_pct=round(sum(1 for d in hd["diffs"] if d == 0) / n * 100, 1),
+            bogey_pct=round(sum(1 for d in hd["diffs"] if d == 1) / n * 100, 1),
+            double_plus_pct=round(sum(1 for d in hd["diffs"] if d >= 2) / n * 100, 1),
+            times_played=n,
+        ))
+
+    # Build per-round list
+    rounds_list = []
+    for ra in sorted(round_agg.values(), key=lambda x: x["date"]):
+        rounds_list.append(CourseStatsRound(
+            round_id=ra["round_id"],
+            date=ra["date"],
+            tee_name=ra["tee_name"],
+            holes_played=ra["holes"],
+            score=ra["score"],
+            score_vs_par=ra["score"] - ra["par_total"],
+            vs_par_per_hole=round((ra["score"] - ra["par_total"]) / ra["holes"], 2) if ra["holes"] else 0,
+            gir_pct=round(ra["gir"] / ra["gir_eligible"] * 100, 1) if ra["gir_eligible"] else None,
+            fw_pct=round(ra["fw_hit"] / ra["fw_eligible"] * 100, 1) if ra["fw_eligible"] else None,
+            putts=ra["putts"] if ra["putt_holes"] else None,
+            putts_per_hole=round(ra["putts"] / ra["putt_holes"], 2) if ra["putt_holes"] else None,
+        ))
+
+    # ── SG category breakdown ──
+    # Reuse the classification logic from stats.py
+    from app.api.stats import _classify_sg_category
+
+    sg_cat_agg: dict[str, dict] = {}  # category -> {sg_pga, sg_personal, count, rounds}
+    for cat in ["off_the_tee", "approach", "short_game", "putting"]:
+        sg_cat_agg[cat] = {"sg_pga": 0.0, "sg_personal": 0.0, "count": 0, "personal_count": 0, "rounds": set()}
+
+    # Shot-level SG (non-putt categories)
+    if round_agg:
+        sg_shots = (
+            db.query(Shot, RoundHole, Round, CourseHole)
+            .join(RoundHole, Shot.round_hole_id == RoundHole.id)
+            .join(Round, Shot.round_id == Round.id)
+            .join(
+                CourseHole,
+                (CourseHole.tee_id == Round.tee_id)
+                & (CourseHole.hole_number == RoundHole.hole_number),
+            )
+            .filter(
+                Round.course_id == course_id,
+                Round.exclude_from_stats != True,
+                Round.tee_id.isnot(None),
+                Shot.sg_pga.isnot(None),
+            )
+            .all()
+        )
+        for shot, rh, rnd, ch in sg_shots:
+            cat = _classify_sg_category(shot, ch.par)
+            if cat and cat in sg_cat_agg:
+                sg_cat_agg[cat]["sg_pga"] += shot.sg_pga or 0.0
+                if shot.sg_personal is not None:
+                    sg_cat_agg[cat]["sg_personal"] += shot.sg_personal
+                    sg_cat_agg[cat]["personal_count"] += 1
+                sg_cat_agg[cat]["count"] += 1
+                sg_cat_agg[cat]["rounds"].add(rnd.id)
+
+        # Putting SG from hole-level putt counts (same approach as stats.py)
+        _PUTT_EST_YARDS = {1: 2.0, 2: 7.3, 3: 13.3}
+        putt_rows = (
+            db.query(RoundHole, Round)
+            .join(Round, RoundHole.round_id == Round.id)
+            .filter(
+                Round.id.in_(list(round_agg.keys())),
+                RoundHole.putts.isnot(None),
+                RoundHole.putts >= 1,
+            )
+            .all()
+        )
+        for rh, rnd in putt_rows:
+            est_yards = _PUTT_EST_YARDS.get(rh.putts, 13.3)
+            exp_pga = expected_strokes(est_yards, "Green")
+            exp_personal = personal_expected_strokes(est_yards, "Green")
+            if exp_pga is not None:
+                sg_pga = round(exp_pga - rh.putts, 2)
+                sg_cat_agg["putting"]["sg_pga"] += sg_pga
+                sg_cat_agg["putting"]["count"] += 1
+                sg_cat_agg["putting"]["rounds"].add(rnd.id)
+                if exp_personal is not None:
+                    sg_pers = round(exp_personal - rh.putts, 2)
+                    sg_cat_agg["putting"]["sg_personal"] += sg_pers
+                    sg_cat_agg["putting"]["personal_count"] += 1
+
+    sg_categories = {}
+    for cat in ["off_the_tee", "approach", "short_game", "putting"]:
+        d = sg_cat_agg[cat]
+        rc = len(d["rounds"])
+        sg_categories[cat] = {
+            "per_round": round(d["sg_pga"] / rc, 2) if rc else 0.0,
+            "total": round(d["sg_pga"], 2),
+            "personal_per_round": round(d["sg_personal"] / rc, 2) if rc and d["personal_count"] else None,
+            "personal_total": round(d["sg_personal"], 2) if d["personal_count"] else None,
+            "shots": d["count"],
+            "round_count": rc,
+        }
+
+    # ── Handicap differentials (18-hole rounds only, 14+ holes to handle tracker cutoffs) ──
+    differentials = []
+    for ra in sorted(round_agg.values(), key=lambda x: x["date"]):
+        if ra["holes"] < 14:
+            continue  # Skip 9-hole and short rounds — can't compare to 18-hole rating
+        rid = ra["round_id"]
+        rnd = db.query(Round).filter(Round.id == rid).first()
+        if not rnd or not rnd.tee_id or not rnd.tee:
+            continue
+        tee = rnd.tee
+        if tee.slope_rating and tee.course_rating and ra["score"]:
+            diff = (113 / tee.slope_rating) * (ra["score"] - tee.course_rating)
+            differentials.append({
+                "round_id": rid,
+                "date": ra["date"],
+                "differential": round(diff, 1),
+                "score": ra["score"],
+                "holes_played": ra["holes"],
+                "rating": tee.course_rating,
+                "slope": tee.slope_rating,
+            })
+
+    avg_diff = round(sum(d["differential"] for d in differentials) / len(differentials), 1) if differentials else None
+    best_diff = min(d["differential"] for d in differentials) if differentials else None
+
+    # Summary stats from round aggregates
+    scores = [ra["score"] for ra in round_agg.values()]
+    vs_pars = [ra["score"] - ra["par_total"] for ra in round_agg.values()]
+
+    return CourseStatsResponse(
+        course_id=course.id,
+        course_name=course.name,
+        club_name=course.club.name,
+        club_id=course.golf_club_id,
+        par=course.par,
+        holes=course.holes,
+        rounds_played=len(round_agg),
+        avg_score=round(sum(scores) / len(scores), 1) if scores else None,
+        best_score=min(scores) if scores else None,
+        worst_score=max(scores) if scores else None,
+        avg_vs_par=round(sum(vs_pars) / len(vs_pars), 1) if vs_pars else None,
+        gir_pct=round(gir_holes / gir_eligible * 100, 1) if gir_eligible else None,
+        fairway_pct=round(fw_hit / fw_eligible * 100, 1) if fw_eligible else None,
+        avg_putts_per_hole=round(total_putts / putt_holes, 2) if putt_holes else None,
+        scramble_pct=round(non_gir_par_or_better / non_gir_total * 100, 1) if non_gir_total else None,
+        three_putt_pct=round(three_putts / putt_holes * 100, 1) if putt_holes else None,
+        scoring_distribution=dist,
+        hole_stats=hole_stats,
+        rounds=rounds_list,
+        sg_categories=sg_categories,
+        avg_differential=avg_diff,
+        best_differential=best_diff,
+        differentials=differentials,
+        excluded_rounds=excluded_count,
     )
 
 

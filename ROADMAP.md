@@ -10,7 +10,7 @@
 
 **Goal:** Surface the most actionable insight in golf — *where* the player is losing strokes — by rolling up per-shot SG data into the four standard categories.
 
-### 1a. SG Category Rollup API `[ ]`
+### 1a. SG Category Rollup API `[x]`
 - New endpoint: `GET /api/stats/strokes-gained`
 - Aggregate `sg_pga` and `sg_personal` from `shots` table by shot type:
   - **Off the Tee** — `shot_type = TEE` on par 4s and par 5s
@@ -20,17 +20,17 @@
 - Return per-round breakdown + overall averages
 - Support date range and last-N-rounds filters
 
-### 1b. SG Trends Over Time `[ ]`
+### 1b. SG Trends Over Time `[x]`
 - Per-category SG values plotted as a line chart across rounds
 - Rolling average overlay (5-round, 10-round)
 - Highlight best/worst rounds per category
 
-### 1c. SG Summary Card on Dashboard `[ ]`
+### 1c. SG Summary Card on Dashboard `[x]`
 - At-a-glance card: "Your biggest opportunity is **Approach**, costing 2.3 strokes/round vs PGA"
 - Color-coded bars for each category (green = gaining, red = losing)
 - Tap to drill into category detail
 
-### 1d. SG Per-Club Breakdown `[ ]`
+### 1d. SG Per-Club Breakdown `[x]`
 - Within each SG category, show which clubs contribute most to gains/losses
 - e.g. "Your 7-iron approach SG is -0.4/shot (worst in bag)"
 
@@ -40,12 +40,12 @@
 
 **Goal:** Give the player a visual sense of progress and surface the traditional stats that matter most.
 
-### 2a. Score Over Time Chart `[ ]`
+### 2a. Score Over Time Chart `[x]`
 - Line chart of total score (or score vs par) by round date
 - Trend line / rolling average (configurable: 5, 10, 20 rounds)
 - Filter by 18-hole vs 9-hole rounds
 
-### 2b. Key Stats Dashboard Cards `[ ]`
+### 2b. Key Stats Dashboard Cards `[x]`
 - **GIR %** (Greens in Regulation) — overall and trend
 - **Fairway %** — overall and trend
 - **Putts per Round** — overall and trend
@@ -54,12 +54,12 @@
 - **3-Putt Rate** — and trend
 - Each stat clickable to see per-round detail
 
-### 2c. Par Breakdown `[ ]`
+### 2c. Par Breakdown `[x]`
 - Average score on Par 3s, Par 4s, Par 5s
 - Scoring distribution per par type (birdie / par / bogey / double+ percentages)
 - Trend over time for each par type
 
-### 2d. Scoring Distribution `[ ]`
+### 2d. Scoring Distribution `[x]`
 - Histogram: birdies, pars, bogeys, doubles, triples+ across all rounds
 - Per-round scoring distribution (stacked bar or pie)
 
@@ -164,12 +164,12 @@
 
 **Goal:** For courses played multiple times, surface hole-by-hole intelligence.
 
-### 7a. Per-Course Scoring History `[ ]`
+### 7a. Per-Course Scoring History `[x]`
 - All rounds at a course with scoring trend
 - Best/worst round, average score
 - Score vs par trend at that specific course
 
-### 7b. Hole-by-Hole Difficulty Ranking `[ ]`
+### 7b. Hole-by-Hole Difficulty Ranking `[x]`
 - Your personal hardest → easiest holes at each course
 - Average score per hole, SG per hole
 - "Hole #7 costs you 0.8 strokes/round — you miss left into the bunker 75% of the time"
@@ -185,17 +185,17 @@
 
 **Goal:** Track official handicap progression using available scoring and course data.
 
-### 8a. Handicap Index Calculation `[ ]`
+### 8a. Handicap Index Calculation `[x]`
 - Compute differentials: `(113 / slope) * (score - course_rating)`
 - Use best 8 of last 20 differentials (USGA formula)
 - Display current estimated handicap index
 
-### 8b. Handicap Trend Chart `[ ]`
+### 8b. Handicap Trend Chart `[x]`
 - Plot handicap index over time
 - Show contributing differentials
 - Milestone markers ("Broke single digits!")
 
-### 8c. Handicap Projection `[ ]`
+### 8c. Handicap Projection `[x]`
 - Based on scoring trend, project when milestones might be reached
 - "At your current improvement rate, you could reach a 10 handicap in ~N rounds"
 
@@ -481,6 +481,24 @@
 ### 13d. Data Export `[ ]`
 - Export rounds, stats, or analysis as CSV/PDF
 - Shareable round summary
+
+### 13e. Game Format / Scramble Support `[ ]`
+- Toggle to include/exclude scramble rounds from stats
+- Scramble-specific stats page or filtered view
+- Game format tagging (stroke play, scramble, best ball, etc.)
+- Filter stats/trends by game format
+
+---
+
+## Completed Bonus Work (not in original roadmap)
+
+- **Pin distance estimation**: Garmin doesn't track distance once ball is on green. Added putt-count-based estimation (1 putt=6ft, 2=22ft, 3+=40ft) with green boundary capping.
+- **Personal baseline Green buckets**: Built Green expected-strokes buckets from putt count data so personal SG works for approach shots landing on green.
+- **Putting SG from hole data**: Garmin records zero putt shots. Synthesized putting SG per hole from `round_holes.putts` and estimated first-putt distance.
+- **Score vs par recomputation**: Fixed `score_vs_par` to compute from actual hole strokes and course par instead of trusting Garmin's value. Handles 9-hole rounds on 18-hole courses correctly.
+- **Shot classification expansion**: Added RECOVERY, LAYUP, UNKNOWN shot types to SG classification (Approach or Short Game based on distance to green).
+- **Shot deletion**: Added `POST /api/clubs/delete-shot` endpoint and UI in the Edit Shot modal.
+- **Dashboard 9/18-hole breakdowns**: Replaced single "Avg Score vs Par" with separate 18-hole and 9-hole stat cards (count, best, avg vs par, std dev).
 
 ---
 

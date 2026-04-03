@@ -18,17 +18,31 @@
             <div class="stat-label">Courses Played</div>
             <div class="stat-value" id="stat-courses">--</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Best 18</div>
-            <div class="stat-value" id="stat-best-18">--</div>
+        <div class="stat-card" style="cursor:pointer;" onclick="location.hash='handicap'">
+            <div class="stat-label">Handicap</div>
+            <div class="stat-value" id="stat-handicap">--</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Best 9</div>
-            <div class="stat-value" id="stat-best-9">--</div>
+    </div>
+
+    <!-- Scoring stats by hole count -->
+    <div class="grid-2" id="dash-scoring-stats" style="margin-bottom:20px;">
+        <div class="card">
+            <div class="card-header"><h2>18-Hole Rounds</h2></div>
+            <div class="stats-row" style="padding:0 16px 16px;">
+                <div class="stat-card"><div class="stat-label">Rounds</div><div class="stat-value" id="stat-18-count">--</div></div>
+                <div class="stat-card"><div class="stat-label">Best</div><div class="stat-value" id="stat-18-best">--</div></div>
+                <div class="stat-card"><div class="stat-label">Avg vs Par</div><div class="stat-value" id="stat-18-avg">--</div></div>
+                <div class="stat-card"><div class="stat-label">Std Dev</div><div class="stat-value" id="stat-18-stddev">--</div></div>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="stat-label">Avg Score vs Par</div>
-            <div class="stat-value" id="stat-avg">--</div>
+        <div class="card">
+            <div class="card-header"><h2>9-Hole Rounds</h2></div>
+            <div class="stats-row" style="padding:0 16px 16px;">
+                <div class="stat-card"><div class="stat-label">Rounds</div><div class="stat-value" id="stat-9-count">--</div></div>
+                <div class="stat-card"><div class="stat-label">Best</div><div class="stat-value" id="stat-9-best">--</div></div>
+                <div class="stat-card"><div class="stat-label">Avg vs Par</div><div class="stat-value" id="stat-9-avg">--</div></div>
+                <div class="stat-card"><div class="stat-label">Std Dev</div><div class="stat-value" id="stat-9-stddev">--</div></div>
+            </div>
         </div>
     </div>
 
@@ -943,6 +957,71 @@
     </div>
 </div>
 
+<!-- ===== Handicap Section ===== -->
+<div class="content-section" id="section-handicap">
+    <div class="page-header">
+        <h1>Handicap Index</h1>
+        <p>USGA handicap tracking based on your scoring history</p>
+    </div>
+
+    <!-- Handicap summary cards -->
+    <div class="stats-row" id="hcp-stats">
+        <div class="stat-card">
+            <div class="stat-label">Current Index</div>
+            <div class="stat-value" id="hcp-current">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Low Index</div>
+            <div class="stat-value" id="hcp-low">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Differentials Used</div>
+            <div class="stat-value" id="hcp-used">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Rounds Available</div>
+            <div class="stat-value" id="hcp-available">--</div>
+        </div>
+    </div>
+
+    <!-- Handicap trend chart -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>Handicap Trend</h2>
+            <div style="display:flex; gap:8px; align-items:center; font-size:0.82rem;">
+                <select id="hcp-trend-axis" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="date" selected>By Date</option>
+                    <option value="rounds">By Round</option>
+                </select>
+                <select id="hcp-trend-range" class="club-window-select" style="font-size:0.82rem;">
+                    <option value="1">1 Month</option>
+                    <option value="3">3 Months</option>
+                    <option value="6">6 Months</option>
+                    <option value="12">1 Year</option>
+                    <option value="all" selected>All Time</option>
+                </select>
+                <select id="hcp-trend-round-range" class="club-window-select" style="font-size:0.82rem; display:none;">
+                    <option value="5">Last 5 Rounds</option>
+                    <option value="10">Last 10 Rounds</option>
+                    <option value="20">Last 20 Rounds</option>
+                    <option value="all" selected>All Rounds</option>
+                </select>
+            </div>
+        </div>
+        <div style="height:300px; padding:0 20px 20px; position:relative;">
+            <canvas id="hcp-trend-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Differentials table -->
+    <div class="card" style="margin-top:24px;">
+        <div class="card-header">
+            <h2>Scoring Differentials</h2>
+        </div>
+        <div id="hcp-diff-table" style="overflow-x:auto;"></div>
+    </div>
+</div>
+
 <!-- ===== Settings Section ===== -->
 <div class="content-section" id="section-settings">
     <div class="page-header">
@@ -973,5 +1052,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.2.3"></script>
+<script src="/static/js/app.js?v=0.3.0"></script>
 {% endblock %}

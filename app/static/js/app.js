@@ -38,6 +38,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sectionId === 'section-strokes-gained') {
             loadStrokesGained();
         }
+        if (sectionId === 'section-handicap') {
+            loadHandicap();
+        }
     }
 
     // Sidebar nav clicks
@@ -140,6 +143,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hash === 'strokes-gained') {
             navigateTo('section-strokes-gained');
             loadStrokesGained();
+            return;
+        }
+
+        // Handicap route
+        if (hash === 'handicap') {
+            navigateTo('section-handicap');
+            loadHandicap();
             return;
         }
 
@@ -4504,16 +4514,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (roundsCache.length > 0) {
             const included = roundsCache.filter(r => !r.exclude_from_stats);
-            const scores18 = included.filter(r => r.total_strokes && r.holes_completed >= 18).map(r => r.total_strokes);
-            const scores9 = included.filter(r => r.total_strokes && r.holes_completed && r.holes_completed < 18).map(r => r.total_strokes);
-            if (scores18.length > 0) document.getElementById('stat-best-18').textContent = Math.min(...scores18);
-            if (scores9.length > 0) document.getElementById('stat-best-9').textContent = Math.min(...scores9);
 
-            const vpScores = included.filter(r => r.score_vs_par != null).map(r => r.score_vs_par);
-            if (vpScores.length > 0) {
-                const avg = vpScores.reduce((a, b) => a + b, 0) / vpScores.length;
-                const avgStr = avg > 0 ? `+${avg.toFixed(1)}` : avg.toFixed(1);
-                document.getElementById('stat-avg').textContent = avgStr;
+            function _stdDev(arr) {
+                if (arr.length < 2) return null;
+                const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+                const sq = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / (arr.length - 1);
+                return Math.sqrt(sq);
+            }
+
+            // Bucket rounds: >= 14 holes = 18-hole, 7-13 holes = 9-hole
+            const r18 = included.filter(r => r.total_strokes && r.holes_completed >= 14 && r.score_vs_par != null);
+            document.getElementById('stat-18-count').textContent = r18.length || '--';
+            if (r18.length > 0) {
+                document.getElementById('stat-18-best').textContent = Math.min(...r18.map(r => r.total_strokes));
+                const avg18 = r18.reduce((s, r) => s + r.score_vs_par, 0) / r18.length;
+                document.getElementById('stat-18-avg').textContent = (avg18 > 0 ? '+' : '') + avg18.toFixed(1);
+                const sd18 = _stdDev(r18.map(r => r.total_strokes));
+                document.getElementById('stat-18-stddev').textContent = sd18 != null ? sd18.toFixed(1) : '--';
+            }
+
+            // 9-hole stats (7-13 holes played)
+            const r9 = included.filter(r => r.total_strokes && r.holes_completed >= 7 && r.holes_completed < 14 && r.score_vs_par != null);
+            document.getElementById('stat-9-count').textContent = r9.length || '--';
+            if (r9.length > 0) {
+                document.getElementById('stat-9-best').textContent = Math.min(...r9.map(r => r.total_strokes));
+                const avg9 = r9.reduce((s, r) => s + r.score_vs_par, 0) / r9.length;
+                document.getElementById('stat-9-avg').textContent = (avg9 > 0 ? '+' : '') + avg9.toFixed(1);
+                const sd9 = _stdDev(r9.map(r => r.total_strokes));
+                document.getElementById('stat-9-stddev').textContent = sd9 != null ? sd9.toFixed(1) : '--';
             }
         }
 
@@ -4568,6 +4596,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // SG summary card
         loadSGSummary();
+        loadHandicapSummary();
     }
 
     function renderDashCourses() {
@@ -7919,6 +7948,245 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('sg-trend-range').style.display = mode === 'date' ? '' : 'none';
         document.getElementById('sg-trend-round-range').style.display = mode === 'rounds' ? '' : 'none';
         renderSGTrendsChart();
+    });
+
+    // ========== Handicap Tracking ==========
+
+    let hcpTrendChart = null;
+    let hcpDataCache = null;
+
+    async function loadHandicapSummary() {
+        try {
+            const resp = await fetch('/api/stats/handicap');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const el = document.getElementById('stat-handicap');
+            if (el && data.handicap_index != null) {
+                el.textContent = data.handicap_index.toFixed(1);
+            }
+        } catch (e) {
+            console.error('Failed to load handicap summary:', e);
+        }
+    }
+
+    async function loadHandicap() {
+        try {
+            const resp = await fetch('/api/stats/handicap');
+            if (!resp.ok) return;
+            const data = await resp.json();
+
+            // Stat cards
+            document.getElementById('hcp-current').textContent = data.handicap_index != null ? data.handicap_index.toFixed(1) : '--';
+            document.getElementById('hcp-low').textContent = data.low_index != null ? data.low_index.toFixed(1) : '--';
+            document.getElementById('hcp-used').textContent = data.differentials_used || '--';
+            document.getElementById('hcp-available').textContent = data.differentials_available || '--';
+
+            hcpDataCache = data;
+            renderHcpTrendChart(data);
+            renderHcpDiffTable(data);
+        } catch (e) {
+            console.error('Failed to load handicap:', e);
+        }
+    }
+
+    function renderHcpTrendChart(data) {
+        const canvas = document.getElementById('hcp-trend-chart');
+        if (!canvas) return;
+        if (hcpTrendChart) { hcpTrendChart.destroy(); hcpTrendChart = null; }
+
+        const axisMode = document.getElementById('hcp-trend-axis')?.value || 'date';
+        const rangeMonths = document.getElementById('hcp-trend-range')?.value || 'all';
+        const roundRange = document.getElementById('hcp-trend-round-range')?.value || 'all';
+
+        let allTrend = data.trend;
+
+        // Filter by round count in rounds mode
+        if (axisMode === 'rounds' && roundRange !== 'all') {
+            allTrend = allTrend.slice(-parseInt(roundRange));
+        }
+
+        const trend = allTrend.filter(t => t.handicap_index != null);
+        if (!trend.length) return;
+
+        // Date bounds
+        const now = new Date();
+        const xMax = now.toISOString().slice(0, 10);
+        let xMin = null;
+        if (axisMode === 'date' && rangeMonths !== 'all') {
+            const cutoff = new Date();
+            cutoff.setMonth(cutoff.getMonth() - parseInt(rangeMonths));
+            xMin = cutoff.toISOString().slice(0, 10);
+        }
+
+        // Build points based on axis mode
+        const pt = (t, i, val) => axisMode === 'rounds' ? { x: i + 1, y: val } : { x: t.date, y: val };
+
+        const datasets = [
+            {
+                label: 'Handicap Index',
+                data: allTrend.map((t, i) => pt(t, i, t.handicap_index)),
+                borderColor: '#3b82f6',
+                backgroundColor: '#3b82f633',
+                borderWidth: 2.5,
+                pointRadius: allTrend.map(t => t.handicap_index != null ? 3 : 0),
+                pointHoverRadius: 5,
+                tension: 0.3,
+                fill: true,
+                spanGaps: false,
+            },
+            {
+                label: 'Differential',
+                data: allTrend.map((t, i) => pt(t, i, t.differential)),
+                borderColor: '#8b8f98',
+                borderWidth: 1,
+                borderDash: [4, 3],
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                pointBackgroundColor: '#8b8f9899',
+                tension: 0.2,
+                fill: false,
+            },
+        ];
+
+        // Low index line
+        if (data.low_index != null) {
+            const first = axisMode === 'rounds' ? { x: 1, y: data.low_index } : { x: allTrend[0].date, y: data.low_index };
+            const last = axisMode === 'rounds' ? { x: allTrend.length, y: data.low_index } : { x: xMax, y: data.low_index };
+            datasets.push({
+                label: 'Low Index',
+                data: [first, last],
+                borderColor: '#22c55e',
+                borderWidth: 1.5,
+                borderDash: [8, 4],
+                pointRadius: 0,
+                fill: false,
+            });
+        }
+
+        // X-axis config
+        let xAxisConfig;
+        if (axisMode === 'rounds') {
+            xAxisConfig = {
+                type: 'linear',
+                ticks: { color: '#64748b', font: { size: 11 }, stepSize: 1, callback: v => `R${v}` },
+                title: { display: true, text: 'Round', color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+        } else {
+            xAxisConfig = {
+                type: 'time',
+                time: { unit: rangeMonths === '1' ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM yyyy' }, tooltipFormat: 'MMM d, yyyy' },
+                ticks: { color: '#64748b', font: { size: 11 } },
+                grid: { color: '#1e293b' },
+            };
+            if (xMin) xAxisConfig.min = xMin;
+            xAxisConfig.max = xMax;
+        }
+
+        hcpTrendChart = new Chart(canvas, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'nearest', intersect: false },
+                onClick: (evt, elements) => {
+                    if (!elements.length) return;
+                    const idx = elements[0].index;
+                    if (idx >= 0 && idx < allTrend.length) {
+                        // Find the differential for this index to get round_ids
+                        const diff = data.differentials[idx];
+                        if (diff && diff.round_ids.length === 1) {
+                            window.location.hash = `round/${diff.round_ids[0]}`;
+                        }
+                    }
+                },
+                onHover: (evt, elements) => {
+                    evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'circle' },
+                    },
+                    tooltip: {
+                        backgroundColor: '#1e293b',
+                        titleColor: '#e2e8f0',
+                        bodyColor: '#e2e8f0',
+                        callbacks: {
+                            title: ctxs => {
+                                if (axisMode === 'rounds' && ctxs[0]) {
+                                    const i = ctxs[0].dataIndex;
+                                    const t = allTrend[i];
+                                    return t ? `Round ${ctxs[0].raw.x} — ${new Date(t.date).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'2-digit'})}` : `Round ${ctxs[0].raw.x}`;
+                                }
+                                return undefined;
+                            },
+                            label: ctx => {
+                                const v = ctx.raw?.y;
+                                if (v == null) return '';
+                                return `${ctx.dataset.label}: ${v.toFixed(1)}`;
+                            }
+                        }
+                    },
+                },
+                scales: {
+                    x: xAxisConfig,
+                    y: {
+                        reverse: true,
+                        ticks: { color: '#64748b', font: { size: 11 } },
+                        grid: { color: '#1e293b' },
+                        title: { display: true, text: 'Index', color: '#64748b', font: { size: 11 } },
+                    },
+                },
+            },
+        });
+    }
+
+    function renderHcpDiffTable(data) {
+        const container = document.getElementById('hcp-diff-table');
+        if (!container) return;
+
+        if (!data.differentials?.length) {
+            container.innerHTML = '<div class="empty-state"><p>No differentials yet. Need at least 3 rounds.</p></div>';
+            return;
+        }
+
+        const diffs = [...data.differentials].reverse();
+
+        const header = `<tr>
+            <th>Date</th><th>Course</th>
+            <th style="text-align:right">Score</th><th style="text-align:right">Rating</th>
+            <th style="text-align:right">Slope</th><th style="text-align:right">Diff</th>
+            <th style="text-align:center">Used</th>
+        </tr>`;
+
+        const rows = diffs.map(d => {
+            const dateStr = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+            const usedMark = d.used ? '<span style="color:#22c55e;">*</span>' : '';
+            const rowStyle = d.used ? 'background:rgba(34,197,94,0.06);' : '';
+            const clickIds = d.round_ids.length === 1 ? `onclick="location.hash='round/${d.round_ids[0]}'" style="cursor:pointer; ${rowStyle}"` : `style="${rowStyle}"`;
+            return `<tr ${clickIds}>
+                <td>${dateStr}</td>
+                <td>${d.course_name}${d.is_combined ? ' <span style="font-size:0.7rem; color:var(--text-dim);">(9+9)</span>' : ''}</td>
+                <td style="text-align:right">${d.score}</td>
+                <td style="text-align:right">${d.rating}</td>
+                <td style="text-align:right">${d.slope}</td>
+                <td style="text-align:right; font-weight:600;">${d.differential.toFixed(1)}</td>
+                <td style="text-align:center">${usedMark}</td>
+            </tr>`;
+        }).join('');
+
+        container.innerHTML = `<table class="data-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+    }
+
+    // Handicap chart controls
+    document.getElementById('hcp-trend-range')?.addEventListener('change', () => { if (hcpDataCache) renderHcpTrendChart(hcpDataCache); });
+    document.getElementById('hcp-trend-round-range')?.addEventListener('change', () => { if (hcpDataCache) renderHcpTrendChart(hcpDataCache); });
+    document.getElementById('hcp-trend-axis')?.addEventListener('change', () => {
+        const mode = document.getElementById('hcp-trend-axis')?.value;
+        document.getElementById('hcp-trend-range').style.display = mode === 'date' ? '' : 'none';
+        document.getElementById('hcp-trend-round-range').style.display = mode === 'rounds' ? '' : 'none';
+        if (hcpDataCache) renderHcpTrendChart(hcpDataCache);
     });
 
     // ========== Initial Load ==========

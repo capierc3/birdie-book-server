@@ -509,3 +509,243 @@ def get_strokes_gained_by_club(
     best = clubs[-1] if clubs else None
 
     return SGByClubResponse(clubs=clubs, worst_club=worst, best_club=best)
+
+
+# ── Handicap Tracking ───────────────────────────────────────────────
+
+# USGA: how many of the lowest differentials to use based on count available
+_USGA_DIFF_TABLE = {
+    3: 1, 4: 1, 5: 1, 6: 2, 7: 2, 8: 2,
+    9: 3, 10: 3, 11: 4, 12: 4, 13: 5, 14: 5,
+    15: 6, 16: 6, 17: 7, 18: 7, 19: 8, 20: 8,
+}
+
+
+class HandicapDifferential(BaseModel):
+    round_ids: list[int]
+    date: date
+    course_name: str
+    score: int
+    rating: float
+    slope: float
+    differential: float
+    used: bool = False
+    is_combined: bool = False
+
+
+class HandicapTrendPoint(BaseModel):
+    date: date
+    handicap_index: Optional[float] = None
+    differential: float
+    differentials_available: int
+
+
+class HandicapResponse(BaseModel):
+    handicap_index: Optional[float] = None
+    differentials_used: int = 0
+    differentials_available: int = 0
+    low_index: Optional[float] = None
+    trend: list[HandicapTrendPoint]
+    differentials: list[HandicapDifferential]
+
+
+def _compute_handicap_index(diffs: list[float]) -> Optional[float]:
+    """Compute USGA handicap index from a list of differentials."""
+    n = len(diffs)
+    if n < 3:
+        return None
+    use_count = _USGA_DIFF_TABLE.get(n, 8)
+    best = sorted(diffs)[:use_count]
+    return round(sum(best) / len(best) * 0.96, 1)
+
+
+def _build_differentials(db: Session) -> list[HandicapDifferential]:
+    """Build handicap differentials from rounds, pairing 9-hole rounds."""
+    from app.models.course import GolfClub as GolfClubModel
+
+    rounds = (
+        db.query(Round, Course, GolfClubModel)
+        .join(Course, Round.course_id == Course.id)
+        .join(GolfClubModel, Course.golf_club_id == GolfClubModel.id)
+        .filter(
+            Round.exclude_from_stats != True,
+            Round.course_rating.isnot(None),
+            Round.slope_rating.isnot(None),
+            Round.total_strokes.isnot(None),
+        )
+        .order_by(Round.date)
+        .all()
+    )
+
+    differentials = []
+    nine_hole_pool = []  # (round, course, club) tuples awaiting pairing
+
+    for rnd, course, club in rounds:
+        # Determine actual holes played
+        played = rnd.holes_completed or 0
+        if played < 9:
+            continue
+
+        if course.name:
+            display_name = f"{club.name} — {course.name}"
+        else:
+            display_name = club.name
+
+        is_full = played >= 18
+        course_holes = course.holes or 18
+
+        # Get 9-hole rating for sub-18 rounds
+        # If a 9-hole round has a rating > 50, it's an 18-hole rating that needs halving
+        nine_rating = rnd.course_rating
+        nine_slope = rnd.slope_rating
+        if not is_full and rnd.course_rating and rnd.course_rating > 50:
+            nine_rating = round(rnd.course_rating / 2, 1)
+
+        if is_full:
+            # 18-hole round — direct differential
+            diff = round((113 / rnd.slope_rating) * (rnd.total_strokes - rnd.course_rating), 1)
+            differentials.append(HandicapDifferential(
+                round_ids=[rnd.id],
+                date=rnd.date,
+                course_name=display_name,
+                score=rnd.total_strokes,
+                rating=rnd.course_rating,
+                slope=rnd.slope_rating,
+                differential=diff,
+            ))
+        else:
+            # 9-hole (or partial) — add to pool for pairing
+            # Store both original and adjusted ratings
+            nine_hole_pool.append((rnd, course, club, display_name, nine_rating, nine_slope, rnd.course_rating, rnd.slope_rating))
+
+    # Pair 9-hole rounds: same club first, then by date
+    paired = set()
+    nine_diffs = []
+
+    def _make_pair(i, j):
+        r1, c1, _, n1, rat1, sl1, orig_rat1, orig_sl1 = nine_hole_pool[i]
+        r2, c2, _, n2, rat2, sl2, orig_rat2, orig_sl2 = nine_hole_pool[j]
+        return _combine_nine_holes(r1, c1, n1, rat1, sl1, orig_rat1, orig_sl1,
+                                   r2, c2, n2, rat2, sl2, orig_rat2, orig_sl2)
+
+    # Pass 1: same club, same date
+    for i in range(len(nine_hole_pool)):
+        if i in paired:
+            continue
+        _, _, cl1, _, _, _, _, _ = nine_hole_pool[i]
+        r1 = nine_hole_pool[i][0]
+        for j in range(i + 1, len(nine_hole_pool)):
+            if j in paired:
+                continue
+            _, _, cl2, _, _, _, _, _ = nine_hole_pool[j]
+            r2 = nine_hole_pool[j][0]
+            if cl1.id == cl2.id and r1.date == r2.date:
+                nine_diffs.append(_make_pair(i, j))
+                paired.add(i)
+                paired.add(j)
+                break
+
+    # Pass 2: same club, different dates
+    for i in range(len(nine_hole_pool)):
+        if i in paired:
+            continue
+        _, _, cl1, _, _, _, _, _ = nine_hole_pool[i]
+        for j in range(i + 1, len(nine_hole_pool)):
+            if j in paired:
+                continue
+            _, _, cl2, _, _, _, _, _ = nine_hole_pool[j]
+            if cl1.id == cl2.id:
+                nine_diffs.append(_make_pair(i, j))
+                paired.add(i)
+                paired.add(j)
+                break
+
+    # Pass 3: any remaining unpaired, closest dates
+    unpaired = [i for i in range(len(nine_hole_pool)) if i not in paired]
+    while len(unpaired) >= 2:
+        i, j = unpaired[0], unpaired[1]
+        nine_diffs.append(_make_pair(i, j))
+        unpaired = unpaired[2:]
+
+    differentials.extend(nine_diffs)
+    differentials.sort(key=lambda d: d.date)
+    return differentials
+
+
+def _combine_nine_holes(r1, c1, name1, rat1, sl1, orig_rat1, orig_sl1,
+                        r2, c2, name2, rat2, sl2, orig_rat2, orig_sl2) -> HandicapDifferential:
+    """Combine two 9-hole rounds into one 18-hole differential."""
+    combined_score = r1.total_strokes + r2.total_strokes
+
+    # If same course and both have 18-hole ratings, use the original 18-hole rating
+    same_course = (c1.id == c2.id)
+    both_18_rated = (orig_rat1 and orig_rat1 > 50 and orig_rat2 and orig_rat2 > 50)
+
+    if same_course and both_18_rated:
+        # Front 9 + back 9 of same course — use the 18-hole rating
+        combined_rating = orig_rat1  # same course, same rating
+        avg_slope = orig_sl1
+    else:
+        # Different courses — add 9-hole ratings
+        combined_rating = rat1 + rat2
+        avg_slope = (sl1 + sl2) / 2
+
+    diff = round((113 / avg_slope) * (combined_score - combined_rating), 1)
+    later_date = max(r1.date, r2.date)
+    return HandicapDifferential(
+        round_ids=[r1.id, r2.id],
+        date=later_date,
+        course_name=f"{name1} + {name2}",
+        score=combined_score,
+        rating=round(combined_rating, 1),
+        slope=round(avg_slope, 0),
+        differential=diff,
+        is_combined=True,
+    )
+
+
+@router.get("/handicap", response_model=HandicapResponse)
+def get_handicap(db: Session = Depends(get_db)):
+    diffs = _build_differentials(db)
+    n = len(diffs)
+
+    if n < 3:
+        return HandicapResponse(
+            differentials_available=n,
+            trend=[],
+            differentials=diffs,
+        )
+
+    # Current handicap: best N of last 20
+    last_20 = diffs[-20:] if n > 20 else diffs
+    use_count = _USGA_DIFF_TABLE.get(len(last_20), 8)
+    sorted_diffs = sorted(last_20, key=lambda d: d.differential)
+    for d in sorted_diffs[:use_count]:
+        d.used = True
+
+    current_index = _compute_handicap_index([d.differential for d in last_20])
+
+    # Trend: compute handicap at each point in time
+    trend = []
+    low_index = None
+    for i in range(len(diffs)):
+        window = diffs[max(0, i - 19):i + 1]
+        idx = _compute_handicap_index([d.differential for d in window])
+        trend.append(HandicapTrendPoint(
+            date=diffs[i].date,
+            handicap_index=idx,
+            differential=diffs[i].differential,
+            differentials_available=len(window),
+        ))
+        if idx is not None:
+            if low_index is None or idx < low_index:
+                low_index = idx
+
+    return HandicapResponse(
+        handicap_index=current_index,
+        differentials_used=use_count,
+        differentials_available=len(last_20),
+        low_index=low_index,
+        trend=trend,
+        differentials=diffs,
+    )

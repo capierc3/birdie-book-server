@@ -564,11 +564,24 @@ class ScoringResponse(BaseModel):
 
 
 @router.get("/scoring", response_model=ScoringResponse)
-def get_scoring_stats(db: Session = Depends(get_db)):
+def get_scoring_stats(
+    course_id: Optional[int] = Query(None),
+    last_n_rounds: Optional[int] = Query(None, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
     from sqlalchemy import func as sqlfunc
 
+    # If last_n_rounds, find the cutoff round IDs first
+    round_id_filter = None
+    if last_n_rounds:
+        rq = db.query(Round.id).filter(Round.exclude_from_stats != True)
+        if course_id:
+            rq = rq.filter(Round.course_id == course_id)
+        recent = rq.order_by(Round.date.desc()).limit(last_n_rounds).all()
+        round_id_filter = [r.id for r in recent]
+
     # Query all played holes with course par data
-    rows = (
+    q = (
         db.query(RoundHole, Round, CourseHole, Course, GolfClub)
         .join(Round, RoundHole.round_id == Round.id)
         .join(
@@ -583,8 +596,13 @@ def get_scoring_stats(db: Session = Depends(get_db)):
             Round.tee_id.isnot(None),
             RoundHole.strokes > 0,
         )
-        .all()
     )
+    if course_id:
+        q = q.filter(Round.course_id == course_id)
+    if round_id_filter is not None:
+        q = q.filter(Round.id.in_(round_id_filter))
+
+    rows = q.all()
 
     # Aggregate stats
     total_holes = 0

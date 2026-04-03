@@ -205,7 +205,7 @@
 
 **Goal:** Give each round its own detail page with a full breakdown, then layer on comparison tools to understand what changed between rounds or vs historical averages.
 
-### 9a. Round Detail Page `[ ]`
+### 9a. Round Detail Page `[x]`
 - New route: `#round/{roundId}` → dedicated round summary page (currently skips straight to hole view)
 - **Header:** Date, course name (linked), tee played, score, vs par
 - **Stat cards:** Score, vs Par, GIR%, FW%, Putts, Putts/Hole, 3-Putt count
@@ -216,7 +216,7 @@
 - **Scoring distribution:** Birdie/par/bogey/double+ counts for this round
 - **Action links:** View Holes Map, View Course, Previous/Next round navigation
 
-### 9b. Round Comparison `[ ]`
+### 9b. Round Comparison `[x]`
 - Compare this round against a baseline:
   - Another specific round (ideally same course)
   - Your historical average (all rounds)
@@ -227,7 +227,7 @@
 - Hole-by-hole comparison table: score, vs par, putts — highlighted where this round was better/worse
 - SG category comparison: "You gained 1.2 strokes putting vs your last 10 avg"
 
-### 9c. Best Round Replay `[ ]`
+### 9c. Best Round Replay `[x]`
 - For any round, show what went right
 - Which holes had the biggest SG gains
 - What clubs performed best that day

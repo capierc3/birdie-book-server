@@ -347,6 +347,19 @@
         <div id="rd-badges" style="display:flex; gap:8px; margin-top:6px; flex-wrap:wrap;"></div>
     </div>
 
+    <!-- Compare dropdown -->
+    <div id="rd-compare-row" style="display:flex; align-items:center; gap:12px; margin-bottom:4px;">
+        <label style="font-size:0.82rem; color:var(--text-muted);">Compare to:</label>
+        <select id="rd-compare-select" class="club-window-select" style="font-size:0.85rem;">
+            <option value="">None</option>
+            <option value="avg">Your Average</option>
+            <option value="last5">Last 5 Rounds</option>
+            <option value="last10">Last 10 Rounds</option>
+            <option value="last20">Last 20 Rounds</option>
+            <option value="course">This Course Avg</option>
+        </select>
+    </div>
+
     <!-- Stat cards -->
     <div class="stats-row" id="rd-stat-cards"></div>
 
@@ -356,6 +369,12 @@
         <div class="table-wrap" id="rd-scorecard">
             <div class="empty-state" style="padding:24px;"><p>Loading...</p></div>
         </div>
+    </div>
+
+    <!-- Round Highlights -->
+    <div class="card" id="rd-highlights-card" style="display:none;">
+        <div class="card-header"><h2>Round Highlights</h2></div>
+        <div id="rd-highlights" style="padding:0 20px 20px;"></div>
     </div>
 
     <!-- SG breakdown + Scoring distribution -->

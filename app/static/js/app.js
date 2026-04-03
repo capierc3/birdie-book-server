@@ -1586,6 +1586,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let rdCache = null;        // RoundDetailResponse
     let rdCourseCache = null;  // CourseDetailResponse
     let rdParMap = {};         // { holeNumber: par }
+    let rdCompareData = null;  // { gir_pct, fairway_pct, avg_putts_per_hole, three_putt_pct, avg_vs_par, label }
 
     function classifySgCategory(shot, par) {
         if (shot.shot_type === 'PENALTY' || shot.auto_shot_type === 'PENALTY') return null;
@@ -1635,6 +1636,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderRdHeader();
         renderRdStats();
         renderRdScorecard();
+        renderRdHighlights();
         renderRdSg();
         renderRdDistribution();
         renderRdNotes();
@@ -1649,6 +1651,115 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             document.getElementById('rd-view-course').style.display = 'none';
         }
+
+        // Compare dropdown: hide "This Course Avg" if no course
+        const courseOpt = document.querySelector('#rd-compare-select option[value="course"]');
+        if (courseOpt) courseOpt.style.display = rdCache.course_id ? '' : 'none';
+
+        // Reset comparison
+        rdCompareData = null;
+        const sel = document.getElementById('rd-compare-select');
+        sel.value = '';
+        sel.onchange = async () => {
+            const val = sel.value;
+            if (!val) {
+                rdCompareData = null;
+                renderRdStats();
+                renderRdHighlights();
+                renderRdSg();
+                renderRdDistribution();
+                return;
+            }
+            try {
+                if (val === 'avg') {
+                    const [scoring, sg] = await Promise.all([
+                        fetch('/api/stats/scoring').then(r => r.json()),
+                        fetch('/api/stats/strokes-gained').then(r => r.json()),
+                    ]);
+                    rdCompareData = { label: 'your avg', ...extractScoringBaseline(scoring), ...extractSgBaseline(sg) };
+                } else if (val.startsWith('last')) {
+                    const n = parseInt(val.replace('last', ''));
+                    const [scoring, sg] = await Promise.all([
+                        fetch(`/api/stats/scoring?last_n_rounds=${n}`).then(r => r.json()),
+                        fetch(`/api/stats/strokes-gained?last_n_rounds=${n}`).then(r => r.json()),
+                    ]);
+                    rdCompareData = { label: `last ${n}`, ...extractScoringBaseline(scoring), ...extractSgBaseline(sg) };
+                } else if (val === 'course' && rdCache.course_id) {
+                    const r = await fetch(`/api/courses/${rdCache.course_id}/stats`).then(r => r.json());
+                    rdCompareData = {
+                        label: 'course avg',
+                        gir_pct: r.gir_pct,
+                        fairway_pct: r.fairway_pct,
+                        avg_putts_per_hole: r.avg_putts_per_hole,
+                        three_putt_pct: r.three_putt_pct,
+                        avg_vs_par: r.avg_vs_par,
+                        avg_vs_par_per_hole: r.rounds?.length
+                            ? r.rounds.reduce((s, rr) => s + (rr.vs_par_per_hole || 0), 0) / r.rounds.length
+                            : null,
+                        rounds_played: r.rounds_played,
+                        sg: r.sg_categories ? {
+                            off_the_tee: r.sg_categories.off_the_tee?.per_round || 0,
+                            approach: r.sg_categories.approach?.per_round || 0,
+                            short_game: r.sg_categories.short_game?.per_round || 0,
+                            putting: r.sg_categories.putting?.per_round || 0,
+                        } : null,
+                        dist: r.scoring_distribution || null,
+                    };
+                }
+            } catch (e) {
+                console.error('Failed to fetch comparison data:', e);
+                rdCompareData = null;
+            }
+            renderRdStats();
+            renderRdHighlights();
+            renderRdSg();
+            renderRdDistribution();
+        };
+    }
+
+    function extractScoringBaseline(scoringData) {
+        // Compute avg vs par per hole from per-round data (normalized for 9/18 mix)
+        const rounds = scoringData.per_round || [];
+        const totalVsPar = rounds.reduce((s, r) => s + r.score_vs_par, 0);
+        const avgVsPar = rounds.length ? totalVsPar / rounds.length : null;
+        const totalHolesPlayed = rounds.reduce((s, r) => s + (r.holes_played || 18), 0);
+        const avgVsParPerHole = totalHolesPlayed ? totalVsPar / totalHolesPlayed : null;
+        // Compute avg 3-putts per round
+        const total3Putts = rounds.reduce((s, r) => s + (r.three_putts || 0), 0);
+        const avg3Putts = rounds.length ? total3Putts / rounds.length : null;
+        // Compute avg scoring distribution per round
+        const avgDist = rounds.length ? {
+            birdie_or_better: rounds.reduce((s, r) => s + (r.birdie_or_better || 0), 0) / rounds.length,
+            par: rounds.reduce((s, r) => s + (r.pars || 0), 0) / rounds.length,
+            bogey: rounds.reduce((s, r) => s + (r.bogeys || 0), 0) / rounds.length,
+            double: rounds.reduce((s, r) => s + (r.doubles || 0), 0) / rounds.length,
+            triple_plus: rounds.reduce((s, r) => s + (r.triple_plus || 0), 0) / rounds.length,
+        } : null;
+
+        return {
+            gir_pct: scoringData.gir_pct,
+            fairway_pct: scoringData.fairway_pct,
+            avg_putts_per_hole: scoringData.avg_putts_per_hole,
+            three_putt_pct: scoringData.three_putt_pct,
+            avg_vs_par: avgVsPar != null ? Math.round(avgVsPar * 10) / 10 : null,
+            avg_vs_par_per_hole: avgVsParPerHole != null ? Math.round(avgVsParPerHole * 100) / 100 : null,
+            avg_3putts: avg3Putts != null ? Math.round(avg3Putts * 10) / 10 : null,
+            rounds_played: rounds.length,
+            dist: avgDist,
+        };
+    }
+
+    function extractSgBaseline(sgData) {
+        // sgData has .overall: { off_the_tee, approach, short_game, putting } each with sg_pga_per_round
+        const o = sgData.overall || {};
+        return {
+            sg: {
+                off_the_tee: o.off_the_tee?.sg_pga_per_round || 0,
+                approach: o.approach?.sg_pga_per_round || 0,
+                short_game: o.short_game?.sg_pga_per_round || 0,
+                putting: o.putting?.sg_pga_per_round || 0,
+            },
+        };
     }
 
     function renderRdHeader() {
@@ -1728,13 +1839,43 @@ document.addEventListener('DOMContentLoaded', () => {
         const vsParStr = vsPar > 0 ? `+${vsPar}` : `${vsPar}`;
         const vsColor = vsPar <= 0 ? '#22c55e' : vsPar <= 5 ? '#f59e0b' : '#ef4444';
 
+        // Per-hole vs par for normalized comparison across 9/18 hole rounds
+        const holesPlayed = holes.length || rdCache.holes_completed || 18;
+        const vsParPerHole = holesPlayed ? vsPar / holesPlayed : 0;
+
+        // Delta helper: computes delta string with arrow and color
+        // higherIsBetter: true for GIR%, FW% (more = good); false for putts, 3-putts, vs par (less = good)
+        function delta(thisVal, baselineVal, higherIsBetter, decimals = 1, suffix = '') {
+            if (!rdCompareData || thisVal === '--' || baselineVal == null) return '';
+            const diff = parseFloat(thisVal) - baselineVal;
+            if (isNaN(diff)) return '';
+            const isBetter = higherIsBetter ? diff > 0 : diff < 0;
+            const isWorse = higherIsBetter ? diff < 0 : diff > 0;
+            const color = isBetter ? '#22c55e' : isWorse ? '#ef4444' : 'var(--text-dim)';
+            const arrow = isBetter ? '▲' : isWorse ? '▼' : '–';
+            const sign = diff > 0 ? '+' : '';
+            return `<div style="font-size:0.65rem; color:${color}; font-weight:400; margin-top:2px;">${arrow} ${sign}${diff.toFixed(decimals)}${suffix} vs ${rdCompareData.label}</div>`;
+        }
+
+        // vs Par delta: compare per-hole normalized values
+        function vsParDelta() {
+            if (!rdCompareData || rdCompareData.avg_vs_par_per_hole == null) return '';
+            const diff = vsParPerHole - rdCompareData.avg_vs_par_per_hole;
+            const isBetter = diff < 0;
+            const isWorse = diff > 0;
+            const color = isBetter ? '#22c55e' : isWorse ? '#ef4444' : 'var(--text-dim)';
+            const arrow = isBetter ? '▲' : isWorse ? '▼' : '–';
+            const sign = diff > 0 ? '+' : '';
+            return `<div style="font-size:0.65rem; color:${color}; font-weight:400; margin-top:2px;">${arrow} ${sign}${diff.toFixed(2)}/hole vs ${rdCompareData.label}</div>`;
+        }
+
         container.innerHTML = `
             <div class="stat-card"><div class="stat-label">Score</div><div class="stat-value">${rdCache.total_strokes || '--'}</div></div>
-            <div class="stat-card"><div class="stat-label">vs Par</div><div class="stat-value" style="color:${vsColor}">${rdCache.total_strokes ? vsParStr : '--'}</div></div>
-            <div class="stat-card"><div class="stat-label">GIR %</div><div class="stat-value">${girPct}${girPct !== '--' ? '%' : ''}</div></div>
-            <div class="stat-card"><div class="stat-label">FW %</div><div class="stat-value">${fwPct}${fwPct !== '--' ? '%' : ''}</div></div>
-            <div class="stat-card"><div class="stat-label">Putts/Hole</div><div class="stat-value">${puttsPerHole}</div></div>
-            <div class="stat-card"><div class="stat-label">3-Putts</div><div class="stat-value">${threePutts}</div></div>
+            <div class="stat-card"><div class="stat-label">vs Par</div><div class="stat-value" style="color:${vsColor}">${rdCache.total_strokes ? vsParStr : '--'}${vsParDelta()}</div></div>
+            <div class="stat-card"><div class="stat-label">GIR %</div><div class="stat-value">${girPct}${girPct !== '--' ? '%' : ''}${delta(girPct, rdCompareData?.gir_pct, true, 1, '%')}</div></div>
+            <div class="stat-card"><div class="stat-label">FW %</div><div class="stat-value">${fwPct}${fwPct !== '--' ? '%' : ''}${delta(fwPct, rdCompareData?.fairway_pct, true, 1, '%')}</div></div>
+            <div class="stat-card"><div class="stat-label">Putts/Hole</div><div class="stat-value">${puttsPerHole}${delta(puttsPerHole, rdCompareData?.avg_putts_per_hole, false, 2)}</div></div>
+            <div class="stat-card"><div class="stat-label">3-Putts</div><div class="stat-value">${threePutts}${delta(threePutts, rdCompareData?.avg_3putts, false)}</div></div>
             <div class="stat-card"><div class="stat-label">Penalties</div><div class="stat-value">${penalties}</div></div>
         `;
     }
@@ -1866,6 +2007,189 @@ document.addEventListener('DOMContentLoaded', () => {
         </table>`;
     }
 
+    function renderRdHighlights() {
+        const card = document.getElementById('rd-highlights-card');
+        const container = document.getElementById('rd-highlights');
+        const holes = rdCache.holes || [];
+        const hasPar = Object.keys(rdParMap).length > 0;
+
+        if (!holes.length || !hasPar) {
+            card.style.display = 'none';
+            return;
+        }
+
+        const insights = [];
+
+        // 1. Best and worst holes (by vs par)
+        const holeScores = holes
+            .filter(h => h.strokes && rdParMap[h.hole_number])
+            .map(h => ({ num: h.hole_number, strokes: h.strokes, par: rdParMap[h.hole_number], diff: h.strokes - rdParMap[h.hole_number] }));
+
+        if (holeScores.length) {
+            const best = holeScores.reduce((a, b) => a.diff < b.diff ? a : b);
+            const worst = holeScores.reduce((a, b) => a.diff > b.diff ? a : b);
+            if (best.diff <= -1) {
+                const label = best.diff <= -2 ? 'Eagle' : 'Birdie';
+                insights.push({ icon: '🏆', text: `${label} on hole ${best.num} (${best.strokes} on par ${best.par})`, color: '#22c55e' });
+            }
+            if (worst.diff >= 3) {
+                insights.push({ icon: '⚠', text: `Toughest hole: #${worst.num} — ${worst.strokes} on par ${worst.par} (+${worst.diff})`, color: '#ef4444' });
+            }
+        }
+
+        // 2. Streaks (consecutive pars or better, consecutive bogeys or worse)
+        if (holeScores.length >= 3) {
+            let bestStreak = [], currentStreak = [];
+            for (const h of holeScores.sort((a, b) => a.num - b.num)) {
+                if (h.diff <= 0) {
+                    currentStreak.push(h);
+                    if (currentStreak.length > bestStreak.length) bestStreak = [...currentStreak];
+                } else {
+                    currentStreak = [];
+                }
+            }
+            if (bestStreak.length >= 3) {
+                const from = bestStreak[0].num;
+                const to = bestStreak[bestStreak.length - 1].num;
+                const birdies = bestStreak.filter(h => h.diff < 0).length;
+                const desc = birdies > 0 ? `(${birdies} birdie${birdies > 1 ? 's' : ''})` : '(all pars)';
+                insights.push({ icon: '🔥', text: `${bestStreak.length}-hole streak of par or better: holes ${from}–${to} ${desc}`, color: '#f59e0b' });
+            }
+        }
+
+        // 3. Top clubs by SG (if shot data exists)
+        if (rdCache.shots_tracked) {
+            const clubSg = {};
+            for (const hole of holes) {
+                for (const shot of (hole.shots || [])) {
+                    if (shot.sg_pga == null || !shot.club || shot.shot_type === 'PUTT' || shot.shot_type === 'PENALTY') continue;
+                    if (!clubSg[shot.club]) clubSg[shot.club] = { total: 0, count: 0 };
+                    clubSg[shot.club].total += shot.sg_pga;
+                    clubSg[shot.club].count++;
+                }
+            }
+            const clubs = Object.entries(clubSg)
+                .filter(([, d]) => d.count >= 2)
+                .map(([name, d]) => ({ name, total: d.total, count: d.count, avg: d.total / d.count }))
+                .sort((a, b) => b.total - a.total);
+
+            if (clubs.length && clubs[0].total > 0) {
+                const best = clubs[0];
+                insights.push({ icon: '⭐', text: `Best club: ${best.name} — gained ${best.total.toFixed(1)} strokes (${best.count} shots)`, color: '#22c55e' });
+            }
+            if (clubs.length && clubs[clubs.length - 1].total < -1) {
+                const worst = clubs[clubs.length - 1];
+                insights.push({ icon: '📉', text: `Costliest club: ${worst.name} — lost ${Math.abs(worst.total).toFixed(1)} strokes (${worst.count} shots)`, color: '#ef4444' });
+            }
+        }
+
+        // 4. Putting highlights
+        const putts = holes.filter(h => h.putts != null);
+        if (putts.length) {
+            const onePutts = putts.filter(h => h.putts === 1).length;
+            const threePutts = putts.filter(h => h.putts >= 3).length;
+            if (onePutts >= 3) {
+                insights.push({ icon: '🎯', text: `${onePutts} one-putts this round`, color: '#22c55e' });
+            }
+            if (threePutts >= 3) {
+                insights.push({ icon: '😬', text: `${threePutts} three-putts this round`, color: '#ef4444' });
+            }
+        }
+
+        // 5. Fairway accuracy highlight
+        const fwHoles = holes.filter(h => h.fairway != null);
+        if (fwHoles.length >= 6) {
+            const hitPct = fwHoles.filter(h => h.fairway === 'HIT').length / fwHoles.length * 100;
+            if (hitPct >= 70) {
+                insights.push({ icon: '🎯', text: `Great driving: ${hitPct.toFixed(0)}% fairways hit`, color: '#22c55e' });
+            }
+            // Miss tendency
+            const lefts = fwHoles.filter(h => h.fairway === 'LEFT').length;
+            const rights = fwHoles.filter(h => h.fairway === 'RIGHT').length;
+            const misses = lefts + rights;
+            if (misses >= 3) {
+                const dominant = lefts > rights ? 'left' : rights > lefts ? 'right' : null;
+                if (dominant) {
+                    const pct = Math.round((dominant === 'left' ? lefts : rights) / misses * 100);
+                    if (pct >= 65) {
+                        insights.push({ icon: '↩', text: `Miss tendency: ${pct}% of misses go ${dominant}`, color: '#f59e0b' });
+                    }
+                }
+            }
+        }
+
+        // 6. Comparison-aware insights (only when a baseline is active)
+        if (rdCompareData) {
+            const cmp = rdCompareData;
+            const label = cmp.label;
+
+            // GIR comparison
+            if (cmp.gir_pct != null) {
+                const girCount = holes.filter(h => h.gir != null).length;
+                const girHit = holes.filter(h => h.gir === true).length;
+                if (girCount) {
+                    const girPct = girHit / girCount * 100;
+                    const diff = girPct - cmp.gir_pct;
+                    if (diff > 10) insights.push({ icon: '📈', text: `GIR ${girPct.toFixed(0)}% — ${diff.toFixed(1)}% better than ${label}`, color: '#22c55e' });
+                    else if (diff < -10) insights.push({ icon: '📉', text: `GIR ${girPct.toFixed(0)}% — ${Math.abs(diff).toFixed(1)}% worse than ${label}`, color: '#ef4444' });
+                }
+            }
+
+            // Fairway comparison
+            if (cmp.fairway_pct != null && fwHoles.length >= 6) {
+                const hitPct = fwHoles.filter(h => h.fairway === 'HIT').length / fwHoles.length * 100;
+                const diff = hitPct - cmp.fairway_pct;
+                if (diff > 10) insights.push({ icon: '📈', text: `Fairways ${hitPct.toFixed(0)}% — ${diff.toFixed(1)}% better than ${label}`, color: '#22c55e' });
+                else if (diff < -10) insights.push({ icon: '📉', text: `Fairways ${hitPct.toFixed(0)}% — ${Math.abs(diff).toFixed(1)}% worse than ${label}`, color: '#ef4444' });
+            }
+
+            // Putts comparison
+            if (cmp.avg_putts_per_hole != null && putts.length) {
+                const pph = putts.reduce((s, h) => s + h.putts, 0) / putts.length;
+                const diff = pph - cmp.avg_putts_per_hole;
+                if (diff < -0.2) insights.push({ icon: '📈', text: `Putting ${pph.toFixed(2)}/hole — ${Math.abs(diff).toFixed(2)} better than ${label}`, color: '#22c55e' });
+                else if (diff > 0.2) insights.push({ icon: '📉', text: `Putting ${pph.toFixed(2)}/hole — ${diff.toFixed(2)} worse than ${label}`, color: '#ef4444' });
+            }
+
+            // SG comparison (if baseline SG exists)
+            if (cmp.sg) {
+                const sgTotals = { off_the_tee: 0, approach: 0, short_game: 0, putting: 0 };
+                for (const hole of holes) {
+                    const par = rdParMap[hole.hole_number];
+                    for (const shot of (hole.shots || [])) {
+                        if (shot.sg_pga == null) continue;
+                        const cat = classifySgCategory(shot, par);
+                        if (cat && sgTotals.hasOwnProperty(cat)) sgTotals[cat] += shot.sg_pga;
+                    }
+                }
+                // Find biggest improvement and biggest drop vs baseline
+                const catLabels = { off_the_tee: 'Off the Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' };
+                let bestCat = null, bestDiff = -Infinity;
+                let worstCat = null, worstDiff = Infinity;
+                for (const cat of Object.keys(sgTotals)) {
+                    const diff = sgTotals[cat] - (cmp.sg[cat] || 0);
+                    if (diff > bestDiff) { bestDiff = diff; bestCat = cat; }
+                    if (diff < worstDiff) { worstDiff = diff; worstCat = cat; }
+                }
+                if (bestDiff > 1) insights.push({ icon: '⬆', text: `Best improvement vs ${label}: ${catLabels[bestCat]} — gained ${bestDiff.toFixed(1)} more strokes`, color: '#22c55e' });
+                if (worstDiff < -1) insights.push({ icon: '⬇', text: `Biggest drop vs ${label}: ${catLabels[worstCat]} — lost ${Math.abs(worstDiff).toFixed(1)} more strokes`, color: '#ef4444' });
+            }
+        }
+
+        if (!insights.length) {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = '';
+        container.innerHTML = insights.map(i =>
+            `<div style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--border);">
+                <span style="font-size:1.1rem; width:24px; text-align:center;">${i.icon}</span>
+                <span style="font-size:0.88rem; color:${i.color};">${i.text}</span>
+            </div>`
+        ).join('');
+    }
+
     function renderRdSg() {
         const sgCard = document.getElementById('rd-sg-card');
         const container = document.getElementById('rd-sg-breakdown');
@@ -1930,26 +2254,90 @@ document.addEventListener('DOMContentLoaded', () => {
         const nonPuttZero = sgTotals.off_the_tee === 0 && sgTotals.approach === 0 && sgTotals.short_game === 0;
         const missingDataNotice = nonPuttZero ? buildMissingDataNotice() : '';
 
+        // Include baseline values in maxAbs calculation if comparing
+        const baselineSg = rdCompareData?.sg;
+        const allVals = [...vals];
+        if (baselineSg) cats.forEach(c => allVals.push(baselineSg[c.key] || 0));
+        const finalMaxAbs = Math.max(...allVals.map(Math.abs), 0.1);
+
+        // Colors: this round = bright, baseline = muted/dark variant
+        // Green: bright #22c55e / muted #15803d   Red: bright #ef4444 / muted #991b1b
+        const thisGreen = '#22c55e', baseGreen = '#15803d';
+        const thisRed = '#ef4444', baseRed = '#991b1b';
+
         container.innerHTML = cats.map(c => {
             const v = Math.round(sgTotals[c.key] * 100) / 100;
-            const color = v >= 0 ? '#22c55e' : '#ef4444';
+            const thisColor = v >= 0 ? thisGreen : thisRed;
             const sign = v > 0 ? '+' : '';
-            const barPct = Math.min(Math.abs(v) / maxAbs * 100, 100);
+            const barPct = Math.min(Math.abs(v) / finalMaxAbs * 100, 100);
             const isPositive = v >= 0;
+
+            // Helper: render a single-side bar pair (bigger behind, smaller on top)
+            function layeredBar(side, thisPct, thisCol, basePct, baseCol) {
+                const radius = side === 'left' ? '4px 0 0 4px' : '0 4px 4px 0';
+                const align = side === 'left' ? 'right:0;' : 'left:0;';
+                const bigPct = Math.max(thisPct, basePct);
+                const smallPct = Math.min(thisPct, basePct);
+                const bigCol = thisPct >= basePct ? thisCol : baseCol;
+                const smallCol = thisPct >= basePct ? baseCol : thisCol;
+                if (bigPct <= 0) return '';
+                return `<div style="width:${bigPct}%; position:relative;">
+                    <div style="width:100%; height:20px; background:${bigCol}; border-radius:${radius};"></div>
+                    ${smallPct > 0 ? `<div style="position:absolute; ${align} top:0; width:${(smallPct/bigPct*100)}%; height:20px; background:${smallCol}; border-radius:${radius};"></div>` : ''}
+                </div>`;
+            }
+
+            let leftBars = '', rightBars = '';
+
+            if (baselineSg) {
+                const bv = baselineSg[c.key] || 0;
+                const bPct = Math.min(Math.abs(bv) / finalMaxAbs * 100, 100);
+                const bPositive = bv >= 0;
+                const bColor = bPositive ? baseGreen : baseRed;
+
+                if (!isPositive && !bPositive) {
+                    leftBars = layeredBar('left', barPct, thisColor, bPct, bColor);
+                } else if (isPositive && bPositive) {
+                    rightBars = layeredBar('right', barPct, thisColor, bPct, bColor);
+                } else {
+                    // Different sides — separate bars
+                    if (!isPositive) leftBars = `<div style="width:${barPct}%; height:20px; background:${thisColor}; border-radius:4px 0 0 4px; min-width:2px;"></div>`;
+                    else rightBars = `<div style="width:${barPct}%; height:20px; background:${thisColor}; border-radius:0 4px 4px 0; min-width:2px;"></div>`;
+                    if (!bPositive) leftBars += `<div style="width:${bPct}%; height:20px; background:${bColor}; border-radius:4px 0 0 4px; min-width:2px;"></div>`;
+                    else rightBars += `<div style="width:${bPct}%; height:20px; background:${bColor}; border-radius:0 4px 4px 0; min-width:2px;"></div>`;
+                }
+            } else {
+                if (!isPositive) leftBars = `<div style="width:${barPct}%; height:20px; background:${thisColor}; border-radius:4px 0 0 4px; min-width:2px;"></div>`;
+                else rightBars = `<div style="width:${barPct}%; height:20px; background:${thisColor}; border-radius:0 4px 4px 0; min-width:2px;"></div>`;
+            }
+
+            // Delta text for SG
+            let sgDelta = '';
+            if (baselineSg) {
+                const bv = baselineSg[c.key] || 0;
+                const diff = Math.round((v - bv) * 100) / 100;
+                const dSign = diff > 0 ? '+' : '';
+                const dColor = diff > 0 ? '#22c55e' : diff < 0 ? '#ef4444' : 'var(--text-dim)';
+                sgDelta = `<div style="font-size:0.65rem; color:${dColor}; font-weight:400;">(${dSign}${diff.toFixed(2)})</div>`;
+            }
+
             return `<div style="display:flex; align-items:center; margin-bottom:10px; gap:8px;">
                 <span style="width:80px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${c.label}</span>
                 <div style="flex:1; display:flex; height:20px;">
-                    <div style="width:50%; display:flex; justify-content:flex-end;">
-                        ${!isPositive ? `<div style="width:${barPct}%; background:${color}; border-radius:4px 0 0 4px; min-width:2px;"></div>` : ''}
-                    </div>
+                    <div style="width:50%; display:flex; justify-content:flex-end;">${leftBars}</div>
                     <div style="width:1px; background:var(--text-dim);"></div>
-                    <div style="width:50%; display:flex;">
-                        ${isPositive ? `<div style="width:${barPct}%; background:${color}; border-radius:0 4px 4px 0; min-width:2px;"></div>` : ''}
-                    </div>
+                    <div style="width:50%; display:flex;">${rightBars}</div>
                 </div>
-                <span style="width:50px; text-align:right; font-size:0.85rem; font-weight:600; color:${color}; flex-shrink:0;">${sign}${v.toFixed(2)}</span>
+                <span style="width:65px; text-align:right; flex-shrink:0;">
+                    <div style="font-size:0.85rem; font-weight:600; color:${thisColor};">${sign}${v.toFixed(2)}</div>
+                    ${sgDelta}
+                </span>
             </div>`;
-        }).join('') + `<div style="font-size:0.72rem; color:var(--text-dim); margin-top:4px; text-align:right;">total strokes gained this round vs PGA</div>` + missingDataNotice;
+        }).join('')
+        + `<div style="font-size:0.72rem; color:var(--text-dim); margin-top:4px; text-align:right;">${baselineSg
+            ? `<span style="display:inline-block; width:12px; height:8px; background:${thisRed}; border-radius:2px; vertical-align:middle;"></span> this round · <span style="display:inline-block; width:12px; height:8px; background:${baseRed}; border-radius:2px; vertical-align:middle;"></span> ${rdCompareData.label}`
+            : 'total strokes gained vs PGA'}</div>`
+        + missingDataNotice;
     }
 
     function renderRdDistribution() {
@@ -1976,27 +2364,76 @@ document.addEventListener('DOMContentLoaded', () => {
             else dist.triple++;
         }
 
+        const baselineDist = rdCompareData?.dist;
+
         const items = [
-            { label: 'Eagle+', count: dist.eagle, color: '#16a34a' },
-            { label: 'Birdie', count: dist.birdie, color: '#22c55e' },
-            { label: 'Par', count: dist.par, color: '#3b82f6' },
-            { label: 'Bogey', count: dist.bogey, color: '#f59e0b' },
-            { label: 'Double', count: dist.double, color: '#ef4444' },
-            { label: 'Triple+', count: dist.triple, color: '#dc2626' },
-        ].filter(i => i.count > 0);
+            { label: 'Eagle+', count: dist.eagle, baseKey: 'birdie_or_better', color: '#16a34a', muted: '#0d5c2a' },
+            { label: 'Birdie', count: dist.birdie, baseKey: null, color: '#22c55e', muted: '#15803d' },
+            { label: 'Par', count: dist.par, baseKey: 'par', color: '#3b82f6', muted: '#1e40af' },
+            { label: 'Bogey', count: dist.bogey, baseKey: 'bogey', color: '#f59e0b', muted: '#92400e' },
+            { label: 'Double', count: dist.double, baseKey: 'double', color: '#ef4444', muted: '#991b1b' },
+            { label: 'Triple+', count: dist.triple, baseKey: 'triple_plus', color: '#dc2626', muted: '#7f1d1d' },
+        ];
 
-        const maxCount = Math.max(...items.map(i => i.count), 1);
+        // For baseline, eagle+birdie are combined as birdie_or_better
+        // Split: show baseline on Eagle+ row only (combined), skip Birdie baseline
+        const allCounts = items.map(i => i.count);
+        if (baselineDist) items.forEach(i => {
+            if (i.baseKey && baselineDist[i.baseKey] != null) allCounts.push(baselineDist[i.baseKey]);
+        });
+        const maxCount = Math.max(...allCounts, 1);
 
-        container.innerHTML = items.map(i => {
+        // Only show rows that have data (this round or baseline)
+        const visibleItems = items.filter(i => {
+            if (i.count > 0) return true;
+            if (baselineDist && i.baseKey && baselineDist[i.baseKey] > 0.1) return true;
+            return false;
+        });
+
+        container.innerHTML = visibleItems.map(i => {
             const barPct = Math.min(i.count / maxCount * 100, 100);
+            const lightColor = i.color + '55'; // 33% opacity version
+
+            let barHtml;
+            if (baselineDist && i.baseKey && baselineDist[i.baseKey] != null) {
+                const bv = baselineDist[i.baseKey];
+                const bPct = Math.min(bv / maxCount * 100, 100);
+                // Two bars stacked: bigger behind, smaller on top — both always visible
+                // This round = bright color, baseline = muted/dark variant of same hue
+                const bigPct = Math.max(barPct, bPct);
+                const smallPct = Math.min(barPct, bPct);
+                const bigIsThis = barPct >= bPct;
+                barHtml = `<div style="flex:1; background:var(--bg-hover); border-radius:4px; height:20px; position:relative;">
+                    <div style="width:${bigPct}%; background:${bigIsThis ? i.color : i.muted}; height:100%; border-radius:4px;"></div>
+                    <div style="position:absolute; top:0; left:0; width:${smallPct}%; background:${bigIsThis ? i.muted : i.color}; height:100%; border-radius:4px;"></div>
+                </div>`;
+            } else {
+                barHtml = `<div style="flex:1; background:var(--bg-hover); border-radius:4px; height:20px; overflow:hidden;">
+                    <div style="width:${barPct}%; background:${i.color}; height:100%; border-radius:4px;"></div>
+                </div>`;
+            }
+
+            // Delta text for distribution
+            let distDelta = '';
+            if (baselineDist && i.baseKey && baselineDist[i.baseKey] != null) {
+                const diff = Math.round((i.count - baselineDist[i.baseKey]) * 10) / 10;
+                const dSign = diff > 0 ? '+' : '';
+                // For scoring dist: more birdies/pars = good (green), more bogeys+ = bad (red)
+                const isGoodCategory = ['birdie_or_better', 'par'].includes(i.baseKey);
+                const dColor = (isGoodCategory ? diff > 0 : diff < 0) ? '#22c55e' : (isGoodCategory ? diff < 0 : diff > 0) ? '#ef4444' : 'var(--text-dim)';
+                distDelta = `<div style="font-size:0.65rem; color:${dColor}; font-weight:400;">(${dSign}${diff.toFixed(1)})</div>`;
+            }
+
             return `<div style="display:flex; align-items:center; margin-bottom:8px; gap:10px;">
                 <span style="width:60px; font-size:0.82rem; color:var(--text-muted); flex-shrink:0;">${i.label}</span>
-                <div style="flex:1; background:var(--bg-hover); border-radius:4px; height:20px; overflow:hidden;">
-                    <div style="width:${barPct}%; background:${i.color}; height:100%; border-radius:4px;"></div>
-                </div>
-                <span style="width:25px; text-align:right; font-size:0.85rem; font-weight:600; color:${i.color}; flex-shrink:0;">${i.count}</span>
+                ${barHtml}
+                <span style="width:40px; text-align:right; flex-shrink:0;">
+                    <div style="font-size:0.85rem; font-weight:600; color:${i.color};">${i.count}</div>
+                    ${distDelta}
+                </span>
             </div>`;
-        }).join('');
+        }).join('')
+        + (baselineDist ? `<div style="font-size:0.72rem; color:var(--text-dim); margin-top:4px; text-align:right;">bright = this round · dark = ${rdCompareData.label}</div>` : '');
     }
 
     function renderRdNotes() {

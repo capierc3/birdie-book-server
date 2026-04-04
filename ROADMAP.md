@@ -567,7 +567,7 @@
 - Avg SG per category in historic mode
 - Contextual hints when data is missing (add tee GPS, green GPS, fairway path)
 
-### 16c. Shots Sub-Pane + Map Rendering `[ ]`
+### 16c. Shots Sub-Pane + Map Rendering `[x]`
 - Shot list for the hole (club, shot type, distance, SG per shot)
 - Click a shot → opens existing shot detail floating panel
 - Render shots on map with numbered markers and shot lines (replicate current hole screen)

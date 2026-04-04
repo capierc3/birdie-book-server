@@ -1114,6 +1114,11 @@ tbody tr.clickable { cursor: pointer; }
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     font-size: 0.86rem;
+    transition: var(--transition);
+}
+.shot-item-active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
 }
 
 .shot-num {
@@ -1722,6 +1727,11 @@ tr.detail-expanded { background: var(--bg-hover) !important; }
     border-bottom: 1px solid var(--border);
     background: var(--bg-sidebar);
     flex-shrink: 0;
+    cursor: grab;
+    user-select: none;
+}
+.shot-panel-header:active {
+    cursor: grabbing;
 }
 .shot-panel-title {
     font-size: 0.85rem;

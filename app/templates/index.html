@@ -287,6 +287,9 @@
                 <button class="toolbar-icon" data-panel="overview" title="Hole Overview">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                 </button>
+                <button class="toolbar-icon" data-panel="shots" title="Shots">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4"/><path d="M12 18v4"/><path d="M2 12h4"/><path d="M18 12h4"/></svg>
+                </button>
                 <button class="toolbar-icon" data-panel="insights" title="Strategy Insights">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21h6"/><path d="M12 3a6 6 0 014 10.5V17H8v-3.5A6 6 0 0112 3z"/></svg>
                 </button>
@@ -371,6 +374,19 @@
             <div class="editor-float-body">
                 <div id="editor-hole-overview" class="editor-section" style="padding:10px 12px;">
                     <div class="strategy-empty">Select a hole to see stats</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shots panel -->
+        <div class="editor-float-panel" data-float-panel="shots" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Shots</span>
+                <div style="display:flex;gap:4px;"><button class="shot-panel-btn editor-float-popout" title="Pop out to window">&#x29c9;</button><button class="shot-panel-btn editor-float-close">&times;</button></div>
+            </div>
+            <div class="editor-float-body">
+                <div id="editor-shots-list" style="padding:8px 12px;">
+                    <div class="strategy-empty">Select a round to see shots</div>
                 </div>
             </div>
         </div>
@@ -1660,5 +1676,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.9.7"></script>
+<script src="/static/js/app.js?v=1.0.1"></script>
 {% endblock %}

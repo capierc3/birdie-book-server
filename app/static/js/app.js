@@ -7875,6 +7875,32 @@ document.addEventListener('DOMContentLoaded', () => {
         hideShotPanel();
     });
 
+    // Make shot panel draggable
+    (function initShotPanelDrag() {
+        const panel = document.getElementById('shot-panel');
+        const header = panel?.querySelector('.shot-panel-header');
+        if (!panel || !header) return;
+        let dragging = false, offX = 0, offY = 0;
+
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.shot-panel-btn')) return;
+            dragging = true;
+            const rect = panel.getBoundingClientRect();
+            offX = e.clientX - rect.left;
+            offY = e.clientY - rect.top;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            panel.style.left = (e.clientX - offX) + 'px';
+            panel.style.top = (e.clientY - offY) + 'px';
+            panel.style.right = 'auto';
+        });
+
+        document.addEventListener('mouseup', () => { dragging = false; });
+    })();
+
     // Recalc button (course panel only)
     document.getElementById('btn-panel-recalc')?.addEventListener('click', async () => {
         if (!holeViewRoundDetail) return;
@@ -10244,6 +10270,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let editorLayerGroup = null;
     let editorTool = 'tee';
     let editorDrawPanelOpen = false; // global flag, set by float panel toggle
+    let editorShotLayers = null;    // separate layer group for shot overlays
     let editorRounds = [];          // rounds at this course (from roundsCache)
     let editorRoundDetail = null;   // selected round's full detail
     let editorAllRoundDetails = []; // all round details for historic mode
@@ -10300,6 +10327,7 @@ document.addEventListener('DOMContentLoaded', () => {
             attribution: 'Esri Satellite',
         }).addTo(editorMap);
         editorLayerGroup = L.layerGroup().addTo(editorMap);
+        editorShotLayers = L.layerGroup().addTo(editorMap);
 
         // Right-click / middle-click pan (works when normal drag is disabled by tools)
         (function setupAltPan() {
@@ -12005,6 +12033,260 @@ document.addEventListener('DOMContentLoaded', () => {
         observer.observe(overviewPanel, { attributes: true, attributeFilter: ['style'] });
     }
 
+    // ========== Editor Shots (Map + List) ==========
+
+    function editorRenderShots() {
+        if (!editorShotLayers) return;
+        editorShotLayers.clearLayers();
+
+        const holeNum = editorCurrentHole;
+        const tee = (editorCourse?.tees || []).find(t => t.id === editorTeeId);
+        const ch = (tee?.holes || []).find(h => h.hole_number === holeNum);
+        const isHistoric = editorViewMode === 'historic';
+        const teeRounds = editorAllRoundDetails.filter(r => r.tee_id === editorTeeId);
+
+        // Gather shots
+        let shots = [];
+        if (isHistoric && teeRounds.length > 0) {
+            shots = teeRounds.flatMap(r =>
+                (r.holes || []).filter(h => h.hole_number === holeNum).flatMap(h => h.shots || [])
+            );
+        } else if (editorRoundDetail) {
+            const rh = (editorRoundDetail.holes || []).find(h => h.hole_number === holeNum);
+            shots = rh ? (rh.shots || []) : [];
+        }
+
+        // Draw shots on map
+        shots.forEach((shot, idx) => {
+            if (!shot.start_lat || !shot.end_lat) return;
+
+            const start = [shot.start_lat, shot.start_lng];
+            const end = [shot.end_lat, shot.end_lng];
+            const color = getClubColor(shot.club);
+
+            // Polyline
+            const line = L.polyline([start, end], {
+                color: color,
+                weight: isHistoric ? 2 : 3,
+                opacity: isHistoric ? 0.4 : 0.8,
+                _shotId: shot.id,
+                _origColor: color,
+            }).addTo(editorShotLayers);
+
+            // End marker
+            const endMarker = L.circleMarker(end, {
+                radius: isHistoric ? 3 : 5,
+                color: color, fillColor: color,
+                fillOpacity: isHistoric ? 0.5 : 0.8,
+                weight: 1,
+                _shotId: shot.id,
+            }).addTo(editorShotLayers);
+
+            if (!isHistoric) {
+                // Click handlers
+                line.on('click', () => editorShowShotDetail(shot.id));
+                endMarker.on('click', () => editorShowShotDetail(shot.id));
+
+                // Numbered badge at start
+                L.marker(start, {
+                    icon: L.divIcon({
+                        className: 'leaflet-shot-number',
+                        html: `<div style="background:${color};color:#000;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px solid #000;">${idx + 1}</div>`,
+                        iconSize: [20, 20], iconAnchor: [10, 10],
+                    }),
+                }).addTo(editorShotLayers);
+
+                // Tooltip
+                const dist = shot.distance_yards ? `${shot.distance_yards.toFixed(0)} yds` : '';
+                const club = shot.club || '';
+                if (dist || club) {
+                    line.bindTooltip(`${club}${club && dist ? ' — ' : ''}${dist}`, { sticky: true });
+                }
+            }
+        });
+    }
+
+    function editorHighlightShot(shotId) {
+        if (!editorShotLayers) return;
+
+        // Highlight on map
+        editorShotLayers.eachLayer(layer => {
+            if (layer instanceof L.Polyline && !(layer instanceof L.Polygon)) {
+                const isSelected = layer.options._shotId === shotId;
+                layer.setStyle({
+                    weight: isSelected ? 5 : 3,
+                    opacity: isSelected ? 1 : 0.3,
+                });
+            }
+            if (layer instanceof L.CircleMarker) {
+                const isSelected = layer.options._shotId === shotId;
+                layer.setStyle({
+                    radius: isSelected ? 7 : 5,
+                    fillOpacity: isSelected ? 1 : 0.3,
+                    opacity: isSelected ? 1 : 0.3,
+                });
+            }
+        });
+
+        // Highlight in shots list
+        document.querySelectorAll('#editor-shots-list .shot-item').forEach(el => {
+            el.classList.toggle('shot-item-active', el.dataset.shotId == shotId);
+        });
+    }
+
+    function editorShowShotDetail(shotId) {
+        if (!editorRoundDetail) return;
+        const rh = (editorRoundDetail.holes || []).find(h => h.hole_number === editorCurrentHole);
+        if (!rh) return;
+        const shot = (rh.shots || []).find(s => s.id === shotId);
+        if (!shot) return;
+        const tee = (editorCourse?.tees || []).find(t => t.id === editorTeeId);
+        const holeData = (tee?.holes || []).find(h => h.hole_number === editorCurrentHole);
+        editorHighlightShot(shotId);
+        showCourseShotPanel(shot, holeData);
+    }
+
+    function editorRenderShotsList() {
+        const container = document.getElementById('editor-shots-list');
+        if (!container) return;
+
+        const holeNum = editorCurrentHole;
+        const tee = (editorCourse?.tees || []).find(t => t.id === editorTeeId);
+        const ch = (tee?.holes || []).find(h => h.hole_number === holeNum);
+        const par = ch?.par || 0;
+        const isHistoric = editorViewMode === 'historic';
+        const teeRounds = editorAllRoundDetails.filter(r => r.tee_id === editorTeeId);
+
+        if (isHistoric) {
+            // Historic: summary
+            const allShots = teeRounds.flatMap(r =>
+                (r.holes || []).filter(h => h.hole_number === holeNum).flatMap(h => h.shots || [])
+            ).filter(s => s.start_lat && s.end_lat);
+
+            if (allShots.length === 0) {
+                container.innerHTML = '<div class="strategy-empty">No shot data for this hole</div>';
+                return;
+            }
+
+            // Club breakdown
+            const clubStats = {};
+            allShots.forEach(s => {
+                if (!s.club) return;
+                if (!clubStats[s.club]) clubStats[s.club] = { count: 0, totalDist: 0, distCount: 0 };
+                clubStats[s.club].count++;
+                if (s.distance_yards) { clubStats[s.club].totalDist += s.distance_yards; clubStats[s.club].distCount++; }
+            });
+
+            let html = `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:8px;">Hole ${holeNum} · ${allShots.length} shots across ${teeRounds.length} round${teeRounds.length !== 1 ? 's' : ''}</div>`;
+            html += '<div class="shot-list">';
+            Object.entries(clubStats)
+                .sort((a, b) => b[1].count - a[1].count)
+                .forEach(([club, stats]) => {
+                    const color = getClubColor(club);
+                    const avgDist = stats.distCount > 0 ? Math.round(stats.totalDist / stats.distCount) : null;
+                    html += `<div class="shot-item" style="cursor:default;">
+                        <span class="shot-num" style="background:${color};color:#000;">${stats.count}</span>
+                        <span class="shot-club">${club}</span>
+                        <span class="shot-dist">${avgDist ? avgDist + 'y avg' : ''}</span>
+                    </div>`;
+                });
+            html += '</div>';
+            container.innerHTML = html;
+        } else {
+            // Round mode: shot list
+            if (!editorRoundDetail) {
+                container.innerHTML = '<div class="strategy-empty">Select a round to see shots</div>';
+                return;
+            }
+
+            const rh = (editorRoundDetail.holes || []).find(h => h.hole_number === holeNum);
+            const shots = rh ? (rh.shots || []) : [];
+
+            if (shots.length === 0) {
+                container.innerHTML = `<div class="strategy-empty">No shots for hole ${holeNum}</div>`;
+                return;
+            }
+
+            // Get club averages for delta display
+            const clubAvgs = {};
+            const clubs = editorStrategy?.player?.clubs || [];
+            clubs.forEach(c => { if (c.avg_yards) clubAvgs[c.club_type] = c.avg_yards; });
+
+            const typeMap = { TEE: 'Tee', APPROACH: 'Approach', CHIP: 'Chip', LAYUP: 'Layup', RECOVERY: 'Recovery', PUTT: 'Putt' };
+
+            let html = `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:8px;">Hole ${holeNum} · ${shots.length} shot${shots.length !== 1 ? 's' : ''}</div>`;
+            html += '<div class="shot-list">';
+            shots.forEach((s, i) => {
+                const color = getClubColor(s.club);
+                const dist = s.distance_yards ? s.distance_yards.toFixed(0) : '';
+                const clubName = s.club || 'Unknown';
+                const typeLabel = typeMap[s.shot_type] || '';
+                const typeBadge = typeLabel ? `<span style="font-size:0.72rem;color:var(--text-dim);background:var(--bg-hover);padding:1px 6px;border-radius:3px;">${typeLabel}</span>` : '';
+
+                // Delta vs club avg
+                let vsAvg = '';
+                if (s.distance_yards && s.club && clubAvgs[s.club]) {
+                    const delta = s.distance_yards - clubAvgs[s.club];
+                    if (Math.abs(delta) >= 1) {
+                        const cls = delta > 0 ? 'delta-positive' : 'delta-negative';
+                        vsAvg = `<span class="${cls}">${delta > 0 ? '+' : ''}${delta.toFixed(0)}</span>`;
+                    }
+                }
+
+                // SG badge
+                let sgBadge = '';
+                if (s.sg_pga != null) {
+                    const sgColor = s.sg_pga >= 0 ? 'var(--accent)' : 'var(--danger)';
+                    sgBadge = `<span style="color:${sgColor};font-size:0.72rem;margin-left:4px;">${s.sg_pga >= 0 ? '+' : ''}${s.sg_pga.toFixed(2)}</span>`;
+                }
+
+                html += `<div class="shot-item" data-shot-id="${s.id}" style="cursor:pointer;">
+                    <span class="shot-num" style="background:${color};color:#000;">${i + 1}</span>
+                    <span class="shot-club">${clubName} ${typeBadge}</span>
+                    <span class="shot-dist">${dist ? dist + ' yds' : ''} ${vsAvg}${sgBadge}</span>
+                </div>`;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+
+            // Click handlers
+            container.querySelectorAll('.shot-item[data-shot-id]').forEach(el => {
+                el.addEventListener('click', () => {
+                    editorShowShotDetail(parseInt(el.dataset.shotId));
+                });
+            });
+        }
+    }
+
+    // Hook: re-render shots when hole/round changes (extend the existing override)
+    const _prevEditorSelectHole = editorSelectHole;
+    editorSelectHole = function(holeNum) {
+        _prevEditorSelectHole(holeNum);
+        editorRenderShots();
+        editorRenderShotsList();
+    };
+
+    // Re-render shots when round selector changes — hook into existing handler
+    const origRoundSelect = document.getElementById('editor-round-select');
+    if (origRoundSelect) {
+        origRoundSelect.addEventListener('change', () => {
+            // Delay slightly to let the round data load first
+            setTimeout(() => { editorRenderShots(); editorRenderShotsList(); }, 100);
+        });
+    }
+
+    // Re-render when shots panel opens
+    const shotsPanel = document.querySelector('.editor-float-panel[data-float-panel="shots"]');
+    if (shotsPanel) {
+        const observer = new MutationObserver(() => {
+            if (shotsPanel.style.display !== 'none') {
+                editorRenderShots();
+                editorRenderShotsList();
+            }
+        });
+        observer.observe(shotsPanel, { attributes: true, attributeFilter: ['style'] });
+    }
+
     // ========== Strategy Tools ==========
 
     (function initStrategyTools() {
@@ -12570,7 +12852,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const layout = toolbar.parentElement; // .course-editor-layout
         const floatPanels = document.querySelectorAll('.editor-float-panel');
-        const panelOrder = ['scorecard', 'overview', 'insights', 'strategy', 'hole', 'draw', 'data'];
+        const panelOrder = ['scorecard', 'overview', 'shots', 'insights', 'strategy', 'hole', 'draw', 'data'];
 
         // --- Get float panel by id ---
         function getFloatPanel(id) {

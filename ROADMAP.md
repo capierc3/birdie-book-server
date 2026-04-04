@@ -218,7 +218,7 @@
 
 **Goal:** Let the player add a course they haven't played yet, populate it with OSM/API data, and edit hole details — so they can study the layout before playing.
 
-### 10a. Course Search & Create Flow `[ ]`
+### 10a. Course Search & Create Flow `[x]`
 - New UI section or modal: "Add a Course"
 - Search by course name using existing `POST /api/courses/osm/search`
 - Show search results with course name, location, hole count
@@ -226,18 +226,23 @@
 - Link to OSM via existing `POST /api/courses/{course_id}/osm/link` (with `import_features: true`)
 - Fallback: manual entry if course not found in OSM (name, address, holes, par)
 
-### 10b. Course Data Sync & Enrichment `[ ]`
+### 10b. Course Data Sync & Enrichment `[x]`
 - After linking, trigger existing `POST /api/courses/club/{golf_club_id}/sync` to pull tee box data from golf course API
 - Run OSM feature detection (`POST /api/courses/{course_id}/detect-features`) to find hazards, greens, fairways
 - Import features automatically (`POST /api/courses/{course_id}/import-features`)
 - Auto-match OSM holes to course holes
 
-### 10c. Hole Editor `[ ]`
-- After import, show hole-by-hole view for review and editing
-- Edit per hole: par, yardage, handicap index
-- Re-link OSM holes if auto-match was wrong (`POST /api/courses/{course_id}/holes/{hole_id}/link-osm`)
-- Adjust tee/green GPS positions if needed
-- Visual map preview of each hole with overlaid hazards
+### 10c. Hole Editor `[x]`
+- Full-screen satellite map editor with Roll20-style floating toolbar
+- Edit per hole: par, yardage, handicap index via Hole Info panel
+- Adjust tee/green GPS positions via draggable markers (locked when Draw panel closed)
+- Visual map with overlaid hazards, fairway boundaries, green boundaries, fairway paths
+- Drawing tools: place tee, green, FW line, FW boundary, green boundary, hazard polygons
+- Context-sensitive object list (filtered by active tool + hazard type)
+- Measure tool for distance research between any points on the map
+- Independent floating panels (Hole Info, Draw Tools, Insights, Data Import) — each draggable, open simultaneously
+- Smart panel positioning (left/right of toolbar based on screen position)
+- Strategy insights panel with club recommendations, miss tendencies, scoring data
 
 ### 10d. Tee Box Management `[ ]`
 - View all tee boxes synced from API
@@ -509,14 +514,14 @@
 
 **Goal:** Improve the hole data editing workflow and contribute course data back to OpenStreetMap so the wider golf community benefits.
 
-### 15a. Hole Data Editor Improvements `[ ]`
+### 15a. Hole Data Editor Improvements `[x]`
 - Streamlined workflow for adding/editing tee positions, green boundaries, fairway paths per hole
 - Bulk import from GPS traces (Garmin shot data can seed tee/green positions)
 - Auto-detect tee/green positions from round shot data (first shot = tee, last non-putt = green area)
 - Visual validation: show data completeness per hole (tee ✓, green ✓, fairway ✓, hazards ✓)
 - "Data health" dashboard for each course showing what's missing
 
-### 15b. Hazard & Feature Management `[ ]`
+### 15b. Hazard & Feature Management `[x]`
 - Improved hazard editor: draw bunkers, water, OB boundaries on the map
 - Import hazards from OSM if available
 - Classify hazard types (fairway bunker, greenside bunker, water carry, lateral water, OB)

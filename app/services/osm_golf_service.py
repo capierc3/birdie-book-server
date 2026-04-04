@@ -401,8 +401,9 @@ def fetch_features_by_osm_id(
     Fetch all golf features INSIDE a specific OSM course polygon.
 
     Hybrid approach:
-    1. OSM Direct API to get the course boundary/bbox (reliable, no Overpass)
-    2. Split Overpass queries per feature type with delays (small, fast queries)
+    1. OSM Direct API to get the course boundary/bbox (reliable, no rate limits)
+    2. Single combined Overpass query for all feature types (one request, not six)
+    3. Fallback: split into two queries if the combined one times out
     """
     def _progress(msg):
         if progress_callback:
@@ -410,37 +411,75 @@ def fetch_features_by_osm_id(
         logger.info(msg)
 
     # Step 1: Get bbox from OSM Direct API (reliable)
-    _progress(f"Fetching course boundary from OSM...")
+    _progress("Fetching course boundary from OSM...")
     bbox_tuple = _fetch_osm_direct_bbox(osm_id, osm_type)
 
     if not bbox_tuple:
         raise ValueError(f"Could not fetch boundary for {osm_type}/{osm_id} from OSM Direct API")
 
     bbox = f"{bbox_tuple[0]},{bbox_tuple[1]},{bbox_tuple[2]},{bbox_tuple[3]}"
-    _progress(f"Course boundary found. Querying features...")
+    _progress("Course boundary found. Querying features...")
 
-    # Step 2: Split Overpass queries — one per feature type, with 1.5s delays
-    feature_queries = [
-        ("bunkers", f'[out:json][timeout:10];way["golf"="bunker"]({bbox});out geom;'),
-        ("holes", f'[out:json][timeout:10];(way["golf"="hole"]({bbox});node["golf"="hole"]({bbox}););out geom;'),
-        ("greens", f'[out:json][timeout:10];way["golf"="green"]({bbox});out geom;'),
-        ("tees", f'[out:json][timeout:10];(way["golf"="tee"]({bbox});node["golf"="tee"]({bbox}););out geom;'),
-        ("fairways", f'[out:json][timeout:10];way["golf"="fairway"]({bbox});out geom;'),
-        ("water", f'[out:json][timeout:10];(way["natural"="water"]({bbox});relation["natural"="water"]({bbox});way["golf"="water_hazard"]({bbox}););out geom;'),
-    ]
+    # Step 2: Single combined Overpass query for ALL golf features
+    combined_query = f"""[out:json][timeout:30];
+(
+  way["golf"]({bbox});
+  node["golf"]({bbox});
+  way["natural"="water"]({bbox});
+  relation["natural"="water"]({bbox});
+);
+out geom;"""
+
+    _progress("Querying all golf features in one request...")
+    all_elements = _overpass_query_single(combined_query, timeout=35)
+
+    if all_elements:
+        _progress(f"Found {len(all_elements)} elements in single query")
+        result = _parse_elements(all_elements)
+        logger.info("Total OSM elements fetched for %s/%d: %d", osm_type, osm_id, len(all_elements))
+        return result
+
+    # Step 3: Fallback — split into two smaller queries if combined timed out
+    _progress("Combined query failed, trying split queries...")
 
     all_elements = []
-    for feature_name, query in feature_queries:
-        _progress(f"Querying {feature_name}...")
-        elements = _overpass_query_single(query, timeout=12)
-        if elements:
-            all_elements.extend(elements)
-            _progress(f"Found {len(elements)} {feature_name} elements")
-        else:
-            _progress(f"No {feature_name} found (or query timed out)")
-        time.sleep(1.5)  # Rate limit between Overpass queries
 
-    logger.info("Total OSM elements fetched for %s/%d: %d", osm_type, osm_id, len(all_elements))
+    # Query 1: holes, greens, tees (the important ones)
+    q1 = f"""[out:json][timeout:25];
+(
+  way["golf"="hole"]({bbox});
+  node["golf"="hole"]({bbox});
+  way["golf"="green"]({bbox});
+  node["golf"="green"]({bbox});
+  way["golf"="tee"]({bbox});
+  node["golf"="tee"]({bbox});
+);
+out geom;"""
+    _progress("Querying holes, greens, tees...")
+    elements = _overpass_query_single(q1, timeout=30)
+    if elements:
+        all_elements.extend(elements)
+        _progress(f"Found {len(elements)} hole/green/tee elements")
+
+    time.sleep(2)
+
+    # Query 2: hazards (bunkers, water, fairways)
+    q2 = f"""[out:json][timeout:25];
+(
+  way["golf"="bunker"]({bbox});
+  way["golf"="fairway"]({bbox});
+  way["natural"="water"]({bbox});
+  relation["natural"="water"]({bbox});
+  way["golf"="water_hazard"]({bbox});
+);
+out geom;"""
+    _progress("Querying bunkers, fairways, water...")
+    elements = _overpass_query_single(q2, timeout=30)
+    if elements:
+        all_elements.extend(elements)
+        _progress(f"Found {len(elements)} hazard elements")
+
+    logger.info("Total OSM elements fetched for %s/%d: %d (split queries)", osm_type, osm_id, len(all_elements))
     return _parse_elements(all_elements)
 
 
@@ -513,7 +552,7 @@ def fetch_golf_features(lat: float, lng: float, radius_km: float = 1.5) -> OSMCo
     """
     south, west, north, east = _compute_bbox(lat, lng, radius_km)
 
-    query = f"""[out:json][timeout:25];
+    query = f"""[out:json][timeout:30];
 (
   way["golf"]({south},{west},{north},{east});
   relation["golf"]({south},{west},{north},{east});
@@ -523,22 +562,9 @@ def fetch_golf_features(lat: float, lng: float, radius_km: float = 1.5) -> OSMCo
 );
 out geom;"""
 
-    last_error = None
-    for base_url in OVERPASS_URLS:
-        url = base_url + "?data=" + urllib.parse.quote(query)
-        req = urllib.request.Request(url)
-        req.add_header("User-Agent", "BirdieBook/0.2.0")
+    elements = _overpass_query_single(query, timeout=35)
+    if elements:
+        logger.info("OSM query returned %d elements", len(elements))
+        return _parse_elements(elements)
 
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-
-            elements = result.get("elements", [])
-            logger.info("OSM query returned %d elements from %s", len(elements), base_url)
-            return _parse_elements(elements)
-
-        except Exception as e:
-            logger.warning("Overpass query failed on %s: %s", base_url, e)
-            last_error = e
-
-    raise ValueError(f"All Overpass API instances failed. Last error: {last_error}")
+    raise ValueError("All Overpass API instances failed")

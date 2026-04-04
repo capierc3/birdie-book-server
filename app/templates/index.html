@@ -261,97 +261,158 @@
 <!-- ===== Course Editor Section ===== -->
 <div class="content-section" id="section-course-editor">
     <div class="course-editor-layout">
-        <!-- Sidebar -->
-        <div class="course-editor-sidebar">
-            <!-- Header -->
-            <div class="editor-sidebar-header">
-                <a href="#" id="editor-back-btn" class="btn btn-ghost btn-sm">&larr; Back</a>
-                <h3 id="editor-course-name" style="margin:0; font-size:1rem;"></h3>
+        <!-- Full-screen Map -->
+        <div class="course-editor-map">
+            <div id="editor-leaflet-map" style="width:100%; height:100%;"></div>
+        </div>
+
+        <!-- Floating Toolbar Strip -->
+        <div class="editor-panel" id="editor-panel">
+            <!-- Header row (drag handle + popout) -->
+            <div class="editor-panel-header" id="editor-panel-header">
+                <button class="shot-panel-btn" id="btn-editor-popout" title="Pop out to window">&#x29c9;</button>
             </div>
 
-            <!-- Hole Navigator -->
-            <div class="editor-hole-nav" id="editor-hole-nav"></div>
-
-            <!-- Hole Info -->
-            <div class="editor-hole-info">
-                <h4 id="editor-hole-title" style="margin:0 0 8px;">Hole 1</h4>
-                <div class="editor-hole-fields">
-                    <label>Par <input type="number" id="editor-par" min="3" max="6" class="edit-input"></label>
-                    <label>Yds <input type="number" id="editor-yardage" min="0" max="700" class="edit-input"></label>
-                    <label>HCP <input type="number" id="editor-handicap" min="1" max="18" class="edit-input"></label>
-                </div>
-                <div id="editor-data-source" class="editor-data-source"></div>
-                <div id="editor-completeness" class="editor-completeness"></div>
+            <!-- Quick hole nav: < Hole 3 > -->
+            <div class="editor-hole-quick" id="editor-hole-quick">
+                <button class="editor-hole-quick-btn" id="editor-prev-hole">&lt;</button>
+                <span class="editor-hole-quick-label" id="editor-hole-quick-label">1</span>
+                <button class="editor-hole-quick-btn" id="editor-next-hole">&gt;</button>
             </div>
 
-            <!-- Tee Selector -->
-            <div class="editor-section">
-                <label style="font-size:0.78rem; font-weight:600;">Editing Tee:</label>
-                <select id="editor-tee-select" class="edit-input" style="width:100%;"></select>
+            <!-- Vertical icon toolbar -->
+            <div class="editor-toolbar">
+                <button class="toolbar-icon" data-panel="hole" title="Hole Info">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V3l12 5-12 5"/></svg>
+                </button>
+                <button class="toolbar-icon" data-panel="draw" title="Drawing Tools">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                </button>
+                <button class="toolbar-icon" data-panel="insights" title="Strategy Insights">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21h6"/><path d="M12 3a6 6 0 014 10.5V17H8v-3.5A6 6 0 0112 3z"/></svg>
+                </button>
+                <button class="toolbar-icon" data-panel="data" title="Data Import">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2"/></svg>
+                </button>
+                <div style="width:28px; height:1px; background:var(--border); margin:4px 0;"></div>
+                <button class="toolbar-icon" id="btn-measure-tool" title="Measure distance">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20L20 2"/><path d="M6 20l-2-2"/><path d="M10 18l-2-2"/><path d="M14 14l-2-2"/><path d="M18 10l-2-2"/></svg>
+                </button>
             </div>
 
-            <!-- Drawing Tools -->
-            <div class="editor-section">
-                <div class="editor-section-title">Drawing Tools</div>
-                <div class="editor-tools">
-                    <button class="edit-tool" data-editor-tool="tee">Place Tee</button>
-                    <button class="edit-tool" data-editor-tool="green">Place Green</button>
-                    <button class="edit-tool" data-editor-tool="fairway">FW Line</button>
-                    <button class="edit-tool" data-editor-tool="fairway-boundary">FW Boundary</button>
-                    <button class="edit-tool" data-editor-tool="green-boundary">Green Boundary</button>
-                    <button class="edit-tool" data-editor-tool="hazard">Hazard</button>
-                </div>
-                <div id="editor-tool-options" style="margin-top:6px;"></div>
-                <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">
-                    <button class="btn btn-ghost btn-sm" id="editor-clear-fairway">Clear FW Line</button>
-                    <button class="btn btn-ghost btn-sm" id="editor-clear-fw-boundary">Clear FW Boundary</button>
-                    <button class="btn btn-ghost btn-sm" id="editor-clear-green-boundary">Clear Green Bnd</button>
-                </div>
-            </div>
-
-            <!-- Hazard Type Selector (shown when hazard tool active) -->
-            <div class="editor-section" id="editor-hazard-section" style="display:none;">
-                <select id="editor-hazard-type" class="edit-input" style="width:100%;">
-                    <option value="bunker">Bunker</option>
-                    <option value="water">Water</option>
-                    <option value="out_of_bounds">Out of Bounds</option>
-                    <option value="trees">Trees</option>
-                    <option value="waste_area">Waste Area</option>
-                </select>
-                <div style="margin-top:4px; display:flex; gap:4px;">
-                    <button class="btn btn-sm" id="editor-finish-hazard">Done</button>
-                    <button class="btn btn-ghost btn-sm" id="editor-discard-hazard">Discard</button>
-                </div>
-            </div>
-
-            <!-- Strategy Insights -->
-            <div class="editor-section" id="editor-strategy-section">
-                <div class="editor-section-title">Strategy Insights</div>
-                <div id="editor-strategy-content" class="editor-strategy-content">
-                    <div class="strategy-empty">Add hole data to see insights</div>
-                </div>
-            </div>
-
-            <!-- Sync Buttons -->
-            <div class="editor-section">
-                <div class="editor-section-title">Data Import</div>
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                    <button class="btn btn-sm" id="editor-sync-api">Sync Tees (Golf API)</button>
-                    <button class="btn btn-sm" id="editor-import-osm">Import OSM Features</button>
-                </div>
-            </div>
-
-            <!-- Navigation -->
-            <div class="editor-nav-buttons">
-                <button class="btn btn-sm" id="editor-prev-hole">&laquo; Prev</button>
-                <button class="btn btn-sm" id="editor-save-hole">Save</button>
-                <button class="btn btn-sm" id="editor-next-hole">Next &raquo;</button>
+            <!-- Save button at bottom -->
+            <div class="editor-toolbar-save">
+                <button class="btn btn-sm" id="editor-save-hole" title="Save hole">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                </button>
             </div>
         </div>
 
-        <!-- Map -->
-        <div class="course-editor-map">
-            <div id="editor-leaflet-map" style="width:100%; height:100%;"></div>
+        <!-- Independent floating panels (each can be open simultaneously) -->
+
+        <!-- Hole Info panel -->
+        <div class="editor-float-panel" data-float-panel="hole" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Hole Info</span>
+                <button class="shot-panel-btn editor-float-close">&times;</button>
+            </div>
+            <div class="editor-float-body">
+                <div class="editor-hole-nav" id="editor-hole-nav"></div>
+                <div class="editor-hole-info">
+                    <h4 id="editor-hole-title" style="margin:0 0 8px;">Hole 1</h4>
+                    <div class="editor-hole-fields">
+                        <label>Par <input type="number" id="editor-par" min="3" max="6" class="edit-input"></label>
+                        <label>Yds <input type="number" id="editor-yardage" min="0" max="700" class="edit-input"></label>
+                        <label>HCP <input type="number" id="editor-handicap" min="1" max="18" class="edit-input"></label>
+                    </div>
+                    <div id="editor-data-source" class="editor-data-source"></div>
+                    <div id="editor-completeness" class="editor-completeness"></div>
+                </div>
+                <div class="editor-section">
+                    <label style="font-size:0.78rem; font-weight:600;">Editing Tee:</label>
+                    <select id="editor-tee-select" class="edit-input" style="width:100%;"></select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Drawing Tools panel -->
+        <div class="editor-float-panel" data-float-panel="draw" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Drawing Tools</span>
+                <button class="shot-panel-btn editor-float-close">&times;</button>
+            </div>
+            <div class="editor-float-body">
+                <div class="editor-section">
+                    <div class="editor-tools">
+                        <button class="edit-tool" data-editor-tool="tee">Place Tee</button>
+                        <button class="edit-tool" data-editor-tool="green">Place Green</button>
+                        <button class="edit-tool" data-editor-tool="fairway">FW Line</button>
+                        <button class="edit-tool" data-editor-tool="fairway-boundary">FW Boundary</button>
+                        <button class="edit-tool" data-editor-tool="green-boundary">Green Boundary</button>
+                        <button class="edit-tool" data-editor-tool="hazard">Hazard</button>
+                    </div>
+                    <div id="editor-tool-options" style="margin-top:6px;"></div>
+                    <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">
+                        <button class="btn btn-ghost btn-sm" id="editor-clear-fairway">Clear FW Line</button>
+                        <button class="btn btn-ghost btn-sm" id="editor-clear-green-boundary">Clear Green Bnd</button>
+                    </div>
+                </div>
+                <div class="editor-section" id="editor-fw-boundary-section" style="display:none;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Click to draw boundary polygon. Double-click or Done to finish. Draw multiple for split fairways.</div>
+                    <div style="display:flex; gap:4px;">
+                        <button class="btn btn-sm" id="editor-finish-fw-boundary">Done</button>
+                        <button class="btn btn-ghost btn-sm" id="editor-discard-fw-boundary">Discard</button>
+                    </div>
+                </div>
+                <div class="editor-section" id="editor-hazard-section" style="display:none;">
+                    <select id="editor-hazard-type" class="edit-input" style="width:100%;">
+                        <option value="bunker">Bunker</option>
+                        <option value="water">Water</option>
+                        <option value="out_of_bounds">Out of Bounds</option>
+                        <option value="trees">Trees</option>
+                        <option value="waste_area">Waste Area</option>
+                    </select>
+                    <div style="margin-top:4px; display:flex; gap:4px;">
+                        <button class="btn btn-sm" id="editor-finish-hazard">Done</button>
+                        <button class="btn btn-ghost btn-sm" id="editor-discard-hazard">Discard</button>
+                    </div>
+                </div>
+                <div class="editor-section" id="editor-object-list-section">
+                    <div class="editor-section-title" id="editor-object-list-title">Objects</div>
+                    <div id="editor-object-list" class="editor-hazard-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Insights panel -->
+        <div class="editor-float-panel" data-float-panel="insights" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Strategy Insights</span>
+                <button class="shot-panel-btn editor-float-close">&times;</button>
+            </div>
+            <div class="editor-float-body">
+                <div class="editor-section" id="editor-strategy-section">
+                    <div id="editor-strategy-content" class="editor-strategy-content">
+                        <div class="strategy-empty">Add hole data to see insights</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Import panel -->
+        <div class="editor-float-panel" data-float-panel="data" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Data Import</span>
+                <button class="shot-panel-btn editor-float-close">&times;</button>
+            </div>
+            <div class="editor-float-body">
+                <div class="editor-section">
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <button class="btn btn-sm" id="editor-sync-api">Sync Tees (Golf API)</button>
+                        <button class="btn btn-sm" id="editor-import-osm">Import OSM Features</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -1480,6 +1541,27 @@
         <p>Application configuration</p>
     </div>
 
+    <div class="card" style="margin-bottom:20px;">
+        <div class="card-header">
+            <h2>Preferences</h2>
+        </div>
+        <div style="margin-bottom:16px;">
+            <label style="font-size:0.88rem; color:var(--text-muted); display:block; margin-bottom:6px;">Default Tee</label>
+            <select id="settings-default-tee" class="edit-input" style="width:240px;">
+                <option value="">Auto (first available)</option>
+                <option value="Black">Black</option>
+                <option value="Blue">Blue</option>
+                <option value="Gold">Gold</option>
+                <option value="White">White</option>
+                <option value="Green">Green</option>
+                <option value="Red">Red</option>
+            </select>
+            <p style="color:var(--text-dim); font-size:0.78rem; margin-top:4px;">
+                Sets the default tee when opening the course editor. Matches by tee color name.
+            </p>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header">
             <h2>Data Management</h2>
@@ -1503,5 +1585,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.4.0"></script>
+<script src="/static/js/app.js?v=0.5.1"></script>
 {% endblock %}

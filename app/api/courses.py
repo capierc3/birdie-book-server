@@ -1165,11 +1165,11 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
         hole.flag_lat = req.flag_lat
         hole.flag_lng = req.flag_lng
     if req.fairway_path is not None:
-        hole.fairway_path = req.fairway_path
+        hole.fairway_path = req.fairway_path or None  # empty string → clear
     if req.fairway_boundary is not None:
-        hole.fairway_boundary = req.fairway_boundary
+        hole.fairway_boundary = req.fairway_boundary or None
     if req.green_boundary is not None:
-        hole.green_boundary = req.green_boundary
+        hole.green_boundary = req.green_boundary or None
 
     hole.data_source = 'manual'
 

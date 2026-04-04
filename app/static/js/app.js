@@ -44,6 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (sectionId === 'section-scoring') {
             loadScoringStats();
         }
+        // Invalidate editor map size when entering full-screen editor
+        if (sectionId === 'section-course-editor' && typeof editorMap !== 'undefined' && editorMap) {
+            requestAnimationFrame(() => editorMap.invalidateSize());
+        }
     }
 
     // Sidebar nav clicks
@@ -8995,6 +8999,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // ========== Settings: Default Tee Preference ==========
+    const defaultTeeSelect = document.getElementById('settings-default-tee');
+    if (defaultTeeSelect) {
+        // Load saved preference
+        defaultTeeSelect.value = localStorage.getItem('birdie_book_default_tee') || '';
+        // Save on change
+        defaultTeeSelect.addEventListener('change', () => {
+            localStorage.setItem('birdie_book_default_tee', defaultTeeSelect.value);
+        });
+    }
+
     // ========== Settings: Rebuild Personal Baseline ==========
     const btnRebuildBaseline = document.getElementById('btn-rebuild-baseline');
     const rebuildBaselineStatus = document.getElementById('rebuild-baseline-status');
@@ -10228,11 +10243,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let editorTeeId = null;
     let editorLayerGroup = null;
     let editorTool = 'tee';
+    let editorDrawPanelOpen = false; // global flag, set by float panel toggle
     let editorTeePos = null;
     let editorTeePositions = {};
     let editorGreenPos = null;
     let editorFairwayPath = [];
-    let editorFairwayBoundary = [];
+    let editorFairwayBoundaries = [];  // Array of polygons: [{lat,lng}[], ...]
+    let editorCurrentFwBoundary = [];  // In-progress polygon being drawn
     let editorGreenBoundary = [];
     let editorHazards = [];
     let editorCurrentHazard = [];
@@ -10248,8 +10265,7 @@ document.addEventListener('DOMContentLoaded', () => {
         editorStrategy = stratResp;
 
         // Set header
-        document.getElementById('editor-course-name').textContent = editorCourse.display_name || editorCourse.club_name;
-        document.getElementById('editor-back-btn').href = `#club/${editorCourse.golf_club_id}`;
+        // Back btn removed — browser back handles navigation
 
         // Init tee selector
         const teeSelect = document.getElementById('editor-tee-select');
@@ -10260,7 +10276,12 @@ document.addEventListener('DOMContentLoaded', () => {
             opt.textContent = `${t.tee_name} (${t.total_yards || '?'}yd)`;
             teeSelect.appendChild(opt);
         });
-        editorTeeId = editorCourse.tees?.[0]?.id || null;
+        // Select default tee: match user preference by name, fall back to first
+        const defaultTeeName = localStorage.getItem('birdie_book_default_tee') || '';
+        const preferredTee = defaultTeeName
+            ? (editorCourse.tees || []).find(t => t.tee_name && t.tee_name.toUpperCase().includes(defaultTeeName.toUpperCase()))
+            : null;
+        editorTeeId = preferredTee?.id || editorCourse.tees?.[0]?.id || null;
         teeSelect.value = editorTeeId;
 
         // Init map
@@ -10300,6 +10321,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (editorTool === 'hazard' && editorCurrentHazard.length >= 3) {
                 editorFinishHazard();
             }
+            if (editorTool === 'fairway-boundary' && editorCurrentFwBoundary.length >= 3) {
+                editorFairwayBoundaries.push([...editorCurrentFwBoundary]);
+                editorCurrentFwBoundary = [];
+                editorDirty = true;
+                editorRedraw();
+            }
         });
 
         // Build hole navigator
@@ -10308,6 +10335,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Select hole 1
         editorCurrentHole = 1;
         editorSelectHole(1);
+
+        // Ensure map fills full-screen layout
+        requestAnimationFrame(() => editorMap.invalidateSize());
     }
 
     function editorBuildHoleNav() {
@@ -10355,8 +10385,10 @@ document.addEventListener('DOMContentLoaded', () => {
         editorCurrentHole = holeNum;
         const hole = editorGetCurrentHole();
 
-        // Update sidebar title
+        // Update titles
         document.getElementById('editor-hole-title').textContent = `Hole ${holeNum}`;
+        const quickLabel = document.getElementById('editor-hole-quick-label');
+        if (quickLabel) quickLabel.textContent = holeNum;
 
         // Load hole data into edit state
         if (hole) {
@@ -10367,7 +10399,19 @@ document.addEventListener('DOMContentLoaded', () => {
             editorTeePos = (hole.tee_lat && hole.tee_lng) ? { lat: hole.tee_lat, lng: hole.tee_lng } : null;
             editorGreenPos = (hole.flag_lat && hole.flag_lng) ? { lat: hole.flag_lat, lng: hole.flag_lng } : null;
             editorFairwayPath = hole.fairway_path ? JSON.parse(hole.fairway_path).map(p => ({ lat: p[0], lng: p[1] })) : [];
-            editorFairwayBoundary = hole.fairway_boundary ? JSON.parse(hole.fairway_boundary).map(p => ({ lat: p[0], lng: p[1] })) : [];
+            // Parse fairway_boundary — supports both single polygon [[lat,lng],...] and multi [[[lat,lng],...],...]
+            editorFairwayBoundaries = [];
+            if (hole.fairway_boundary) {
+                const parsed = JSON.parse(hole.fairway_boundary);
+                if (parsed.length > 0 && Array.isArray(parsed[0]) && Array.isArray(parsed[0][0])) {
+                    // Multi-polygon: [[[lat,lng],...], [[lat,lng],...]]
+                    editorFairwayBoundaries = parsed.map(poly => poly.map(p => ({ lat: p[0], lng: p[1] })));
+                } else if (parsed.length > 0) {
+                    // Single polygon: [[lat,lng],...] — wrap in array
+                    editorFairwayBoundaries = [parsed.map(p => ({ lat: p[0], lng: p[1] }))];
+                }
+            }
+            editorCurrentFwBoundary = [];
             editorGreenBoundary = hole.green_boundary ? JSON.parse(hole.green_boundary).map(p => ({ lat: p[0], lng: p[1] })) : [];
 
             // Data source badge
@@ -10385,7 +10429,8 @@ document.addEventListener('DOMContentLoaded', () => {
             editorTeePos = null;
             editorGreenPos = null;
             editorFairwayPath = [];
-            editorFairwayBoundary = [];
+            editorFairwayBoundaries = [];
+            editorCurrentFwBoundary = [];
             editorGreenBoundary = [];
             document.getElementById('editor-data-source').textContent = '';
         }
@@ -10439,6 +10484,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // === Map Click Handler ===
     function onEditorMapClick(e) {
+        // Ignore map clicks when draw panel is not open
+        if (!editorDrawPanelOpen) return;
+
         const { lat, lng } = e.latlng;
         editorDirty = true;
 
@@ -10469,7 +10517,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 editorFairwayPath.push({ lat, lng });
             }
         } else if (editorTool === 'fairway-boundary') {
-            editorFairwayBoundary.push({ lat, lng });
+            editorCurrentFwBoundary.push({ lat, lng });
         } else if (editorTool === 'green-boundary') {
             editorGreenBoundary.push({ lat, lng });
         } else if (editorTool === 'hazard') {
@@ -10491,60 +10539,129 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
     }
 
+    let editorFairwayLine = null;  // Reference for live drag updates
+
     // === Redraw Map Overlays ===
     function editorRedraw() {
         if (!editorLayerGroup) return;
         editorLayerGroup.clearLayers();
+        editorFairwayLine = null;
+
+        // Markers only editable when Draw panel is open
+        const drawOpen = editorDrawPanelOpen;
 
         const activeTee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
         const activeTeeName = activeTee ? activeTee.tee_name : '';
 
-        // Fairway centerline
-        if (editorFairwayPath.length >= 2) {
+        // Fairway centerline — draw if we have waypoints OR both tee and green (auto-connect)
+        const hasFairwayData = editorFairwayPath.length >= 1 || (editorTeePos && editorGreenPos);
+        if (hasFairwayData) {
             const pts = [];
             if (editorTeePos) pts.push([editorTeePos.lat, editorTeePos.lng]);
             editorFairwayPath.forEach(p => pts.push([p.lat, p.lng]));
             if (editorGreenPos) pts.push([editorGreenPos.lat, editorGreenPos.lng]);
-            L.polyline(pts, { color: '#FFD700', weight: 2, dashArray: '6,4', interactive: false }).addTo(editorLayerGroup);
-
-            // Waypoint markers (draggable)
-            editorFairwayPath.forEach((p, i) => {
-                const m = L.marker([p.lat, p.lng], {
-                    draggable: true,
-                    icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:12px;height:12px;border-radius:50%;background:#FFD700;border:2px solid #fff;margin:-6px 0 0 -6px;"></div>`, iconSize: [0, 0] }),
-                }).addTo(editorLayerGroup);
-                m.on('drag', (e) => { editorFairwayPath[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; editorRedraw(); });
-                m.on('contextmenu', () => { editorFairwayPath.splice(i, 1); editorDirty = true; editorRedraw(); editorUpdateCompleteness(); });
-            });
-
-            // Distance labels
-            const allPts = [];
-            if (editorTeePos) allPts.push(editorTeePos);
-            allPts.push(...editorFairwayPath);
-            if (editorGreenPos) allPts.push(editorGreenPos);
-            for (let i = 0; i < allPts.length - 1; i++) {
-                const a = allPts[i], b = allPts[i + 1];
-                const d = _haversineYards(a.lat, a.lng, b.lat, b.lng);
-                const midLat = (a.lat + b.lat) / 2, midLng = (a.lng + b.lng) / 2;
-                L.marker([midLat, midLng], {
-                    icon: L.divIcon({ className: 'leaflet-dist-label', html: `<span style="background:rgba(0,0,0,0.7);color:#FFD700;font-size:10px;padding:1px 3px;border-radius:2px;white-space:nowrap;">${Math.round(d)}y</span>`, iconSize: [0, 0] }),
-                    interactive: false,
-                }).addTo(editorLayerGroup);
+            if (pts.length >= 2) {
+                editorFairwayLine = L.polyline(pts, { color: '#FFD700', weight: 2, dashArray: '6,4', interactive: false }).addTo(editorLayerGroup);
             }
+
+            // Waypoint markers + segment distances — only shown when Draw panel is open
+            if (drawOpen) {
+                editorFairwayPath.forEach((p, i) => {
+                    // Segment distance label (yellow, between this point and previous)
+                    if (i > 0 || editorTeePos) {
+                        const prev = i === 0 ? editorTeePos : editorFairwayPath[i - 1];
+                        if (prev) {
+                            const segDist = Math.round(_haversineYards(prev.lat, prev.lng, p.lat, p.lng));
+                            const midLat = (prev.lat + p.lat) / 2;
+                            const midLng = (prev.lng + p.lng) / 2;
+                            L.marker([midLat, midLng], {
+                                icon: L.divIcon({
+                                    className: 'leaflet-seg-label',
+                                    html: `<div style="color:#FFD700;font-size:10px;font-weight:700;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;">${segDist}y</div>`,
+                                    iconSize: [0, 0], iconAnchor: [0, 6],
+                                }),
+                                interactive: false,
+                            }).addTo(editorLayerGroup);
+                        }
+                    }
+
+                    const m = L.marker([p.lat, p.lng], {
+                        draggable: true,
+                        icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:12px;height:12px;border-radius:50%;background:#FFD700;border:2px solid #fff;margin:-6px 0 0 -6px;"></div>`, iconSize: [0, 0] }),
+                    }).addTo(editorLayerGroup);
+
+                    m.on('drag', (e) => {
+                        editorFairwayPath[i] = { lat: e.latlng.lat, lng: e.latlng.lng };
+                        editorDirty = true;
+                        if (editorFairwayLine) {
+                            const livePts = [];
+                            if (editorTeePos) livePts.push([editorTeePos.lat, editorTeePos.lng]);
+                            editorFairwayPath.forEach(fp => livePts.push([fp.lat, fp.lng]));
+                            if (editorGreenPos) livePts.push([editorGreenPos.lat, editorGreenPos.lng]);
+                            editorFairwayLine.setLatLngs(livePts);
+                        }
+                    });
+                    m.on('dragend', () => editorRedraw());
+                    m.on('contextmenu', () => { editorFairwayPath.splice(i, 1); editorDirty = true; editorRedraw(); editorUpdateCompleteness(); });
+                });
+
+                // Last segment: last waypoint to green
+                if (editorGreenPos && editorFairwayPath.length > 0) {
+                    const last = editorFairwayPath[editorFairwayPath.length - 1];
+                    const segDist = Math.round(_haversineYards(last.lat, last.lng, editorGreenPos.lat, editorGreenPos.lng));
+                    const midLat = (last.lat + editorGreenPos.lat) / 2;
+                    const midLng = (last.lng + editorGreenPos.lng) / 2;
+                    L.marker([midLat, midLng], {
+                        icon: L.divIcon({
+                            className: 'leaflet-seg-label',
+                            html: `<div style="color:#FFD700;font-size:10px;font-weight:700;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;">${segDist}y</div>`,
+                            iconSize: [0, 0], iconAnchor: [0, 6],
+                        }),
+                        interactive: false,
+                    }).addTo(editorLayerGroup);
+                }
+            }
+
         }
 
-        // Fairway boundary polygon
-        if (editorFairwayBoundary.length >= 3) {
-            L.polygon(editorFairwayBoundary.map(p => [p.lat, p.lng]), {
-                color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.15, interactive: false,
-            }).addTo(editorLayerGroup);
-            editorFairwayBoundary.forEach((p, i) => {
-                const m = L.marker([p.lat, p.lng], {
+        // Fairway boundary polygons (multiple supported for split fairways)
+        editorFairwayBoundaries.forEach((poly, polyIdx) => {
+            if (poly.length >= 3) {
+                const p = L.polygon(poly.map(pt => [pt.lat, pt.lng]), {
+                    color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.15,
+                }).addTo(editorLayerGroup);
+                p.on('contextmenu', () => {
+                    editorFairwayBoundaries.splice(polyIdx, 1);
+                    editorDirty = true;
+                    editorRedraw();
+                });
+            }
+            // Corner markers (draggable only when draw panel open)
+            poly.forEach((pt, i) => {
+                if (!drawOpen) return; // hide corner markers entirely when not editing
+                const m = L.marker([pt.lat, pt.lng], {
                     draggable: true,
                     icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:10px;height:10px;border-radius:50%;background:#4CAF50;border:2px solid #fff;margin:-5px 0 0 -5px;"></div>`, iconSize: [0, 0] }),
                 }).addTo(editorLayerGroup);
-                m.on('drag', (e) => { editorFairwayBoundary[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; editorRedraw(); });
-                m.on('contextmenu', () => { editorFairwayBoundary.splice(i, 1); editorDirty = true; editorRedraw(); });
+                m.on('drag', (e) => { editorFairwayBoundaries[polyIdx][i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; });
+                m.on('dragend', () => editorRedraw());
+                m.on('contextmenu', () => { editorFairwayBoundaries[polyIdx].splice(i, 1); if (editorFairwayBoundaries[polyIdx].length === 0) editorFairwayBoundaries.splice(polyIdx, 1); editorDirty = true; editorRedraw(); });
+            });
+        });
+
+        // In-progress fairway boundary being drawn
+        if (editorCurrentFwBoundary.length >= 1) {
+            if (editorCurrentFwBoundary.length >= 3) {
+                L.polygon(editorCurrentFwBoundary.map(p => [p.lat, p.lng]), {
+                    color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.1, dashArray: '4,4', interactive: false,
+                }).addTo(editorLayerGroup);
+            } else if (editorCurrentFwBoundary.length === 2) {
+                L.polyline(editorCurrentFwBoundary.map(p => [p.lat, p.lng]), {
+                    color: '#4CAF50', weight: 2, dashArray: '4,4', interactive: false,
+                }).addTo(editorLayerGroup);
+            }
+            editorCurrentFwBoundary.forEach(p => {
+                L.circleMarker([p.lat, p.lng], { radius: 5, color: '#4CAF50', fillColor: '#4CAF50', fillOpacity: 1, interactive: false }).addTo(editorLayerGroup);
             });
         }
 
@@ -10555,7 +10672,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const color = TEE_COLORS[name.split(' ')[0]] || '#999';
             const size = isActive ? 24 : 18;
             const m = L.marker([pos.lat, pos.lng], {
-                draggable: isActive,
+                draggable: isActive && drawOpen,
+                interactive: isActive && drawOpen,
                 icon: L.divIcon({
                     className: 'leaflet-edit-tee',
                     html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:${color === '#fff' ? '#333' : '#fff'};opacity:${isActive ? 1 : 0.6};margin:-${size/2}px 0 0 -${size/2}px;">T</div>`,
@@ -10578,7 +10696,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (editorGreenPos) {
             const flagSvg = `<svg width="20" height="24" viewBox="0 0 20 24"><line x1="4" y1="2" x2="4" y2="22" stroke="#fff" stroke-width="2"/><polygon points="5,2 18,7 5,12" fill="#ef5350"/><circle cx="4" cy="22" r="2.5" fill="#fff" stroke="#333"/></svg>`;
             const m = L.marker([editorGreenPos.lat, editorGreenPos.lng], {
-                draggable: true,
+                draggable: drawOpen,
+                interactive: drawOpen,
                 icon: L.divIcon({ className: 'leaflet-edit-flag', html: flagSvg, iconSize: [20, 24], iconAnchor: [4, 22] }),
                 zIndexOffset: 900,
             }).addTo(editorLayerGroup);
@@ -10591,16 +10710,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Green boundary polygon
-        if (editorGreenBoundary.length >= 3) {
-            L.polygon(editorGreenBoundary.map(p => [p.lat, p.lng]), {
-                color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.25, interactive: false,
-            }).addTo(editorLayerGroup);
+        if (editorGreenBoundary.length >= 1) {
+            if (editorGreenBoundary.length >= 3) {
+                L.polygon(editorGreenBoundary.map(p => [p.lat, p.lng]), {
+                    color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.25, interactive: false,
+                }).addTo(editorLayerGroup);
+            } else if (editorGreenBoundary.length === 2) {
+                L.polyline(editorGreenBoundary.map(p => [p.lat, p.lng]), {
+                    color: '#4CAF50', weight: 2, dashArray: '4,4', interactive: false,
+                }).addTo(editorLayerGroup);
+            }
             editorGreenBoundary.forEach((p, i) => {
+                if (!drawOpen) return; // hide corner markers when not editing
                 const m = L.marker([p.lat, p.lng], {
                     draggable: true,
                     icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:8px;height:8px;border-radius:50%;background:#4CAF50;border:1px solid #fff;margin:-4px 0 0 -4px;"></div>`, iconSize: [0, 0] }),
                 }).addTo(editorLayerGroup);
-                m.on('drag', (e) => { editorGreenBoundary[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; editorRedraw(); });
+                m.on('drag', (e) => { editorGreenBoundary[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; });
+                m.on('dragend', () => editorRedraw());
                 m.on('contextmenu', () => { editorGreenBoundary.splice(i, 1); editorDirty = true; editorRedraw(); });
             });
         }
@@ -10611,10 +10738,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const colors = { bunker: ['#EDC967', '#C4A34D'], water: ['#2196F3', '#1565C0'], out_of_bounds: ['#f44336', '#c62828'], trees: ['#2E7D32', '#1B5E20'], waste_area: ['#8D6E63', '#5D4037'] };
             const [fill, stroke] = colors[h.hazard_type] || ['#999', '#666'];
             const poly = L.polygon(h.boundary.map(p => [p.lat, p.lng]), {
-                color: stroke, weight: 1.5, fillColor: fill, fillOpacity: 0.3,
+                color: stroke, weight: 1.5, fillColor: fill, fillOpacity: 0.3, interactive: drawOpen,
             }).addTo(editorLayerGroup);
             if (h.name) poly.bindTooltip(h.name, { permanent: false });
             poly.on('contextmenu', () => {
+                if (!drawOpen) return;
                 if (h.id) h._deleted = true;
                 editorHazards.splice(idx, 1);
                 editorDirty = true;
@@ -10622,15 +10750,24 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Current hazard being drawn
-        if (editorCurrentHazard.length >= 2) {
-            L.polyline(editorCurrentHazard.map(p => [p.lat, p.lng]), {
-                color: '#ffa726', weight: 2, dashArray: '4,4', interactive: false,
-            }).addTo(editorLayerGroup);
+        // Current hazard being drawn (polygon, color-matched to type)
+        if (editorCurrentHazard.length >= 1) {
+            const hazardType = document.getElementById('editor-hazard-type')?.value || 'bunker';
+            const hazardDrawColors = { bunker: '#EDC967', water: '#2196F3', out_of_bounds: '#f44336', trees: '#2E7D32', waste_area: '#8D6E63' };
+            const hColor = hazardDrawColors[hazardType] || '#ffa726';
+            if (editorCurrentHazard.length >= 3) {
+                L.polygon(editorCurrentHazard.map(p => [p.lat, p.lng]), {
+                    color: hColor, weight: 2, fillColor: hColor, fillOpacity: 0.15, dashArray: '4,4', interactive: false,
+                }).addTo(editorLayerGroup);
+            } else if (editorCurrentHazard.length === 2) {
+                L.polyline(editorCurrentHazard.map(p => [p.lat, p.lng]), {
+                    color: hColor, weight: 2, dashArray: '4,4', interactive: false,
+                }).addTo(editorLayerGroup);
+            }
+            editorCurrentHazard.forEach(p => {
+                L.circleMarker([p.lat, p.lng], { radius: 5, color: hColor, fillColor: hColor, fillOpacity: 1, interactive: false }).addTo(editorLayerGroup);
+            });
         }
-        editorCurrentHazard.forEach(p => {
-            L.circleMarker([p.lat, p.lng], { radius: 4, color: '#ffa726', fillColor: '#ffa726', fillOpacity: 1, interactive: false }).addTo(editorLayerGroup);
-        });
 
         // Auto-calculate yardage from tee to green if both placed
         if (editorTeePos && editorGreenPos) {
@@ -10639,6 +10776,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 yardInput.value = Math.round(_haversineYards(editorTeePos.lat, editorTeePos.lng, editorGreenPos.lat, editorGreenPos.lng));
             }
         }
+
+        // Update hazard list in draw sub-panel
+        editorRenderObjectList();
     }
 
     function editorFinishHazard() {
@@ -10654,6 +10794,87 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         editorCurrentHazard = [];
         editorRedraw();
+    }
+
+    // === Context-sensitive Object List ===
+    function editorRenderObjectList() {
+        const container = document.getElementById('editor-object-list');
+        const titleEl = document.getElementById('editor-object-list-title');
+        const section = document.getElementById('editor-object-list-section');
+        if (!container || !section) return;
+
+        const hazardColors = { bunker: '#EDC967', water: '#2196F3', out_of_bounds: '#f44336', trees: '#2E7D32', waste_area: '#8D6E63' };
+        const hazardLabels = { bunker: 'Bunker', water: 'Water', out_of_bounds: 'OB', trees: 'Trees', waste_area: 'Waste' };
+        let items = [];
+
+        if (editorTool === 'hazard') {
+            // Filter hazards by currently selected type
+            const selectedType = document.getElementById('editor-hazard-type')?.value;
+            titleEl.textContent = hazardLabels[selectedType] || 'Hazards';
+            const filtered = editorHazards
+                .map((h, i) => ({ ...h, _idx: i }))
+                .filter(h => h.hazard_type === selectedType);
+            items = filtered.map(h => `
+                <div class="hazard-list-item">
+                    <div class="hazard-info">
+                        <span class="hazard-color-dot" style="background:${hazardColors[h.hazard_type] || '#999'}"></span>
+                        <span>${hazardLabels[h.hazard_type] || h.hazard_type}${h.name ? ' — ' + h.name : ''}</span>
+                    </div>
+                    <button class="hazard-delete" data-action="delete-hazard" data-idx="${h._idx}" title="Delete">&times;</button>
+                </div>`);
+        } else if (editorTool === 'fairway-boundary') {
+            titleEl.textContent = 'Fairway Boundaries';
+            items = editorFairwayBoundaries.map((b, i) => `
+                <div class="hazard-list-item">
+                    <div class="hazard-info">
+                        <span class="hazard-color-dot" style="background:#66BB6A"></span>
+                        <span>FW Boundary ${i + 1} (${b.length} pts)</span>
+                    </div>
+                    <button class="hazard-delete" data-action="delete-fw-boundary" data-idx="${i}" title="Delete">&times;</button>
+                </div>`);
+        } else if (editorTool === 'green-boundary') {
+            titleEl.textContent = 'Green Boundary';
+            if (editorGreenBoundary && editorGreenBoundary.length > 0) {
+                items = [`
+                    <div class="hazard-list-item">
+                        <div class="hazard-info">
+                            <span class="hazard-color-dot" style="background:#4CAF50"></span>
+                            <span>Green Boundary (${editorGreenBoundary.length} pts)</span>
+                        </div>
+                        <button class="hazard-delete" data-action="delete-green-boundary" title="Delete">&times;</button>
+                    </div>`];
+            }
+        } else {
+            // No tool or tee/green/fairway tool — hide the section
+            section.style.display = 'none';
+            return;
+        }
+
+        section.style.display = '';
+        if (items.length === 0) {
+            container.innerHTML = '<div class="strategy-empty">None drawn</div>';
+        } else {
+            container.innerHTML = items.join('');
+        }
+
+        // Attach delete handlers
+        container.querySelectorAll('.hazard-delete').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const action = btn.dataset.action;
+                const idx = parseInt(btn.dataset.idx);
+                if (action === 'delete-hazard') {
+                    const h = editorHazards[idx];
+                    if (h && h.id) h._deleted = true;
+                    editorHazards.splice(idx, 1);
+                } else if (action === 'delete-fw-boundary') {
+                    editorFairwayBoundaries.splice(idx, 1);
+                } else if (action === 'delete-green-boundary') {
+                    editorGreenBoundary = [];
+                }
+                editorDirty = true;
+                editorRedraw();
+            });
+        });
     }
 
     // === Strategy Insights ===
@@ -10847,16 +11068,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 body.tee_lng = editorTeePositions[tee.tee_name].lng;
             }
 
-            // Fairway/green data (shared across tees)
-            if (editorFairwayPath.length >= 2) {
-                body.fairway_path = JSON.stringify(editorFairwayPath.map(p => [p.lat, p.lng]));
-            }
-            if (editorFairwayBoundary.length >= 3) {
-                body.fairway_boundary = JSON.stringify(editorFairwayBoundary.map(p => [p.lat, p.lng]));
-            }
-            if (editorGreenBoundary.length >= 3) {
-                body.green_boundary = JSON.stringify(editorGreenBoundary.map(p => [p.lat, p.lng]));
-            }
+            // Fairway/green data (shared across tees) — send empty string to clear
+            body.fairway_path = editorFairwayPath.length >= 2
+                ? JSON.stringify(editorFairwayPath.map(p => [p.lat, p.lng]))
+                : '';
+            const validBoundaries = editorFairwayBoundaries.filter(poly => poly.length >= 3);
+            body.fairway_boundary = validBoundaries.length > 0
+                ? JSON.stringify(validBoundaries.map(poly => poly.map(p => [p.lat, p.lng])))
+                : '';
+            body.green_boundary = editorGreenBoundary.length >= 3
+                ? JSON.stringify(editorGreenBoundary.map(p => [p.lat, p.lng]))
+                : '';
 
             await fetch(`/api/courses/${editorCourse.id}/holes/${teeHole.id}`, {
                 method: 'PUT',
@@ -10899,22 +11121,50 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('[data-editor-tool]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
-            // Show/hide hazard section
+            // Show/hide tool-specific sections
             document.getElementById('editor-hazard-section').style.display = editorTool === 'hazard' ? '' : 'none';
+            document.getElementById('editor-fw-boundary-section').style.display = editorTool === 'fairway-boundary' ? '' : 'none';
 
-            // Finish current hazard if switching away
+            // Auto-switch to Draw tab (forceOpen=true to prevent toggle-close)
+            if (window._editorActivateTab) window._editorActivateTab('draw', true);
+
+            // Finish in-progress drawing if switching away
             if (editorTool !== 'hazard' && editorCurrentHazard.length >= 3) {
                 editorFinishHazard();
             }
+            if (editorTool !== 'fairway-boundary' && editorCurrentFwBoundary.length >= 3) {
+                editorFairwayBoundaries.push([...editorCurrentFwBoundary]);
+                editorCurrentFwBoundary = [];
+                editorDirty = true;
+                editorRedraw();
+            }
+
+            // Refresh context-sensitive object list for the new tool
+            editorRenderObjectList();
         });
+    });
+
+    // Hazard type dropdown change → re-render filtered list
+    document.getElementById('editor-hazard-type')?.addEventListener('change', () => {
+        editorRenderObjectList();
     });
 
     // Clear buttons
     document.getElementById('editor-clear-fairway')?.addEventListener('click', () => {
         editorFairwayPath = []; editorDirty = true; editorRedraw(); editorUpdateCompleteness();
     });
-    document.getElementById('editor-clear-fw-boundary')?.addEventListener('click', () => {
-        editorFairwayBoundary = []; editorDirty = true; editorRedraw();
+    // FW Boundary finish/discard
+    document.getElementById('editor-finish-fw-boundary')?.addEventListener('click', () => {
+        if (editorCurrentFwBoundary.length >= 3) {
+            editorFairwayBoundaries.push([...editorCurrentFwBoundary]);
+            editorDirty = true;
+        }
+        editorCurrentFwBoundary = [];
+        editorRedraw();
+    });
+    document.getElementById('editor-discard-fw-boundary')?.addEventListener('click', () => {
+        editorCurrentFwBoundary = [];
+        editorRedraw();
     });
     document.getElementById('editor-clear-green-boundary')?.addEventListener('click', () => {
         editorGreenBoundary = []; editorDirty = true; editorRedraw(); editorUpdateCompleteness();
@@ -10963,6 +11213,7 @@ document.addEventListener('DOMContentLoaded', () => {
             editorTool = null;
             document.querySelectorAll('[data-editor-tool]').forEach(b => b.classList.remove('active'));
             document.getElementById('editor-hazard-section').style.display = 'none';
+            document.getElementById('editor-fw-boundary-section').style.display = 'none';
         }
     });
 
@@ -11032,6 +11283,354 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         setTimeout(() => { btn.textContent = 'Import OSM Features'; btn.disabled = false; }, 3000);
     });
+
+    // ========== Measure Tool ==========
+
+    (function initMeasureTool() {
+        const btn = document.getElementById('btn-measure-tool');
+        if (!btn) return;
+
+        let measuring = false;
+        let dragging = false;
+        let origin = null;          // {lat, lng}
+        let measureLayers = L.layerGroup();
+        let measureAdded = false;
+        let measureLine = null;
+        let measureLabel = null;
+        let originMarker = null;
+        let cursorMarker = null;
+
+        const targetSvg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2">
+            <circle cx="12" cy="12" r="8" stroke-dasharray="4,2"/>
+            <circle cx="12" cy="12" r="2" fill="#FF5722"/>
+            <line x1="12" y1="0" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="24"/>
+            <line x1="0" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="24" y2="12"/>
+        </svg>`;
+
+        function onMouseDown(e) {
+            if (!measuring) return;
+            // Don't measure when drawing tools are active
+            if (editorDrawPanelOpen && editorTool) return;
+
+            dragging = true;
+            origin = { lat: e.latlng.lat, lng: e.latlng.lng };
+
+            measureLayers.clearLayers();
+
+            // Origin dot
+            originMarker = L.circleMarker([origin.lat, origin.lng], {
+                radius: 5, color: '#FF5722', fillColor: '#FF5722', fillOpacity: 1, weight: 2, interactive: false,
+            }).addTo(measureLayers);
+
+            // Cursor target marker (moves with mouse)
+            cursorMarker = L.marker([origin.lat, origin.lng], {
+                icon: L.divIcon({
+                    className: 'measure-target',
+                    html: targetSvg,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12],
+                }),
+                interactive: false,
+            }).addTo(measureLayers);
+
+            // Init line (will update on mousemove)
+            measureLine = L.polyline([[origin.lat, origin.lng], [origin.lat, origin.lng]], {
+                color: '#FF5722', weight: 2.5, interactive: false,
+            }).addTo(measureLayers);
+
+            // Init distance label
+            measureLabel = L.marker([origin.lat, origin.lng], {
+                icon: L.divIcon({
+                    className: 'measure-dist-label',
+                    html: `<div style="background:rgba(255,87,34,0.9);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700;white-space:nowrap;text-align:center;">0y</div>`,
+                    iconSize: [0, 0],
+                    iconAnchor: [0, 12],
+                }),
+                interactive: false,
+            }).addTo(measureLayers);
+
+            // Prevent map pan while measuring
+            editorMap.dragging.disable();
+        }
+
+        function onMouseMove(e) {
+            if (!dragging || !origin) return;
+
+            const cur = e.latlng;
+            const dist = Math.round(_haversineYards(origin.lat, origin.lng, cur.lat, cur.lng));
+
+            // Update line endpoint
+            measureLine.setLatLngs([[origin.lat, origin.lng], [cur.lat, cur.lng]]);
+
+            // Move target to cursor
+            if (cursorMarker) cursorMarker.setLatLng([cur.lat, cur.lng]);
+
+            // Update label position (at cursor) and text
+            measureLabel.setLatLng([cur.lat, cur.lng]);
+            measureLabel.setIcon(L.divIcon({
+                className: '',
+                html: `<div style="display:inline-block;background:rgba(255,87,34,0.92);color:#fff;padding:5px 12px;border-radius:5px;font-size:14px;font-weight:700;white-space:nowrap;line-height:1;margin-left:16px;margin-top:-28px;">${dist}y</div>`,
+                iconSize: [0, 0],
+            }));
+        }
+
+        function onMouseUp(e) {
+            if (!dragging) return;
+            dragging = false;
+            origin = null;
+
+            // Clear everything
+            measureLayers.clearLayers();
+            measureLine = null;
+            measureLabel = null;
+            originMarker = null;
+            cursorMarker = null;
+
+            // Re-enable map pan
+            if (editorMap) editorMap.dragging.enable();
+        }
+
+        btn.addEventListener('click', () => {
+            measuring = !measuring;
+            btn.classList.toggle('active', measuring);
+
+            if (measuring) {
+                measureLayers.clearLayers();
+                if (typeof editorMap !== 'undefined' && editorMap) {
+                    if (!measureAdded) {
+                        measureLayers.addTo(editorMap);
+                        measureAdded = true;
+                    }
+                    editorMap.on('mousedown', onMouseDown);
+                    editorMap.on('mousemove', onMouseMove);
+                    editorMap.on('mouseup', onMouseUp);
+                    editorMap.getContainer().style.cursor = 'crosshair';
+                }
+            } else {
+                dragging = false;
+                origin = null;
+                measureLayers.clearLayers();
+                if (typeof editorMap !== 'undefined' && editorMap) {
+                    editorMap.off('mousedown', onMouseDown);
+                    editorMap.off('mousemove', onMouseMove);
+                    editorMap.off('mouseup', onMouseUp);
+                    editorMap.dragging.enable();
+                    editorMap.getContainer().style.cursor = '';
+                }
+            }
+        });
+
+        // Escape to cancel
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && measuring) {
+                btn.click(); // toggle off
+            }
+        });
+    })();
+
+    // ========== Editor Panel: Toolbar, Drag, Independent Float Panels ==========
+
+    (function initEditorPanel() {
+        const toolbar = document.getElementById('editor-panel');
+        const toolbarHeader = document.getElementById('editor-panel-header');
+        const popoutBtn = document.getElementById('btn-editor-popout');
+        if (!toolbar || !toolbarHeader) return;
+
+        const layout = toolbar.parentElement; // .course-editor-layout
+        const floatPanels = document.querySelectorAll('.editor-float-panel');
+        const panelOrder = ['hole', 'draw', 'insights', 'data'];
+
+        // --- Get float panel by id ---
+        function getFloatPanel(id) {
+            return document.querySelector(`.editor-float-panel[data-float-panel="${id}"]`);
+        }
+
+        function isPanelOpen(id) {
+            const fp = getFloatPanel(id);
+            return fp && fp.style.display !== 'none';
+        }
+
+        // --- Toggle a panel (independent of others) ---
+        function activateTab(panelId, forceOpen) {
+            const fp = getFloatPanel(panelId);
+            if (!fp) return;
+            const icon = toolbar.querySelector(`.toolbar-icon[data-panel="${panelId}"]`);
+
+            if (isPanelOpen(panelId) && !forceOpen) {
+                // Toggle off
+                fp.style.display = 'none';
+                if (icon) icon.classList.remove('active');
+                if (panelId === 'draw') { editorDrawPanelOpen = false; editorRedraw(); }
+                return;
+            }
+            if (isPanelOpen(panelId)) return; // already open
+
+            fp.style.display = '';
+            if (icon) icon.classList.add('active');
+
+            // Position if not manually dragged yet
+            if (!fp._manuallyPositioned) {
+                positionFloatPanel(fp, panelId);
+            }
+            if (panelId === 'draw') { editorDrawPanelOpen = true; editorRedraw(); }
+        }
+
+        // --- Smart initial positioning ---
+        function positionFloatPanel(fp, panelId) {
+            const parentRect = layout.getBoundingClientRect();
+            const tbRect = toolbar.getBoundingClientRect();
+            const relLeft = tbRect.left - parentRect.left;
+            const relTop = tbRect.top - parentRect.top;
+            const tbCenterX = relLeft + toolbar.offsetWidth / 2;
+            const parentCenterX = parentRect.width / 2;
+            const gap = 8;
+
+            // Count how many panels are already open (for vertical stacking)
+            let openCount = 0;
+            for (const id of panelOrder) {
+                if (id === panelId) break;
+                if (isPanelOpen(id)) openCount++;
+            }
+            const verticalOffset = openCount * 40;
+
+            const top = Math.min(relTop + verticalOffset, parentRect.height - 200);
+            fp.style.top = Math.max(0, top) + 'px';
+
+            if (tbCenterX < parentCenterX) {
+                fp.style.left = (relLeft + toolbar.offsetWidth + gap) + 'px';
+            } else {
+                fp.style.left = Math.max(0, relLeft - fp.offsetWidth - gap) + 'px';
+            }
+        }
+
+        // --- Toolbar icon clicks ---
+        toolbar.querySelectorAll('.toolbar-icon').forEach(btn => {
+            btn.addEventListener('click', () => activateTab(btn.dataset.panel));
+        });
+
+        // --- Close buttons on each float panel ---
+        floatPanels.forEach(fp => {
+            const closeBtn = fp.querySelector('.editor-float-close');
+            closeBtn?.addEventListener('click', () => {
+                const panelId = fp.dataset.floatPanel;
+                fp.style.display = 'none';
+                const icon = toolbar.querySelector(`.toolbar-icon[data-panel="${panelId}"]`);
+                if (icon) icon.classList.remove('active');
+                if (panelId === 'draw') { editorDrawPanelOpen = false; editorRedraw(); }
+            });
+        });
+
+        // --- Drag for each float panel ---
+        let dragTarget = null, dragOffX = 0, dragOffY = 0;
+
+        floatPanels.forEach(fp => {
+            const hdr = fp.querySelector('.editor-float-header');
+            if (!hdr) return;
+            hdr.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.shot-panel-btn')) return;
+                dragTarget = fp;
+                fp._manuallyPositioned = true;
+                const rect = fp.getBoundingClientRect();
+                const parentRect = layout.getBoundingClientRect();
+                dragOffX = e.clientX - rect.left + parentRect.left;
+                dragOffY = e.clientY - rect.top + parentRect.top;
+                e.preventDefault();
+            });
+        });
+
+        // --- Drag for toolbar ---
+        let tbDragging = false, tbOffX = 0, tbOffY = 0;
+
+        toolbarHeader.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.shot-panel-btn')) return;
+            tbDragging = true;
+            const rect = toolbar.getBoundingClientRect();
+            const parentRect = layout.getBoundingClientRect();
+            tbOffX = e.clientX - rect.left + parentRect.left;
+            tbOffY = e.clientY - rect.top + parentRect.top;
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            const parentRect = layout.getBoundingClientRect();
+
+            // Float panel drag
+            if (dragTarget) {
+                let x = e.clientX - dragOffX;
+                let y = e.clientY - dragOffY;
+                x = Math.max(0, Math.min(x, parentRect.width - dragTarget.offsetWidth));
+                y = Math.max(0, Math.min(y, parentRect.height - dragTarget.offsetHeight));
+                dragTarget.style.left = x + 'px';
+                dragTarget.style.top = y + 'px';
+            }
+
+            // Toolbar drag
+            if (tbDragging) {
+                let x = e.clientX - tbOffX;
+                let y = e.clientY - tbOffY;
+                x = Math.max(0, Math.min(x, parentRect.width - toolbar.offsetWidth));
+                y = Math.max(0, Math.min(y, parentRect.height - toolbar.offsetHeight));
+                toolbar.style.left = x + 'px';
+                toolbar.style.top = y + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            dragTarget = null;
+            tbDragging = false;
+        });
+
+        // --- Popout ---
+        let editorPopout = null;
+
+        popoutBtn?.addEventListener('click', () => {
+            editorPopout = window.open('', 'CourseEditor', 'width=340,height=700,scrollbars=yes');
+            if (!editorPopout) return;
+
+            const doc = editorPopout.document;
+            doc.title = 'Course Editor — Birdie Book';
+
+            const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+                .map(el => el.outerHTML).join('\n');
+            doc.head.innerHTML = styles + `<style>
+                body { background: var(--bg-card); color: var(--text); font-family: var(--font); margin: 0; padding: 0; }
+                .editor-float-panel { position: static !important; display: block !important; width: 100% !important;
+                    max-height: none !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
+                .editor-float-header { display: none !important; }
+                .editor-float-body { overflow: visible; }
+                .editor-hole-nav { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+                .editor-hole-info { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+                .editor-section { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+            </style>`;
+
+            // Move all float panels into popout
+            const container = doc.createElement('div');
+            floatPanels.forEach(fp => container.appendChild(fp));
+            doc.body.innerHTML = '';
+            doc.body.appendChild(container);
+            toolbar.style.display = 'none';
+
+            const checkClosed = setInterval(() => {
+                if (editorPopout.closed) {
+                    clearInterval(checkClosed);
+                    // Restore panels back to layout
+                    floatPanels.forEach(fp => {
+                        layout.appendChild(fp);
+                        fp.style.display = 'none';
+                    });
+                    toolbar.style.display = '';
+                    toolbar.querySelectorAll('.toolbar-icon').forEach(b => b.classList.remove('active'));
+                    editorPopout = null;
+                    if (typeof editorMap !== 'undefined' && editorMap) {
+                        editorMap.invalidateSize();
+                    }
+                }
+            }, 500);
+        });
+
+        // --- Expose for external use ---
+        window._editorActivateTab = activateTab;
+    })();
 
     // ========== Add Course Search & Create ==========
 

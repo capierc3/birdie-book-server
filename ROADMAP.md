@@ -244,18 +244,19 @@
 - Smart panel positioning (left/right of toolbar based on screen position)
 - Strategy insights panel with club recommendations, miss tendencies, scoring data
 
-### 10d. Tee Box Management `[ ]`
-- View all tee boxes synced from API
-- Add/edit/delete tee boxes manually
-- Set which tee box you plan to play
-- Per-tee: total yardage, rating, slope
+### 10d. Tee Box Management `[~]`
+- Default tee preference in Settings (localStorage) `[x]`
+- View/select tees via Hole Info dropdown `[x]`
+- Add/edit/delete tee boxes manually in Hole Info panel `[ ]`
+- Per-tee: total yardage, rating, slope editing `[ ]`
 
-### 10e. Pre-Round Strategy View `[ ]`
-- Once course is set up, show a "Course Preview" / "Game Plan" view
-- Hole-by-hole flyover with yardages, hazard locations, green shape
-- Suggested club off the tee (based on your distance data)
-- Layup distances and carry requirements over hazards
-- Notes field per hole for personal strategy
+### 10e. Pre-Round Strategy View `[x]`
+- Strategy tools panel: Dispersion Cone, Distance Arc, Carry Check, Club Recommendation
+- Ruler (drag-to-measure) integrated into strategy panel
+- Place Ball tool for custom shot origin
+- Club-colored overlays using real performance data (lateral dispersion, miss tendencies, p10/p90)
+- Mutual exclusion with drawing tools
+- Right-click/middle-click panning during tool use
 
 ---
 
@@ -539,6 +540,44 @@
 - "Verified by N players" badge for community-validated hole data
 - Merge/conflict resolution when multiple users have data for the same course
 - Course data quality scoring based on GPS precision and completeness
+
+---
+
+## 16. Unified Hole Workspace
+
+**Goal:** Merge the course editor and hole-by-hole review screen (`#round/{id}/hole/{n}`) into a single full-screen "hole workspace." One screen for editing, reviewing, and planning — no more switching between views. Builds on the Roll20-style floating panel system from Feature 10c.
+
+### 16a. Scorecard Sub-Pane `[x]`
+- New floating panel with scorecard grid (holes × yds / par / hcp / goal / score)
+- Tee selector synced with Hole Info panel (changing one updates both)
+- Round selector: blank (no rounds), historic average, or specific round
+- Goal row: set a target score per hole for game planning
+- Click a hole number to navigate to that hole on the map
+- Front 9 / Back 9 / Total subtotals
+
+### 16b. Hole Overview Sub-Pane `[ ]`
+- Stats row: Score, Putts, Fairway, SG vs PGA, SG vs Personal, Hole Avg, Hole Best
+- Round selector (shared with scorecard): historic / specific round / planning mode
+- SG category breakdown per hole (Tee, Approach, Short Game, Putting)
+- Miss tendency + club usage history for the selected hole
+
+### 16c. Shots Sub-Pane + Map Rendering `[ ]`
+- Shot list for the hole (club, shot type, distance, SG per shot)
+- Click a shot → opens existing shot detail floating panel
+- Render shots on map with numbered markers and shot lines (replicate current hole screen)
+- Filter: all historic shots / specific round / planning mode
+- Planning mode: tie into strategy tools (dispersion, carry check) to simulate shots
+
+### 16d. Edit Hole Info → Tee Management `[ ]`
+- Expand current Hole Info panel with tee box CRUD (add/edit/delete tees)
+- Per-tee fields: name, total yardage, rating, slope
+- Notes field per hole for personal strategy
+
+### 16e. Navigation & Route Integration `[ ]`
+- `#round/{id}/hole/{n}` redirects to workspace with that round pre-selected
+- `#course/{id}/edit` continues to work as-is (workspace with no round selected)
+- Toolbar icons updated for new sub-panes
+- Hole-by-hole navigation (prev/next) carries round context
 
 ---
 

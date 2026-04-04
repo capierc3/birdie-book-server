@@ -10244,6 +10244,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let editorLayerGroup = null;
     let editorTool = 'tee';
     let editorDrawPanelOpen = false; // global flag, set by float panel toggle
+    let editorRounds = [];          // rounds at this course (from roundsCache)
+    let editorRoundDetail = null;   // selected round's full detail
+    let editorAllRoundDetails = []; // all round details for historic mode
+    let editorViewMode = 'historic'; // 'historic' or round ID
     let editorTeePos = null;
     let editorTeePositions = {};
     let editorGreenPos = null;
@@ -10373,8 +10377,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // Ensure map fills full-screen layout
         requestAnimationFrame(() => editorMap.invalidateSize());
 
-        // Auto-open Hole Info panel on load
-        if (window._editorActivateTab) window._editorActivateTab('hole', true);
+        // Load rounds for this course (from global roundsCache)
+        editorRounds = (typeof roundsCache !== 'undefined' ? roundsCache : [])
+            .filter(r => r.course_id === editorCourse.id)
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+        editorRoundDetail = null;
+        editorAllRoundDetails = [];
+        editorViewMode = 'historic';
+        editorPopulateRoundSelect();
+        editorPopulateScorecardTee();
+
+        // Auto-open Scorecard panel on load
+        if (window._editorActivateTab) window._editorActivateTab('scorecard', true);
     }
 
     function editorBuildHoleNav() {
@@ -11322,7 +11336,348 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => { btn.textContent = 'Import OSM Features'; btn.disabled = false; }, 3000);
     });
 
-    // (Standalone measure tool removed — ruler is now in Strategy Tools panel)
+    // ========== Editor Scorecard ==========
+
+    function editorPopulateRoundSelect() {
+        const sel = document.getElementById('editor-round-select');
+        if (!sel) return;
+        const teeRounds = editorRounds.filter(r => r.tee_id === editorTeeId);
+        sel.innerHTML = `<option value="historic">Historic (${teeRounds.length} round${teeRounds.length !== 1 ? 's' : ''})</option>`;
+        teeRounds.forEach(r => {
+            const d = new Date(r.date);
+            const label = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${r.total_strokes}(${r.score_vs_par >= 0 ? '+' : ''}${r.score_vs_par})`;
+            sel.innerHTML += `<option value="${r.id}">${label}</option>`;
+        });
+        sel.value = editorViewMode === 'historic' ? 'historic' : editorViewMode;
+    }
+
+    function editorPopulateScorecardTee() {
+        const sel = document.getElementById('scorecard-tee-select');
+        if (!sel || !editorCourse) return;
+        sel.innerHTML = '';
+        (editorCourse.tees || []).forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = `${t.tee_name} (${t.total_yards || '?'}yd)`;
+            sel.appendChild(opt);
+        });
+        sel.value = editorTeeId;
+    }
+
+    // Tee sync: scorecard → hole info
+    document.getElementById('scorecard-tee-select')?.addEventListener('change', (e) => {
+        editorTeeId = parseInt(e.target.value);
+        const holeInfoTee = document.getElementById('editor-tee-select');
+        if (holeInfoTee) holeInfoTee.value = editorTeeId;
+        editorViewMode = 'historic';
+        editorRoundDetail = null;
+        editorPopulateRoundSelect();
+        editorSelectHole(editorCurrentHole);
+        editorRenderScorecard();
+    });
+
+    // Tee sync: hole info → scorecard (extend existing handler)
+    const _origTeeChange = document.getElementById('editor-tee-select');
+    if (_origTeeChange) {
+        _origTeeChange.addEventListener('change', () => {
+            const scTee = document.getElementById('scorecard-tee-select');
+            if (scTee) scTee.value = editorTeeId;
+            editorViewMode = 'historic';
+            editorRoundDetail = null;
+            editorPopulateRoundSelect();
+            editorRenderScorecard();
+        });
+    }
+
+    // Round selector change
+    document.getElementById('editor-round-select')?.addEventListener('change', async (e) => {
+        const val = e.target.value;
+        if (val === 'historic') {
+            editorViewMode = 'historic';
+            editorRoundDetail = null;
+            // Lazy-load all round details for historic
+            if (editorAllRoundDetails.length === 0 && editorRounds.length > 0) {
+                const sel = document.getElementById('editor-round-select');
+                const origText = sel.options[0].textContent;
+                sel.options[0].textContent = 'Loading...';
+                for (const r of editorRounds) {
+                    try {
+                        const resp = await fetch(`/api/rounds/${r.id}`);
+                        editorAllRoundDetails.push(await resp.json());
+                    } catch (e) { /* skip failed */ }
+                }
+                sel.options[0].textContent = origText;
+            }
+        } else {
+            const roundId = parseInt(val);
+            editorViewMode = roundId;
+            // Check cache first
+            editorRoundDetail = editorAllRoundDetails.find(r => r.id === roundId);
+            if (!editorRoundDetail) {
+                try {
+                    const resp = await fetch(`/api/rounds/${roundId}`);
+                    editorRoundDetail = await resp.json();
+                    editorAllRoundDetails.push(editorRoundDetail);
+                } catch (e) { editorRoundDetail = null; }
+            }
+        }
+        editorRenderScorecard();
+    });
+
+    function editorComputeHistoricScores() {
+        const scores = {};
+        if (!editorAllRoundDetails || editorAllRoundDetails.length === 0) return scores;
+        const numHoles = editorCourse?.holes || 18;
+        const tee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+        const courseHoles = tee?.holes || [];
+        // Filter rounds to only those played on the selected tee
+        const teeRounds = editorAllRoundDetails.filter(r => r.tee_id === editorTeeId);
+        for (let h = 1; h <= numHoles; h++) {
+            const holeScores = teeRounds
+                .flatMap(r => r.holes || [])
+                .filter(rh => rh.hole_number === h && rh.strokes > 0)
+                .map(rh => rh.strokes);
+            if (holeScores.length > 0) {
+                const ch = courseHoles.find(c => c.hole_number === h);
+                scores[h] = {
+                    best: Math.min(...holeScores),
+                    avg: holeScores.reduce((a, b) => a + b, 0) / holeScores.length,
+                    rounds: holeScores.length,
+                    par: ch?.par || 0,
+                };
+            }
+        }
+        return scores;
+    }
+
+    function editorGetGoals() {
+        if (!editorCourse) return {};
+        try {
+            return JSON.parse(localStorage.getItem(`birdie_book_goals_${editorCourse.id}`) || '{}');
+        } catch { return {}; }
+    }
+
+    function editorSaveGoal(holeNum, value) {
+        if (!editorCourse) return;
+        const goals = editorGetGoals();
+        if (value) goals[holeNum] = parseInt(value);
+        else delete goals[holeNum];
+        localStorage.setItem(`birdie_book_goals_${editorCourse.id}`, JSON.stringify(goals));
+    }
+
+    function editorRenderScorecard() {
+        const container = document.getElementById('editor-scorecard-container');
+        if (!container || !editorCourse) return;
+
+        const tee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+        const courseHoles = tee?.holes || [];
+        const numHoles = courseHoles.length || editorCourse.holes || 9;
+        const is18 = numHoles > 9;
+
+        // Score data
+        let scoreData = {};
+        if (editorViewMode === 'historic') {
+            scoreData = editorComputeHistoricScores();
+        } else if (editorRoundDetail) {
+            (editorRoundDetail.holes || []).forEach(h => { scoreData[h.hole_number] = h; });
+        }
+
+        const goals = editorGetGoals();
+        let html = '<table class="scorecard-table"><tbody>';
+
+        // Hole row
+        html += '<tr class="scorecard-header"><td class="scorecard-label">Hole</td>';
+        for (let i = 1; i <= numHoles; i++) {
+            if (is18 && i === 10) html += '<td class="scorecard-total">OUT</td>';
+            const active = i === editorCurrentHole ? ' active' : '';
+            html += `<td class="scorecard-cell${active}" data-hole="${i}">${i}</td>`;
+        }
+        html += `<td class="scorecard-total">${is18 ? 'IN' : 'OUT'}</td>`;
+        if (is18) html += '<td class="scorecard-total">TOT</td>';
+        html += '</tr>';
+
+        // Yds row
+        html += '<tr class="scorecard-yardage"><td class="scorecard-label">Yds</td>';
+        let fy = 0, by = 0;
+        for (let i = 1; i <= numHoles; i++) {
+            const ch = courseHoles.find(h => h.hole_number === i);
+            const yds = ch?.yardage || '';
+            if (i <= 9) fy += (ch?.yardage || 0); else by += (ch?.yardage || 0);
+            if (is18 && i === 10) html += `<td class="scorecard-total">${fy || ''}</td>`;
+            html += `<td class="scorecard-cell">${yds}</td>`;
+        }
+        html += `<td class="scorecard-total">${is18 ? (by || '') : (fy || '')}</td>`;
+        if (is18) html += `<td class="scorecard-total">${fy + by || ''}</td>`;
+        html += '</tr>';
+
+        // Par row
+        html += '<tr class="scorecard-par"><td class="scorecard-label">Par</td>';
+        let fp = 0, bp = 0;
+        for (let i = 1; i <= numHoles; i++) {
+            const ch = courseHoles.find(h => h.hole_number === i);
+            const par = ch?.par || '';
+            if (i <= 9) fp += (ch?.par || 0); else bp += (ch?.par || 0);
+            if (is18 && i === 10) html += `<td class="scorecard-total">${fp || ''}</td>`;
+            html += `<td class="scorecard-cell">${par}</td>`;
+        }
+        html += `<td class="scorecard-total">${is18 ? (bp || '') : (fp || '')}</td>`;
+        if (is18) html += `<td class="scorecard-total">${fp + bp || ''}</td>`;
+        html += '</tr>';
+
+        // HCP row
+        html += '<tr class="scorecard-hcp"><td class="scorecard-label">HCP</td>';
+        for (let i = 1; i <= numHoles; i++) {
+            const ch = courseHoles.find(h => h.hole_number === i);
+            if (is18 && i === 10) html += '<td class="scorecard-total"></td>';
+            html += `<td class="scorecard-cell">${ch?.handicap || ''}</td>`;
+        }
+        html += '<td class="scorecard-total"></td>';
+        if (is18) html += '<td class="scorecard-total"></td>';
+        html += '</tr>';
+
+        // Goal row
+        html += '<tr class="scorecard-goal"><td class="scorecard-label">Goal</td>';
+        let fg = 0, bg = 0, hasGoals = false;
+        for (let i = 1; i <= numHoles; i++) {
+            const g = goals[i] || '';
+            const ch = courseHoles.find(h => h.hole_number === i);
+            const par = ch?.par || 0;
+            let gcls = '';
+            if (g && par) {
+                const diff = g - par;
+                if (diff <= -2) gcls = ' score-eagle';
+                else if (diff === -1) gcls = ' score-birdie';
+                else if (diff === 0) gcls = ' score-par';
+                else if (diff === 1) gcls = ' score-bogey';
+                else if (diff >= 2) gcls = ' score-double';
+            }
+            if (g) { hasGoals = true; if (i <= 9) fg += g; else bg += g; }
+            if (is18 && i === 10) html += `<td class="scorecard-total">${hasGoals ? fg || '' : ''}</td>`;
+            html += `<td class="scorecard-cell scorecard-goal-cell${gcls}" data-hole="${i}" title="Click to set goal">${g}</td>`;
+        }
+        html += `<td class="scorecard-total">${hasGoals ? (is18 ? bg : fg) || '' : ''}</td>`;
+        if (is18) html += `<td class="scorecard-total">${hasGoals ? (fg + bg) || '' : ''}</td>`;
+        html += '</tr>';
+
+        // Score row
+        const scoreLabel = editorViewMode === 'historic' ? 'Best' : 'Score';
+        html += `<tr class="scorecard-score"><td class="scorecard-label">${scoreLabel}</td>`;
+        let fs = 0, bs = 0, hasScores = false;
+        for (let i = 1; i <= numHoles; i++) {
+            const sd = scoreData[i];
+            const ch = courseHoles.find(h => h.hole_number === i);
+            const par = ch?.par || 0;
+            let strokes = '';
+            let cls = '';
+            if (editorViewMode === 'historic' && sd) { strokes = sd.best; hasScores = true; }
+            else if (sd && sd.strokes) { strokes = sd.strokes; hasScores = true; }
+            if (strokes && par) {
+                const diff = strokes - par;
+                if (diff <= -2) cls = ' score-eagle';
+                else if (diff === -1) cls = ' score-birdie';
+                else if (diff === 0) cls = ' score-par';
+                else if (diff === 1) cls = ' score-bogey';
+                else cls = ' score-double';
+            }
+            if (i <= 9) fs += (typeof strokes === 'number' ? strokes : 0);
+            else bs += (typeof strokes === 'number' ? strokes : 0);
+            if (is18 && i === 10) html += `<td class="scorecard-total">${hasScores ? fs : ''}</td>`;
+            const active = i === editorCurrentHole ? ' active' : '';
+            html += `<td class="scorecard-cell${cls}${active}" data-hole="${i}">${strokes}</td>`;
+        }
+        html += `<td class="scorecard-total">${hasScores ? (is18 ? bs : fs) : ''}</td>`;
+        if (is18) html += `<td class="scorecard-total">${hasScores ? fs + bs : ''}</td>`;
+        html += '</tr>';
+
+        // Avg row (historic only)
+        if (editorViewMode === 'historic' && Object.keys(scoreData).length > 0) {
+            html += '<tr class="scorecard-avg"><td class="scorecard-label">Avg</td>';
+            let fa = 0, ba = 0;
+            for (let i = 1; i <= numHoles; i++) {
+                const sd = scoreData[i];
+                const avg = sd?.avg ? sd.avg.toFixed(1) : '';
+                if (i <= 9) fa += (sd?.avg || 0); else ba += (sd?.avg || 0);
+                if (is18 && i === 10) html += `<td class="scorecard-total">${fa ? fa.toFixed(1) : ''}</td>`;
+                html += `<td class="scorecard-cell">${avg}</td>`;
+            }
+            html += `<td class="scorecard-total">${(is18 ? ba : fa) ? (is18 ? ba : fa).toFixed(1) : ''}</td>`;
+            if (is18) html += `<td class="scorecard-total">${(fa + ba).toFixed(1)}</td>`;
+            html += '</tr>';
+        }
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+
+        // Click handlers: hole navigation
+        container.querySelectorAll('.scorecard-header .scorecard-cell[data-hole], .scorecard-score .scorecard-cell[data-hole]').forEach(cell => {
+            cell.style.cursor = 'pointer';
+            cell.addEventListener('click', () => {
+                const hole = parseInt(cell.dataset.hole);
+                editorCurrentHole = hole;
+                const quickLabel = document.getElementById('editor-hole-quick-label');
+                if (quickLabel) quickLabel.textContent = hole;
+                editorSelectHole(hole);
+                editorRenderScorecard();
+            });
+        });
+
+        // Click handlers: goal editing
+        container.querySelectorAll('.scorecard-goal-cell').forEach(cell => {
+            cell.style.cursor = 'pointer';
+            cell.addEventListener('click', () => {
+                const hole = parseInt(cell.dataset.hole);
+                const current = goals[hole] || '';
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.min = 1;
+                input.max = 12;
+                input.value = current;
+                input.className = 'edit-input';
+                input.style.cssText = 'width:100%;height:100%;text-align:center;font-size:0.75rem;padding:0;border:none;background:var(--accent-dim);';
+                cell.textContent = '';
+                cell.appendChild(input);
+                input.focus();
+                input.select();
+                const finish = () => {
+                    editorSaveGoal(hole, input.value);
+                    editorRenderScorecard();
+                };
+                input.addEventListener('blur', finish);
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') input.blur();
+                    if (e.key === 'Escape') { input.value = current; input.blur(); }
+                });
+            });
+        });
+    }
+
+    // Re-render scorecard when hole changes
+    const _origEditorSelectHole = editorSelectHole;
+    editorSelectHole = function(holeNum) {
+        _origEditorSelectHole(holeNum);
+        editorRenderScorecard();
+    };
+
+    // Render scorecard when panel opens (lazy-load historic data)
+    const scorecardPanel = document.querySelector('.editor-float-panel[data-float-panel="scorecard"]');
+    if (scorecardPanel) {
+        const observer = new MutationObserver(async () => {
+            if (scorecardPanel.style.display !== 'none') {
+                editorPopulateScorecardTee();
+                // Lazy-load all round details for historic mode on first open
+                if (editorViewMode === 'historic' && editorAllRoundDetails.length === 0 && editorRounds.length > 0) {
+                    for (const r of editorRounds) {
+                        try {
+                            const resp = await fetch(`/api/rounds/${r.id}`);
+                            editorAllRoundDetails.push(await resp.json());
+                        } catch (e) { /* skip */ }
+                    }
+                }
+                editorRenderScorecard();
+            }
+        });
+        observer.observe(scorecardPanel, { attributes: true, attributeFilter: ['style'] });
+    }
 
     // ========== Strategy Tools ==========
 
@@ -11890,7 +12245,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const layout = toolbar.parentElement; // .course-editor-layout
         const floatPanels = document.querySelectorAll('.editor-float-panel');
-        const panelOrder = ['hole', 'data', 'draw', 'insights', 'strategy'];
+        const panelOrder = ['scorecard', 'insights', 'strategy', 'hole', 'draw', 'data'];
 
         // --- Get float panel by id ---
         function getFloatPanel(id) {
@@ -11960,7 +12315,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const tbCenterX = relLeft + toolbar.offsetWidth / 2;
             const parentCenterX = parentRect.width / 2;
             const gap = 8;
-            const panelWidth = 280;
+            const panelWidth = fp.offsetWidth || 280;
 
             // Determine X position (right or left of toolbar)
             let baseX;

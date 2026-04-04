@@ -964,6 +964,23 @@ tbody tr.clickable { cursor: pointer; }
     gap: 12px;
 }
 
+.edit-section {
+    width: 100%;
+}
+
+.edit-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 4px 0;
+    border-top: 1px solid var(--border);
+}
+
+.edit-section-header:hover span:first-child {
+    color: var(--text);
+}
+
 .edit-tools {
     display: flex;
     gap: 4px;
@@ -1951,4 +1968,224 @@ tr[data-shot-id] {
 }
 .osm-preview-tooltip::before {
     border-top-color: #FFD700 !important;
+}
+
+/* ===== Course Editor ===== */
+
+.course-editor-layout {
+    display: flex;
+    height: calc(100vh - var(--header-height));
+    overflow: hidden;
+}
+
+.course-editor-sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
+}
+
+.course-editor-map {
+    flex: 1;
+    position: relative;
+}
+
+#editor-leaflet-map {
+    z-index: 1;
+}
+
+.editor-sidebar-header {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Hole Navigator */
+.editor-hole-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.editor-hole-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    transition: var(--transition);
+}
+.editor-hole-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+.editor-hole-btn.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Completeness dot */
+.editor-hole-btn::after {
+    content: '';
+    position: absolute;
+    bottom: 1px;
+    right: 1px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+}
+.editor-hole-btn.complete::after { background: var(--accent); }
+.editor-hole-btn.partial::after { background: var(--warning); }
+.editor-hole-btn.empty::after { background: var(--danger); }
+
+/* Hole Info */
+.editor-hole-info {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.editor-hole-fields {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.editor-hole-fields label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.editor-data-source {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.editor-completeness {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+.completeness-tag {
+    font-size: 0.65rem;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 500;
+}
+.completeness-tag.present {
+    background: rgba(76, 175, 80, 0.15);
+    color: var(--accent);
+}
+.completeness-tag.missing {
+    background: rgba(239, 83, 80, 0.12);
+    color: var(--danger);
+}
+
+/* Editor sections */
+.editor-section {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+.editor-section-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+/* Tools */
+.editor-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+.editor-tools .edit-tool {
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+}
+.editor-tools .edit-tool:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+.editor-tools .edit-tool.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Strategy Insights */
+.editor-strategy-content {
+    font-size: 0.78rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.strategy-empty {
+    color: var(--text-dim);
+    font-style: italic;
+    font-size: 0.72rem;
+}
+.strategy-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.strategy-label {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.strategy-value {
+    font-weight: 600;
+    color: var(--text);
+}
+.strategy-value.warning {
+    color: var(--warning);
+}
+.strategy-value.good {
+    color: var(--accent);
+}
+.strategy-value.danger {
+    color: var(--danger);
+}
+
+/* Nav buttons */
+.editor-nav-buttons {
+    padding: 10px 12px;
+    display: flex;
+    gap: 6px;
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+}
+.editor-nav-buttons .btn {
+    flex: 1;
 }

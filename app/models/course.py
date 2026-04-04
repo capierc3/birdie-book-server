@@ -88,8 +88,10 @@ class CourseHole(Base):
     flag_lng = Column(Float)
     tee_lat = Column(Float)
     tee_lng = Column(Float)
-    fairway_path = Column(Text)  # JSON array of [lat, lng] waypoints
+    fairway_path = Column(Text)  # JSON array of [lat, lng] waypoints (centerline for distance calcs)
+    fairway_boundary = Column(Text)  # JSON array of [lat, lng] polygon defining fairway edges (for width calcs)
     green_boundary = Column(Text)  # JSON array of [lat, lng] polygon points defining green edge
+    data_source = Column(String(20))  # Provenance: 'api', 'osm', 'manual', 'garmin'
 
     tee = relationship("CourseTee", back_populates="holes")
     osm_hole = relationship("OSMHole")
@@ -125,5 +127,6 @@ class CourseHazard(Base):
     hazard_type = Column(String(30), nullable=False)  # bunker, water, out_of_bounds, trees, waste_area
     name = Column(String(100))  # e.g. "Left Fairway Bunker", "Pond"
     boundary = Column(Text, nullable=False)  # JSON: [[lat, lng], ...]
+    data_source = Column(String(20))  # Provenance: 'api', 'osm', 'manual', 'garmin'
 
     club = relationship("GolfClub")

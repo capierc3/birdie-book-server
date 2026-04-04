@@ -104,6 +104,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Course editor route: course/123/edit
+        const editorMatch = hash.match(/^course\/(\d+)\/edit$/);
+        if (editorMatch) {
+            navigateTo('section-course-editor');
+            loadCourseEditor(parseInt(editorMatch[1]));
+            return;
+        }
+
         // Course holes route: course/123/holes
         const holesMatch = hash.match(/^course\/(\d+)\/holes$/);
         if (holesMatch) {
@@ -970,6 +978,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <h2><a href="#course/${cc.id}" style="color:inherit; text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='inherit'">${cc.course_name || '(Main Course)'}</a> <span style="color:var(--text-muted); font-size:0.84rem;">${cc.holes || 18} holes \u00b7 Par ${cc.par || '\u2014'}</span></h2>
                     <div style="display:flex; gap:6px; align-items:center;">
                         ${mergeHtml}
+                        <button class="btn btn-ghost btn-sm" onclick="location.hash='course/${cc.id}/edit'">Edit Course</button>
                         <button class="btn btn-primary btn-sm" onclick="location.hash='course/${cc.id}/holes'">View Holes</button>
                     </div>
                 </div>
@@ -2514,11 +2523,18 @@ document.addEventListener('DOMContentLoaded', () => {
         title.textContent = holeViewCourse.club_name || holeViewCourse.display_name;
         subtitle.textContent = holeViewCourse.course_name || '';
 
-        // Set back button
+        // Set back button — smart: goes to round detail if came from a round, otherwise course
+        const courseLink = document.getElementById('hole-view-course-link');
         if (roundId) {
-            backBtn.href = `#course/${courseId}`;
+            backBtn.href = `#round/${roundId}`;
+            backBtn.textContent = '← Round';
+            courseLink.href = `#course/${courseId}`;
+            courseLink.textContent = '← Course';
+            courseLink.style.display = '';
         } else {
             backBtn.href = `#course/${courseId}`;
+            backBtn.textContent = '← Course';
+            courseLink.style.display = 'none';
         }
 
         // Build round selector
@@ -2765,10 +2781,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 .filter(rh => rh.hole_number === h && rh.strokes > 0)
                 .map(rh => rh.strokes);
             if (holeScores.length > 0) {
+                const courseHoles = getCourseTeeHoles();
+                const chData = courseHoles.find(ch => ch.hole_number === h);
                 scores[h] = {
                     best: Math.min(...holeScores),
                     avg: holeScores.reduce((a, b) => a + b, 0) / holeScores.length,
                     rounds: holeScores.length,
+                    par: chData?.par || 0,
                 };
             }
         }
@@ -2794,7 +2813,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Override onRoundSelect to load all round details for historic
     const _origOnRoundSelect = onRoundSelect;
     async function onRoundSelectWrapped(value) {
-        if (value === 'historic' && holeViewAllRoundDetails.length === 0 && holeViewRounds.length > 0) {
+        // Always load all round details for historic context (needed for comparisons in round view too)
+        if (holeViewAllRoundDetails.length === 0 && holeViewRounds.length > 0) {
             await loadAllRoundDetailsForCourse();
         }
         holeViewMode = value === 'historic' ? 'historic' : parseInt(value);
@@ -3128,6 +3148,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         titleEl.textContent = `Hole ${selectedHole} \u2014 Par ${par}${yds ? ' \u00b7 ' + yds : ''}${hcp ? ' \u00b7 ' + hcp : ''}`;
 
+        // Data completeness indicator
+        const statusEl = document.getElementById('hole-data-status');
+        if (statusEl && ch) {
+            const checks = [
+                { label: 'Par', ok: !!ch.par },
+                { label: 'Yardage', ok: !!ch.yardage },
+                { label: 'Tee GPS', ok: !!ch.tee_lat },
+                { label: 'Green', ok: !!ch.green_boundary },
+                { label: 'Fairway', ok: !!ch.fairway_path },
+            ];
+            const allGood = checks.every(c => c.ok);
+            if (!allGood) {
+                statusEl.style.display = 'flex';
+                statusEl.innerHTML = checks.map(c =>
+                    `<span style="font-size:0.72rem; padding:1px 6px; border-radius:3px; background:${c.ok ? '#22c55e1a' : '#ef44441a'}; color:${c.ok ? '#22c55e' : '#ef4444'};">${c.ok ? '✓' : '✗'} ${c.label}</span>`
+                ).join('');
+            } else {
+                statusEl.style.display = 'none';
+            }
+        }
+
         if (holeViewMode === 'historic') {
             // Historic stats
             const historicScores = computeHistoricScores();
@@ -3196,21 +3237,143 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
+                // Scoring distribution for this hole
+                const holePar2 = ch?.par || 0;
+                const allScores = holeViewAllRoundDetails
+                    .map(rd => rd.holes.find(h => h.hole_number === selectedHole)?.strokes)
+                    .filter(s => s != null && s > 0);
+                let distHtml = '';
+                if (allScores.length > 0 && holePar2 > 0) {
+                    const dist = { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0, triple: 0 };
+                    allScores.forEach(s => {
+                        const d = s - holePar2;
+                        if (d <= -2) dist.eagle++;
+                        else if (d === -1) dist.birdie++;
+                        else if (d === 0) dist.par++;
+                        else if (d === 1) dist.bogey++;
+                        else if (d === 2) dist.double++;
+                        else dist.triple++;
+                    });
+                    const badges = [
+                        dist.eagle > 0 ? `<span style="color:#16a34a;">${dist.eagle} eagle</span>` : '',
+                        dist.birdie > 0 ? `<span style="color:#22c55e;">${dist.birdie} birdie</span>` : '',
+                        dist.par > 0 ? `<span style="color:#3b82f6;">${dist.par} par</span>` : '',
+                        dist.bogey > 0 ? `<span style="color:#f59e0b;">${dist.bogey} bogey</span>` : '',
+                        dist.double > 0 ? `<span style="color:#ef4444;">${dist.double} dbl</span>` : '',
+                        dist.triple > 0 ? `<span style="color:#dc2626;">${dist.triple} trpl+</span>` : '',
+                    ].filter(Boolean).join(' · ');
+                    distHtml = `<div style="font-size:0.78rem; margin-top:8px;">${badges}</div>`;
+                }
+
+                // Miss tendency
+                let missTendency = '';
+                if (allFairways.length >= 3) {
+                    const lefts = allFairways.filter(f => f === 'LEFT').length;
+                    const rights = allFairways.filter(f => f === 'RIGHT').length;
+                    const misses = lefts + rights;
+                    if (misses >= 2) {
+                        const dominant = lefts > rights ? 'left' : rights > lefts ? 'right' : null;
+                        if (dominant) {
+                            const pct = Math.round((dominant === 'left' ? lefts : rights) / misses * 100);
+                            if (pct >= 60) {
+                                const arrow = dominant === 'left' ? '←' : '→';
+                                missTendency = `<div class="hole-stat"><span class="hole-stat-label">Miss Tendency</span><span class="hole-stat-value" style="color:#f59e0b;">${arrow} ${pct}% ${dominant}</span></div>`;
+                            }
+                        }
+                    }
+                }
+
+                // Difficulty ranking
+                let difficultyHtml = '';
+                const historicAll = computeHistoricScores();
+                const holeAvgs = Object.entries(historicAll)
+                    .filter(([, v]) => v.rounds > 0 && v.par > 0)
+                    .map(([num, v]) => ({ num: parseInt(num), avgVsPar: v.avg - v.par }))
+                    .sort((a, b) => b.avgVsPar - a.avgVsPar);
+                if (holeAvgs.length > 1) {
+                    const rank = holeAvgs.findIndex(h => h.num === selectedHole) + 1;
+                    if (rank === 1) difficultyHtml = '<span style="background:#ef44441a; color:#ef4444; padding:1px 6px; border-radius:3px; font-size:0.72rem;">Hardest hole</span>';
+                    else if (rank === holeAvgs.length) difficultyHtml = '<span style="background:#22c55e1a; color:#22c55e; padding:1px 6px; border-radius:3px; font-size:0.72rem;">Easiest hole</span>';
+                    else if (rank <= 3) difficultyHtml = `<span style="background:#f59e0b1a; color:#f59e0b; padding:1px 6px; border-radius:3px; font-size:0.72rem;">#${rank} hardest</span>`;
+                }
+
                 statsEl.innerHTML = `
                     <div class="hole-stats-grid">
                         <div class="hole-stat"><span class="hole-stat-label">Best</span><span class="hole-stat-value">${hs.best} (${bestStr})</span></div>
-                        <div class="hole-stat"><span class="hole-stat-label">Average</span><span class="hole-stat-value ${avgClass}">${hs.avg.toFixed(1)} (${avgStr})</span></div>
+                        <div class="hole-stat"><span class="hole-stat-label">Average</span><span class="hole-stat-value ${avgClass}">${hs.avg.toFixed(1)} (${avgStr}) ${difficultyHtml}</span></div>
                         <div class="hole-stat"><span class="hole-stat-label">Avg Putts</span><span class="hole-stat-value">${avgPutts}</span></div>
                         ${fairwayRate ? `<div class="hole-stat"><span class="hole-stat-label">Fairway Hit</span><span class="hole-stat-value">${fairwayRate}</span></div>` : ''}
+                        ${missTendency}
                         ${topClub ? `<div class="hole-stat"><span class="hole-stat-label">Tee Club</span><span class="hole-stat-value">${topClub[0]}</span></div>` : ''}
                         ${avgDrive ? `<div class="hole-stat"><span class="hole-stat-label">Avg Drive</span><span class="hole-stat-value">${avgDrive} yds</span></div>` : ''}
                         <div class="hole-stat"><span class="hole-stat-label">Rounds</span><span class="hole-stat-value">${hs.rounds} ${trend}</span></div>
                     </div>
+                    ${distHtml}
                 `;
+                // Club usage & SG insights (in shot list area for historic mode)
+                const allShots = holeViewAllRoundDetails.flatMap(rd => {
+                    const h = rd.holes.find(h => h.hole_number === selectedHole);
+                    return (h?.shots || []).filter(s => s.club && s.shot_type !== 'PENALTY');
+                });
+
+                let clubInsightsHtml = '';
+                if (allShots.length > 0) {
+                    // Group by shot type then club
+                    const byType = {};
+                    allShots.forEach(s => {
+                        const type = s.shot_type || 'OTHER';
+                        if (!byType[type]) byType[type] = {};
+                        if (!byType[type][s.club]) byType[type][s.club] = { count: 0, distances: [], sg: [] };
+                        byType[type][s.club].count++;
+                        if (s.distance_yards) byType[type][s.club].distances.push(s.distance_yards);
+                        if (s.sg_pga != null) byType[type][s.club].sg.push(s.sg_pga);
+                    });
+
+                    const typeLabels = { TEE: 'Off the Tee', APPROACH: 'Approach', CHIP: 'Short Game', LAYUP: 'Layup', RECOVERY: 'Recovery', PUTT: 'Putting' };
+                    const typeOrder = ['TEE', 'APPROACH', 'CHIP', 'LAYUP', 'RECOVERY'];
+
+                    const sections = typeOrder
+                        .filter(t => byType[t])
+                        .map(type => {
+                            const clubs = Object.entries(byType[type])
+                                .map(([name, d]) => {
+                                    const avgDist = d.distances.length ? Math.round(d.distances.reduce((a, b) => a + b, 0) / d.distances.length) : null;
+                                    const avgSg = d.sg.length ? (d.sg.reduce((a, b) => a + b, 0) / d.sg.length) : null;
+                                    return { name, count: d.count, avgDist, avgSg };
+                                })
+                                .sort((a, b) => b.count - a.count);
+
+                            const clubStrs = clubs.map(c => {
+                                const parts = [`<strong>${c.name}</strong>`];
+                                if (c.avgDist) parts.push(`avg ${c.avgDist}yds`);
+                                parts.push(`(${c.count} shot${c.count !== 1 ? 's' : ''})`);
+                                if (c.avgSg != null) {
+                                    const sgColor = c.avgSg >= 0 ? '#22c55e' : '#ef4444';
+                                    const sgSign = c.avgSg >= 0 ? '+' : '';
+                                    parts.push(`<span style="color:${sgColor};">${sgSign}${c.avgSg.toFixed(2)} SG</span>`);
+                                }
+                                return parts.join(' · ');
+                            });
+
+                            return `<div style="margin-bottom:6px;">
+                                <span style="font-size:0.75rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px;">${typeLabels[type] || type}</span>
+                                <div style="font-size:0.82rem; color:var(--text-muted); margin-top:2px;">${clubStrs.join('<br>')}</div>
+                            </div>`;
+                        }).join('');
+
+                    if (sections) {
+                        clubInsightsHtml = `<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+                            <div style="font-size:0.82rem; font-weight:600; color:var(--text); margin-bottom:8px;">Club History on this Hole</div>
+                            ${sections}
+                        </div>`;
+                    }
+                }
+
+                shotListEl.innerHTML = clubInsightsHtml;
             } else {
                 statsEl.innerHTML = '<p style="color:var(--text-muted);">No round data for this hole.</p>';
+                shotListEl.innerHTML = '';
             }
-            shotListEl.innerHTML = '';
         } else if (holeViewRoundDetail) {
             // Round-specific stats
             const rh = holeViewRoundDetail.holes.find(h => h.hole_number === selectedHole);
@@ -3250,15 +3413,94 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
+                // SG for this hole's shots
+                const holeShots = rh.shots || [];
+                let holeSgPga = 0, holeSgPersonal = 0, sgShotCount = 0, sgPersonalCount = 0;
+                const sgByType = {};
+                for (const s of holeShots) {
+                    if (s.sg_pga != null) {
+                        const cat = classifySgCategory(s, holePar);
+                        if (cat) {
+                            holeSgPga += s.sg_pga;
+                            sgShotCount++;
+                            if (!sgByType[cat]) sgByType[cat] = { pga: 0, count: 0 };
+                            sgByType[cat].pga += s.sg_pga;
+                            sgByType[cat].count++;
+                        }
+                    }
+                    if (s.sg_personal != null) { holeSgPersonal += s.sg_personal; sgPersonalCount++; }
+                }
+
+                let sgHtml = '';
+                if (sgShotCount > 0) {
+                    const sgSign = holeSgPga >= 0 ? '+' : '';
+                    const sgColor = holeSgPga >= 0 ? '#22c55e' : '#ef4444';
+                    const catLabels = { off_the_tee: 'Tee', approach: 'App', short_game: 'Short', putting: 'Putt' };
+                    const sgParts = Object.entries(sgByType).map(([cat, d]) => {
+                        const v = Math.round(d.pga * 100) / 100;
+                        const c = v >= 0 ? '#22c55e' : '#ef4444';
+                        const s = v >= 0 ? '+' : '';
+                        return `<span style="color:${c};">${catLabels[cat] || cat} ${s}${v.toFixed(2)}</span>`;
+                    }).join(' · ');
+                    sgHtml = `<div class="hole-stat"><span class="hole-stat-label">SG vs PGA</span><span class="hole-stat-value" style="color:${sgColor};">${sgSign}${holeSgPga.toFixed(2)}</span></div>`;
+                    if (sgPersonalCount > 0) {
+                        const pSign = holeSgPersonal >= 0 ? '+' : '';
+                        const pColor = holeSgPersonal >= 0 ? '#22c55e' : '#ef4444';
+                        sgHtml += `<div class="hole-stat"><span class="hole-stat-label">SG vs Personal</span><span class="hole-stat-value" style="color:${pColor};">${pSign}${holeSgPersonal.toFixed(2)}</span></div>`;
+                    }
+                }
+
+                // Hole verdict: good / average / below average
+                let verdictHtml = '';
+                if (hs && hs.rounds >= 2 && holePar > 0) {
+                    const scoreDiff = rh.strokes - hs.avg;
+                    if (scoreDiff <= -1) verdictHtml = '<span style="background:#22c55e1a; color:#22c55e; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Great hole</span>';
+                    else if (scoreDiff <= -0.3) verdictHtml = '<span style="background:#22c55e1a; color:#22c55e; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Above average</span>';
+                    else if (scoreDiff >= 1) verdictHtml = '<span style="background:#ef44441a; color:#ef4444; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Below average</span>';
+                    else verdictHtml = '<span style="background:#3b82f61a; color:#3b82f6; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Average</span>';
+                } else if (holePar > 0) {
+                    if (diff <= -1) verdictHtml = '<span style="background:#22c55e1a; color:#22c55e; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Great hole</span>';
+                    else if (diff === 0) verdictHtml = '<span style="background:#3b82f61a; color:#3b82f6; padding:2px 8px; border-radius:4px; font-size:0.75rem;">Par</span>';
+                }
+
+                // Difficulty badge
+                let difficultyBadge = '';
+                const historicAll = computeHistoricScores();
+                const holeAvgs = Object.entries(historicAll)
+                    .filter(([, v]) => v.rounds > 0 && v.par > 0)
+                    .map(([num, v]) => ({ num: parseInt(num), avgVsPar: v.avg - v.par }))
+                    .sort((a, b) => b.avgVsPar - a.avgVsPar);
+                if (holeAvgs.length > 1) {
+                    const rank = holeAvgs.findIndex(h => h.num === selectedHole) + 1;
+                    if (rank === 1) difficultyBadge = '<span style="background:#ef44441a; color:#ef4444; padding:1px 6px; border-radius:3px; font-size:0.72rem;">Hardest hole</span>';
+                    else if (rank === holeAvgs.length) difficultyBadge = '<span style="background:#22c55e1a; color:#22c55e; padding:1px 6px; border-radius:3px; font-size:0.72rem;">Easiest hole</span>';
+                    else if (rank <= 3) difficultyBadge = `<span style="background:#f59e0b1a; color:#f59e0b; padding:1px 6px; border-radius:3px; font-size:0.72rem;">#${rank} hardest</span>`;
+                }
+
+                // SG breakdown line
+                let sgBreakdownHtml = '';
+                if (Object.keys(sgByType).length > 0) {
+                    const catLabels = { off_the_tee: 'Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' };
+                    sgBreakdownHtml = `<div style="font-size:0.78rem; margin-top:8px;">` +
+                        Object.entries(sgByType).map(([cat, d]) => {
+                            const v = Math.round(d.pga * 100) / 100;
+                            const c = v >= 0 ? '#22c55e' : '#ef4444';
+                            const s = v >= 0 ? '+' : '';
+                            return `<span style="color:${c};">${catLabels[cat] || cat}: ${s}${v.toFixed(2)}</span>`;
+                        }).join(' · ') + `</div>`;
+                }
+
                 statsEl.innerHTML = `
                     <div class="hole-stats-grid">
-                        <div class="hole-stat"><span class="hole-stat-label">Score</span><span class="hole-stat-value ${diffClass}">${rh.strokes} (${diffStr}) ${scoreComp}</span></div>
+                        <div class="hole-stat"><span class="hole-stat-label">Score</span><span class="hole-stat-value ${diffClass}">${rh.strokes} (${diffStr}) ${scoreComp} ${verdictHtml}</span></div>
                         <div class="hole-stat"><span class="hole-stat-label">Putts</span><span class="hole-stat-value">${rh.putts ?? '\u2014'} ${puttsComp}</span></div>
                         <div class="hole-stat"><span class="hole-stat-label">Fairway</span><span class="hole-stat-value">${rh.fairway || '\u2014'}</span></div>
                         ${rh.penalty_strokes ? `<div class="hole-stat"><span class="hole-stat-label">Penalties</span><span class="hole-stat-value">${rh.penalty_strokes}</span></div>` : ''}
-                        ${hs ? `<div class="hole-stat"><span class="hole-stat-label">Hole Avg</span><span class="hole-stat-value">${hs.avg.toFixed(1)}</span></div>` : ''}
+                        ${sgHtml}
+                        ${hs ? `<div class="hole-stat"><span class="hole-stat-label">Hole Avg</span><span class="hole-stat-value">${hs.avg.toFixed(1)} ${difficultyBadge}</span></div>` : ''}
                         ${hs ? `<div class="hole-stat"><span class="hole-stat-label">Hole Best</span><span class="hole-stat-value">${hs.best}</span></div>` : ''}
                     </div>
+                    ${sgBreakdownHtml}
                 `;
 
                 // Enhanced shot list with club analytics
@@ -3481,6 +3723,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Show toolbar
         const toolbar = document.getElementById('hole-edit-toolbar');
         toolbar.style.display = 'flex';
+        document.getElementById('edit-hole-label').textContent = `Hole ${selectedHole}`;
         document.getElementById('edit-par').value = editPar || '';
         document.getElementById('edit-yardage').value = editYardage || '';
         document.getElementById('edit-handicap').value = editHandicap || '';
@@ -4129,6 +4372,29 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-cancel-edit')?.addEventListener('click', () => {
         exitEditMode();
         renderHoleDetail();
+    });
+
+    // Prev/Next hole in edit mode
+    document.getElementById('edit-prev-hole')?.addEventListener('click', async () => {
+        if (!holeEditMode || selectedHole <= 1) return;
+        // Save current hole first, then move
+        document.getElementById('btn-save-hole')?.click();
+        // Wait for save, then switch
+        setTimeout(() => {
+            selectedHole--;
+            document.getElementById('btn-edit-hole')?.click();
+            renderScorecard();
+        }, 500);
+    });
+    document.getElementById('edit-next-hole')?.addEventListener('click', async () => {
+        const numHoles = holeViewCourse?.holes || 18;
+        if (!holeEditMode || selectedHole >= numHoles) return;
+        document.getElementById('btn-save-hole')?.click();
+        setTimeout(() => {
+            selectedHole++;
+            document.getElementById('btn-edit-hole')?.click();
+            renderScorecard();
+        }, 500);
     });
 
     // OSM hole linking
@@ -9952,6 +10218,887 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('hcp-trend-round-range').style.display = mode === 'rounds' ? '' : 'none';
         if (hcpDataCache) renderHcpTrendChart(hcpDataCache);
     });
+
+    // ========== Course Editor ==========
+
+    let editorMap = null;
+    let editorCourse = null;
+    let editorStrategy = null;
+    let editorCurrentHole = 1;
+    let editorTeeId = null;
+    let editorLayerGroup = null;
+    let editorTool = 'tee';
+    let editorTeePos = null;
+    let editorTeePositions = {};
+    let editorGreenPos = null;
+    let editorFairwayPath = [];
+    let editorFairwayBoundary = [];
+    let editorGreenBoundary = [];
+    let editorHazards = [];
+    let editorCurrentHazard = [];
+    let editorDirty = false;
+
+    async function loadCourseEditor(courseId) {
+        // Fetch course data and strategy in parallel
+        const [courseResp, stratResp] = await Promise.all([
+            fetch(`/api/courses/${courseId}`).then(r => r.json()),
+            fetch(`/api/courses/${courseId}/strategy`).then(r => r.json()).catch(() => ({ player: {} })),
+        ]);
+        editorCourse = courseResp;
+        editorStrategy = stratResp;
+
+        // Set header
+        document.getElementById('editor-course-name').textContent = editorCourse.display_name || editorCourse.club_name;
+        document.getElementById('editor-back-btn').href = `#club/${editorCourse.golf_club_id}`;
+
+        // Init tee selector
+        const teeSelect = document.getElementById('editor-tee-select');
+        teeSelect.innerHTML = '';
+        (editorCourse.tees || []).forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = `${t.tee_name} (${t.total_yards || '?'}yd)`;
+            teeSelect.appendChild(opt);
+        });
+        editorTeeId = editorCourse.tees?.[0]?.id || null;
+        teeSelect.value = editorTeeId;
+
+        // Init map
+        if (editorMap) { editorMap.remove(); editorMap = null; }
+        editorMap = L.map('editor-leaflet-map', {
+            maxZoom: 22,
+            zoomControl: true,
+            doubleClickZoom: false,
+        });
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 22, maxNativeZoom: 19,
+            attribution: 'Esri Satellite',
+        }).addTo(editorMap);
+        editorLayerGroup = L.layerGroup().addTo(editorMap);
+
+        // Center map on club GPS or first hole with GPS
+        let centerLat = editorCourse.lat, centerLng = editorCourse.lng;
+        if (!centerLat) {
+            // Try first hole with tee GPS
+            for (const tee of (editorCourse.tees || [])) {
+                for (const h of (tee.holes || [])) {
+                    if (h.tee_lat) { centerLat = h.tee_lat; centerLng = h.tee_lng; break; }
+                    if (h.flag_lat) { centerLat = h.flag_lat; centerLng = h.flag_lng; break; }
+                }
+                if (centerLat) break;
+            }
+        }
+        if (centerLat) {
+            editorMap.setView([centerLat, centerLng], 16);
+        } else {
+            editorMap.setView([42.5, -83.5], 14); // fallback
+        }
+
+        // Map click handler
+        editorMap.on('click', onEditorMapClick);
+        editorMap.on('dblclick', () => {
+            if (editorTool === 'hazard' && editorCurrentHazard.length >= 3) {
+                editorFinishHazard();
+            }
+        });
+
+        // Build hole navigator
+        editorBuildHoleNav();
+
+        // Select hole 1
+        editorCurrentHole = 1;
+        editorSelectHole(1);
+    }
+
+    function editorBuildHoleNav() {
+        const nav = document.getElementById('editor-hole-nav');
+        const numHoles = editorCourse.holes || 18;
+        nav.innerHTML = '';
+        for (let i = 1; i <= numHoles; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'editor-hole-btn';
+            btn.textContent = i;
+            btn.dataset.hole = i;
+            // Completeness
+            const comp = editorGetHoleCompleteness(i);
+            btn.classList.add(comp);
+            if (i === editorCurrentHole) btn.classList.add('active');
+            btn.addEventListener('click', () => editorNavigateToHole(i));
+            nav.appendChild(btn);
+        }
+    }
+
+    function editorGetHoleCompleteness(holeNum) {
+        const tee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+        if (!tee) return 'empty';
+        const hole = (tee.holes || []).find(h => h.hole_number === holeNum);
+        if (!hole) return 'empty';
+        let score = 0;
+        if (hole.par) score++;
+        if (hole.yardage) score++;
+        if (hole.tee_lat) score++;
+        if (hole.flag_lat) score++;
+        if (hole.fairway_path) score++;
+        if (hole.green_boundary) score++;
+        if (score >= 5) return 'complete';
+        if (score >= 2) return 'partial';
+        return 'empty';
+    }
+
+    function editorGetCurrentHole() {
+        const tee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+        if (!tee) return null;
+        return (tee.holes || []).find(h => h.hole_number === editorCurrentHole);
+    }
+
+    function editorSelectHole(holeNum) {
+        editorCurrentHole = holeNum;
+        const hole = editorGetCurrentHole();
+
+        // Update sidebar title
+        document.getElementById('editor-hole-title').textContent = `Hole ${holeNum}`;
+
+        // Load hole data into edit state
+        if (hole) {
+            document.getElementById('editor-par').value = hole.par || '';
+            document.getElementById('editor-yardage').value = hole.yardage || '';
+            document.getElementById('editor-handicap').value = hole.handicap || '';
+
+            editorTeePos = (hole.tee_lat && hole.tee_lng) ? { lat: hole.tee_lat, lng: hole.tee_lng } : null;
+            editorGreenPos = (hole.flag_lat && hole.flag_lng) ? { lat: hole.flag_lat, lng: hole.flag_lng } : null;
+            editorFairwayPath = hole.fairway_path ? JSON.parse(hole.fairway_path).map(p => ({ lat: p[0], lng: p[1] })) : [];
+            editorFairwayBoundary = hole.fairway_boundary ? JSON.parse(hole.fairway_boundary).map(p => ({ lat: p[0], lng: p[1] })) : [];
+            editorGreenBoundary = hole.green_boundary ? JSON.parse(hole.green_boundary).map(p => ({ lat: p[0], lng: p[1] })) : [];
+
+            // Data source badge
+            const srcEl = document.getElementById('editor-data-source');
+            if (hole.data_source) {
+                const colors = { api: '#42a5f5', osm: '#4caf50', manual: '#9e9e9e', garmin: '#ff9800' };
+                srcEl.innerHTML = `Source: <span style="color:${colors[hole.data_source] || '#9e9e9e'}">${hole.data_source}</span>`;
+            } else {
+                srcEl.textContent = '';
+            }
+        } else {
+            document.getElementById('editor-par').value = '';
+            document.getElementById('editor-yardage').value = '';
+            document.getElementById('editor-handicap').value = '';
+            editorTeePos = null;
+            editorGreenPos = null;
+            editorFairwayPath = [];
+            editorFairwayBoundary = [];
+            editorGreenBoundary = [];
+            document.getElementById('editor-data-source').textContent = '';
+        }
+
+        // Load all tee positions
+        editorTeePositions = {};
+        for (const tee of (editorCourse.tees || [])) {
+            const th = (tee.holes || []).find(h => h.hole_number === holeNum);
+            if (th && th.tee_lat) {
+                editorTeePositions[tee.tee_name] = { lat: th.tee_lat, lng: th.tee_lng };
+            }
+        }
+
+        // Load hazards (club-level, shared across holes)
+        editorHazards = (editorCourse.hazards || []).map(h => ({
+            id: h.id,
+            hazard_type: h.hazard_type,
+            name: h.name,
+            boundary: JSON.parse(h.boundary).map(p => ({ lat: p[0], lng: p[1] })),
+        }));
+        editorCurrentHazard = [];
+
+        // Update completeness tags
+        editorUpdateCompleteness();
+
+        // Update nav active state
+        document.querySelectorAll('.editor-hole-btn').forEach(b => {
+            b.classList.toggle('active', parseInt(b.dataset.hole) === holeNum);
+        });
+
+        editorDirty = false;
+        editorRedraw();
+        editorUpdateStrategy();
+    }
+
+    function editorUpdateCompleteness() {
+        const hole = editorGetCurrentHole();
+        const el = document.getElementById('editor-completeness');
+        const checks = [
+            ['Par', !!document.getElementById('editor-par').value],
+            ['Yardage', !!document.getElementById('editor-yardage').value],
+            ['Tee GPS', !!editorTeePos],
+            ['Green GPS', !!editorGreenPos],
+            ['FW Path', editorFairwayPath.length >= 2],
+            ['Green Bnd', editorGreenBoundary.length >= 3],
+        ];
+        el.innerHTML = checks.map(([label, present]) =>
+            `<span class="completeness-tag ${present ? 'present' : 'missing'}">${label}</span>`
+        ).join('');
+    }
+
+    // === Map Click Handler ===
+    function onEditorMapClick(e) {
+        const { lat, lng } = e.latlng;
+        editorDirty = true;
+
+        if (editorTool === 'tee') {
+            editorTeePos = { lat, lng };
+            const tee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+            if (tee) editorTeePositions[tee.tee_name] = editorTeePos;
+        } else if (editorTool === 'green') {
+            editorGreenPos = { lat, lng };
+        } else if (editorTool === 'fairway') {
+            // Smart insertion: find closest segment
+            if (editorFairwayPath.length >= 2) {
+                let bestIdx = editorFairwayPath.length;
+                let bestDist = Infinity;
+                const segments = [];
+                // Include tee->first and last->green
+                if (editorTeePos) segments.push([editorTeePos, editorFairwayPath[0], 0]);
+                for (let i = 0; i < editorFairwayPath.length - 1; i++) {
+                    segments.push([editorFairwayPath[i], editorFairwayPath[i + 1], i + 1]);
+                }
+                if (editorGreenPos) segments.push([editorFairwayPath[editorFairwayPath.length - 1], editorGreenPos, editorFairwayPath.length]);
+                for (const [a, b, idx] of segments) {
+                    const d = _pointToSegmentDist(lat, lng, a.lat, a.lng, b.lat, b.lng);
+                    if (d < bestDist) { bestDist = d; bestIdx = idx; }
+                }
+                editorFairwayPath.splice(bestIdx, 0, { lat, lng });
+            } else {
+                editorFairwayPath.push({ lat, lng });
+            }
+        } else if (editorTool === 'fairway-boundary') {
+            editorFairwayBoundary.push({ lat, lng });
+        } else if (editorTool === 'green-boundary') {
+            editorGreenBoundary.push({ lat, lng });
+        } else if (editorTool === 'hazard') {
+            editorCurrentHazard.push({ lat, lng });
+        }
+
+        editorRedraw();
+        editorUpdateCompleteness();
+        editorUpdateStrategy();
+    }
+
+    function _pointToSegmentDist(px, py, ax, ay, bx, by) {
+        const dx = bx - ax, dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return Math.sqrt((px - ax) ** 2 + (py - ay) ** 2);
+        let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+        const cx = ax + t * dx, cy = ay + t * dy;
+        return Math.sqrt((px - cx) ** 2 + (py - cy) ** 2);
+    }
+
+    // === Redraw Map Overlays ===
+    function editorRedraw() {
+        if (!editorLayerGroup) return;
+        editorLayerGroup.clearLayers();
+
+        const activeTee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+        const activeTeeName = activeTee ? activeTee.tee_name : '';
+
+        // Fairway centerline
+        if (editorFairwayPath.length >= 2) {
+            const pts = [];
+            if (editorTeePos) pts.push([editorTeePos.lat, editorTeePos.lng]);
+            editorFairwayPath.forEach(p => pts.push([p.lat, p.lng]));
+            if (editorGreenPos) pts.push([editorGreenPos.lat, editorGreenPos.lng]);
+            L.polyline(pts, { color: '#FFD700', weight: 2, dashArray: '6,4', interactive: false }).addTo(editorLayerGroup);
+
+            // Waypoint markers (draggable)
+            editorFairwayPath.forEach((p, i) => {
+                const m = L.marker([p.lat, p.lng], {
+                    draggable: true,
+                    icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:12px;height:12px;border-radius:50%;background:#FFD700;border:2px solid #fff;margin:-6px 0 0 -6px;"></div>`, iconSize: [0, 0] }),
+                }).addTo(editorLayerGroup);
+                m.on('drag', (e) => { editorFairwayPath[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; editorRedraw(); });
+                m.on('contextmenu', () => { editorFairwayPath.splice(i, 1); editorDirty = true; editorRedraw(); editorUpdateCompleteness(); });
+            });
+
+            // Distance labels
+            const allPts = [];
+            if (editorTeePos) allPts.push(editorTeePos);
+            allPts.push(...editorFairwayPath);
+            if (editorGreenPos) allPts.push(editorGreenPos);
+            for (let i = 0; i < allPts.length - 1; i++) {
+                const a = allPts[i], b = allPts[i + 1];
+                const d = _haversineYards(a.lat, a.lng, b.lat, b.lng);
+                const midLat = (a.lat + b.lat) / 2, midLng = (a.lng + b.lng) / 2;
+                L.marker([midLat, midLng], {
+                    icon: L.divIcon({ className: 'leaflet-dist-label', html: `<span style="background:rgba(0,0,0,0.7);color:#FFD700;font-size:10px;padding:1px 3px;border-radius:2px;white-space:nowrap;">${Math.round(d)}y</span>`, iconSize: [0, 0] }),
+                    interactive: false,
+                }).addTo(editorLayerGroup);
+            }
+        }
+
+        // Fairway boundary polygon
+        if (editorFairwayBoundary.length >= 3) {
+            L.polygon(editorFairwayBoundary.map(p => [p.lat, p.lng]), {
+                color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.15, interactive: false,
+            }).addTo(editorLayerGroup);
+            editorFairwayBoundary.forEach((p, i) => {
+                const m = L.marker([p.lat, p.lng], {
+                    draggable: true,
+                    icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:10px;height:10px;border-radius:50%;background:#4CAF50;border:2px solid #fff;margin:-5px 0 0 -5px;"></div>`, iconSize: [0, 0] }),
+                }).addTo(editorLayerGroup);
+                m.on('drag', (e) => { editorFairwayBoundary[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; editorRedraw(); });
+                m.on('contextmenu', () => { editorFairwayBoundary.splice(i, 1); editorDirty = true; editorRedraw(); });
+            });
+        }
+
+        // Tee markers (all tees, only active draggable)
+        const TEE_COLORS = { Blue: '#2196F3', White: '#fff', Red: '#f44336', Gold: '#FFD700', Black: '#333', Green: '#4CAF50' };
+        for (const [name, pos] of Object.entries(editorTeePositions)) {
+            const isActive = name === activeTeeName;
+            const color = TEE_COLORS[name.split(' ')[0]] || '#999';
+            const size = isActive ? 24 : 18;
+            const m = L.marker([pos.lat, pos.lng], {
+                draggable: isActive,
+                icon: L.divIcon({
+                    className: 'leaflet-edit-tee',
+                    html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:${color === '#fff' ? '#333' : '#fff'};opacity:${isActive ? 1 : 0.6};margin:-${size/2}px 0 0 -${size/2}px;">T</div>`,
+                    iconSize: [0, 0],
+                }),
+                zIndexOffset: isActive ? 1000 : 500,
+            }).addTo(editorLayerGroup);
+            if (isActive) {
+                m.on('dragend', (e) => {
+                    editorTeePos = { lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng };
+                    editorTeePositions[activeTeeName] = editorTeePos;
+                    editorDirty = true;
+                    editorRedraw();
+                    editorUpdateStrategy();
+                });
+            }
+        }
+
+        // Green/flag marker
+        if (editorGreenPos) {
+            const flagSvg = `<svg width="20" height="24" viewBox="0 0 20 24"><line x1="4" y1="2" x2="4" y2="22" stroke="#fff" stroke-width="2"/><polygon points="5,2 18,7 5,12" fill="#ef5350"/><circle cx="4" cy="22" r="2.5" fill="#fff" stroke="#333"/></svg>`;
+            const m = L.marker([editorGreenPos.lat, editorGreenPos.lng], {
+                draggable: true,
+                icon: L.divIcon({ className: 'leaflet-edit-flag', html: flagSvg, iconSize: [20, 24], iconAnchor: [4, 22] }),
+                zIndexOffset: 900,
+            }).addTo(editorLayerGroup);
+            m.on('dragend', (e) => {
+                editorGreenPos = { lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng };
+                editorDirty = true;
+                editorRedraw();
+                editorUpdateStrategy();
+            });
+        }
+
+        // Green boundary polygon
+        if (editorGreenBoundary.length >= 3) {
+            L.polygon(editorGreenBoundary.map(p => [p.lat, p.lng]), {
+                color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.25, interactive: false,
+            }).addTo(editorLayerGroup);
+            editorGreenBoundary.forEach((p, i) => {
+                const m = L.marker([p.lat, p.lng], {
+                    draggable: true,
+                    icon: L.divIcon({ className: 'leaflet-fairway-wp', html: `<div style="width:8px;height:8px;border-radius:50%;background:#4CAF50;border:1px solid #fff;margin:-4px 0 0 -4px;"></div>`, iconSize: [0, 0] }),
+                }).addTo(editorLayerGroup);
+                m.on('drag', (e) => { editorGreenBoundary[i] = { lat: e.latlng.lat, lng: e.latlng.lng }; editorDirty = true; editorRedraw(); });
+                m.on('contextmenu', () => { editorGreenBoundary.splice(i, 1); editorDirty = true; editorRedraw(); });
+            });
+        }
+
+        // Hazards
+        editorHazards.forEach((h, idx) => {
+            if (h.boundary.length < 3) return;
+            const colors = { bunker: ['#EDC967', '#C4A34D'], water: ['#2196F3', '#1565C0'], out_of_bounds: ['#f44336', '#c62828'], trees: ['#2E7D32', '#1B5E20'], waste_area: ['#8D6E63', '#5D4037'] };
+            const [fill, stroke] = colors[h.hazard_type] || ['#999', '#666'];
+            const poly = L.polygon(h.boundary.map(p => [p.lat, p.lng]), {
+                color: stroke, weight: 1.5, fillColor: fill, fillOpacity: 0.3,
+            }).addTo(editorLayerGroup);
+            if (h.name) poly.bindTooltip(h.name, { permanent: false });
+            poly.on('contextmenu', () => {
+                if (h.id) h._deleted = true;
+                editorHazards.splice(idx, 1);
+                editorDirty = true;
+                editorRedraw();
+            });
+        });
+
+        // Current hazard being drawn
+        if (editorCurrentHazard.length >= 2) {
+            L.polyline(editorCurrentHazard.map(p => [p.lat, p.lng]), {
+                color: '#ffa726', weight: 2, dashArray: '4,4', interactive: false,
+            }).addTo(editorLayerGroup);
+        }
+        editorCurrentHazard.forEach(p => {
+            L.circleMarker([p.lat, p.lng], { radius: 4, color: '#ffa726', fillColor: '#ffa726', fillOpacity: 1, interactive: false }).addTo(editorLayerGroup);
+        });
+
+        // Auto-calculate yardage from tee to green if both placed
+        if (editorTeePos && editorGreenPos) {
+            const yardInput = document.getElementById('editor-yardage');
+            if (!yardInput.value) {
+                yardInput.value = Math.round(_haversineYards(editorTeePos.lat, editorTeePos.lng, editorGreenPos.lat, editorGreenPos.lng));
+            }
+        }
+    }
+
+    function editorFinishHazard() {
+        if (editorCurrentHazard.length >= 3) {
+            const type = document.getElementById('editor-hazard-type').value;
+            editorHazards.push({
+                hazard_type: type,
+                name: '',
+                boundary: [...editorCurrentHazard],
+                _new: true,
+            });
+            editorDirty = true;
+        }
+        editorCurrentHazard = [];
+        editorRedraw();
+    }
+
+    // === Strategy Insights ===
+    function editorUpdateStrategy() {
+        const content = document.getElementById('editor-strategy-content');
+        const player = editorStrategy?.player;
+        if (!player || !player.clubs || player.clubs.length === 0) {
+            content.innerHTML = '<div class="strategy-empty">No player data available</div>';
+            return;
+        }
+
+        const par = parseInt(document.getElementById('editor-par').value) || 4;
+        const yardage = parseInt(document.getElementById('editor-yardage').value) || 0;
+        if (!yardage) {
+            content.innerHTML = '<div class="strategy-empty">Add yardage to see insights</div>';
+            return;
+        }
+
+        const items = [];
+
+        // Suggested tee club
+        let targetDist;
+        if (par === 3) {
+            targetDist = yardage;
+        } else if (par === 4) {
+            targetDist = yardage - 140; // leave ~140 approach
+        } else {
+            targetDist = Math.min(yardage * 0.55, 280); // max out around 280 for par 5s
+        }
+
+        const clubs = player.clubs.sort((a, b) => (b.avg_yards || 0) - (a.avg_yards || 0));
+        let bestClub = clubs[0];
+        let bestDiff = Infinity;
+        for (const c of clubs) {
+            const diff = Math.abs((c.avg_yards || 0) - targetDist);
+            if (diff < bestDiff) { bestDiff = diff; bestClub = c; }
+        }
+
+        if (bestClub) {
+            const remaining = yardage - (bestClub.avg_yards || 0);
+            items.push({
+                label: par === 3 ? 'Club to green' : 'Club off tee',
+                value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y avg)`,
+                cls: 'good',
+            });
+            if (par !== 3 && remaining > 0) {
+                // Find approach club
+                let approachClub = clubs[clubs.length - 1];
+                let aDiff = Infinity;
+                for (const c of clubs) {
+                    const d = Math.abs((c.avg_yards || 0) - remaining);
+                    if (d < aDiff) { aDiff = d; approachClub = c; }
+                }
+                items.push({
+                    label: 'Approach club',
+                    value: `${approachClub.club_type} (${Math.round(remaining)}y to green)`,
+                    cls: '',
+                });
+            }
+        }
+
+        // Expected scoring
+        const parKey = `par${par}_avg`;
+        const parAvg = player.scoring?.[parKey];
+        if (parAvg) {
+            const diff = parAvg - par;
+            items.push({
+                label: `Your avg on par ${par}s`,
+                value: `${parAvg} (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})`,
+                cls: diff <= 0 ? 'good' : diff <= 1 ? 'warning' : 'danger',
+            });
+        }
+
+        // Miss tendency for suggested club
+        if (bestClub && player.miss_tendencies) {
+            const miss = player.miss_tendencies[bestClub.club_type];
+            if (miss && miss.total_shots >= 5) {
+                const dominant = miss.left_pct > miss.right_pct ? 'left' : 'right';
+                const pct = Math.max(miss.left_pct, miss.right_pct);
+                if (pct > 55) {
+                    items.push({
+                        label: `${bestClub.club_type} miss tendency`,
+                        value: `${pct}% ${dominant} (${miss.total_shots} shots)`,
+                        cls: pct > 70 ? 'danger' : 'warning',
+                    });
+                }
+            }
+        }
+
+        // Dispersion
+        if (bestClub && bestClub.std_dev) {
+            items.push({
+                label: `${bestClub.club_type} spread`,
+                value: `${Math.round(bestClub.std_dev * 2)}yd (2 StdDev)`,
+                cls: '',
+            });
+        }
+
+        // Carry to hazards (if tee GPS exists)
+        if (editorTeePos && editorHazards.length > 0) {
+            for (const h of editorHazards) {
+                if (h.boundary.length < 3) continue;
+                // Find closest point of hazard to tee
+                let minDist = Infinity;
+                for (const p of h.boundary) {
+                    const d = _haversineYards(editorTeePos.lat, editorTeePos.lng, p.lat, p.lng);
+                    if (d < minDist) minDist = d;
+                }
+                // Only show if hazard is within play range (50-350 yards)
+                if (minDist > 50 && minDist < 350) {
+                    const carryYd = Math.round(minDist);
+                    let cls = '';
+                    if (bestClub && bestClub.p10) {
+                        cls = bestClub.p10 > carryYd ? 'good' : 'danger';
+                    }
+                    items.push({
+                        label: `${h.hazard_type}${h.name ? ' (' + h.name + ')' : ''} carry`,
+                        value: `${carryYd}yd${bestClub?.p10 ? ` (your p10: ${Math.round(bestClub.p10)}y)` : ''}`,
+                        cls,
+                    });
+                }
+            }
+        }
+
+        if (items.length === 0) {
+            content.innerHTML = '<div class="strategy-empty">Add more data for insights</div>';
+            return;
+        }
+
+        content.innerHTML = items.map(it =>
+            `<div class="strategy-item"><span class="strategy-label">${it.label}</span><span class="strategy-value ${it.cls}">${it.value}</span></div>`
+        ).join('');
+    }
+
+    // === Sequential Hole Navigation ===
+    async function editorNavigateToHole(targetHole) {
+        // Auto-save if dirty
+        if (editorDirty) {
+            await editorSaveCurrentHole();
+        }
+
+        const prevHole = editorGetCurrentHole();
+        editorCurrentHole = targetHole;
+        editorSelectHole(targetHole);
+
+        // Map transition — fly to the new hole's area
+        const newHole = editorGetCurrentHole();
+        let flyLat, flyLng;
+
+        if (newHole && newHole.tee_lat) {
+            flyLat = newHole.tee_lat;
+            flyLng = newHole.tee_lng;
+        } else if (prevHole && prevHole.flag_lat) {
+            // Previous hole's green — next tee should be nearby
+            flyLat = prevHole.flag_lat;
+            flyLng = prevHole.flag_lng;
+        }
+        // If neither has GPS, stay where we are — don't jump to course center
+
+        if (flyLat && editorMap) {
+            editorMap.flyTo([flyLat, flyLng], editorMap.getZoom(), { duration: 0.5 });
+        }
+    }
+
+    // === Save ===
+    async function editorSaveCurrentHole() {
+        const hole = editorGetCurrentHole();
+        if (!hole) return;
+
+        const par = parseInt(document.getElementById('editor-par').value) || hole.par;
+        const yardage = parseInt(document.getElementById('editor-yardage').value) || null;
+        const handicap = parseInt(document.getElementById('editor-handicap').value) || null;
+
+        // Save for each tee that shares this hole number
+        for (const tee of (editorCourse.tees || [])) {
+            const teeHole = (tee.holes || []).find(h => h.hole_number === editorCurrentHole);
+            if (!teeHole) continue;
+
+            const body = { par, yardage, handicap };
+
+            // GPS data: shared green, per-tee tee position
+            if (editorGreenPos) {
+                body.flag_lat = editorGreenPos.lat;
+                body.flag_lng = editorGreenPos.lng;
+            }
+            if (tee.id === editorTeeId && editorTeePos) {
+                body.tee_lat = editorTeePos.lat;
+                body.tee_lng = editorTeePos.lng;
+            } else if (editorTeePositions[tee.tee_name]) {
+                body.tee_lat = editorTeePositions[tee.tee_name].lat;
+                body.tee_lng = editorTeePositions[tee.tee_name].lng;
+            }
+
+            // Fairway/green data (shared across tees)
+            if (editorFairwayPath.length >= 2) {
+                body.fairway_path = JSON.stringify(editorFairwayPath.map(p => [p.lat, p.lng]));
+            }
+            if (editorFairwayBoundary.length >= 3) {
+                body.fairway_boundary = JSON.stringify(editorFairwayBoundary.map(p => [p.lat, p.lng]));
+            }
+            if (editorGreenBoundary.length >= 3) {
+                body.green_boundary = JSON.stringify(editorGreenBoundary.map(p => [p.lat, p.lng]));
+            }
+
+            await fetch(`/api/courses/${editorCourse.id}/holes/${teeHole.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        }
+
+        // Handle hazard changes (new/deleted)
+        const clubId = editorCourse.golf_club_id;
+        for (const h of editorHazards) {
+            if (h._deleted && h.id) {
+                await fetch(`/api/courses/${editorCourse.id}/hazards/${h.id}`, { method: 'DELETE' });
+            }
+            if (h._new) {
+                await fetch(`/api/courses/${editorCourse.id}/hazards`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        hazard_type: h.hazard_type,
+                        name: h.name || '',
+                        boundary: JSON.stringify(h.boundary.map(p => [p.lat, p.lng])),
+                    }),
+                });
+            }
+        }
+
+        // Reload course data to get updated IDs
+        const updated = await fetch(`/api/courses/${editorCourse.id}`).then(r => r.json());
+        editorCourse = updated;
+
+        editorDirty = false;
+        editorBuildHoleNav();
+    }
+
+    // === Tool Selection ===
+    document.querySelectorAll('[data-editor-tool]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            editorTool = btn.dataset.editorTool;
+            document.querySelectorAll('[data-editor-tool]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            // Show/hide hazard section
+            document.getElementById('editor-hazard-section').style.display = editorTool === 'hazard' ? '' : 'none';
+
+            // Finish current hazard if switching away
+            if (editorTool !== 'hazard' && editorCurrentHazard.length >= 3) {
+                editorFinishHazard();
+            }
+        });
+    });
+
+    // Clear buttons
+    document.getElementById('editor-clear-fairway')?.addEventListener('click', () => {
+        editorFairwayPath = []; editorDirty = true; editorRedraw(); editorUpdateCompleteness();
+    });
+    document.getElementById('editor-clear-fw-boundary')?.addEventListener('click', () => {
+        editorFairwayBoundary = []; editorDirty = true; editorRedraw();
+    });
+    document.getElementById('editor-clear-green-boundary')?.addEventListener('click', () => {
+        editorGreenBoundary = []; editorDirty = true; editorRedraw(); editorUpdateCompleteness();
+    });
+
+    // Hazard buttons
+    document.getElementById('editor-finish-hazard')?.addEventListener('click', () => editorFinishHazard());
+    document.getElementById('editor-discard-hazard')?.addEventListener('click', () => {
+        editorCurrentHazard = []; editorRedraw();
+    });
+
+    // Nav buttons
+    document.getElementById('editor-prev-hole')?.addEventListener('click', () => {
+        if (editorCurrentHole > 1) editorNavigateToHole(editorCurrentHole - 1);
+    });
+    document.getElementById('editor-next-hole')?.addEventListener('click', () => {
+        const max = editorCourse?.holes || 18;
+        if (editorCurrentHole < max) editorNavigateToHole(editorCurrentHole + 1);
+    });
+    document.getElementById('editor-save-hole')?.addEventListener('click', async () => {
+        await editorSaveCurrentHole();
+        editorSelectHole(editorCurrentHole); // refresh
+    });
+
+    // Tee selector change
+    document.getElementById('editor-tee-select')?.addEventListener('change', (e) => {
+        editorTeeId = parseInt(e.target.value);
+        editorSelectHole(editorCurrentHole);
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+        // Only when editor is visible
+        if (document.getElementById('section-course-editor')?.classList.contains('active') === false) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+
+        if (e.key === 'ArrowLeft') { e.preventDefault(); document.getElementById('editor-prev-hole')?.click(); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); document.getElementById('editor-next-hole')?.click(); }
+        else if (e.key === 't') editorSetTool('tee');
+        else if (e.key === 'g') editorSetTool('green');
+        else if (e.key === 'f') editorSetTool('fairway');
+        else if (e.key === 'b') editorSetTool('fairway-boundary');
+        else if (e.key === 'h') editorSetTool('hazard');
+        else if (e.key === 's' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); document.getElementById('editor-save-hole')?.click(); }
+        else if (e.key === 'Escape') {
+            editorTool = null;
+            document.querySelectorAll('[data-editor-tool]').forEach(b => b.classList.remove('active'));
+            document.getElementById('editor-hazard-section').style.display = 'none';
+        }
+    });
+
+    function editorSetTool(tool) {
+        const btn = document.querySelector(`[data-editor-tool="${tool}"]`);
+        if (btn) btn.click();
+    }
+
+    // Sync buttons
+    document.getElementById('editor-sync-api')?.addEventListener('click', async () => {
+        if (!editorCourse) return;
+        const btn = document.getElementById('editor-sync-api');
+        btn.textContent = 'Syncing...';
+        btn.disabled = true;
+        try {
+            const res = await fetch(`/api/courses/club/${editorCourse.golf_club_id}/sync`, { method: 'POST' });
+            const data = await res.json();
+            // Reload course data
+            editorCourse = await fetch(`/api/courses/${editorCourse.id}`).then(r => r.json());
+            editorBuildHoleNav();
+            editorSelectHole(editorCurrentHole);
+            btn.textContent = `Synced (${data.status})`;
+        } catch (e) {
+            btn.textContent = 'Sync failed';
+        }
+        setTimeout(() => { btn.textContent = 'Sync Tees (Golf API)'; btn.disabled = false; }, 2000);
+    });
+
+    document.getElementById('editor-import-osm')?.addEventListener('click', async () => {
+        if (!editorCourse) return;
+        const btn = document.getElementById('editor-import-osm');
+        btn.textContent = 'Detecting...';
+        btn.disabled = true;
+        try {
+            // Step 1: Detect features
+            const detectRes = await fetch(`/api/courses/${editorCourse.id}/detect-features`, { method: 'POST' });
+            const detected = await detectRes.json();
+            const total = detected.summary?.total || 0;
+
+            if (total === 0) {
+                btn.textContent = 'No OSM data found';
+                setTimeout(() => { btn.textContent = 'Import OSM Features'; btn.disabled = false; }, 2000);
+                return;
+            }
+
+            // Step 2: Import all detected features
+            btn.textContent = `Importing ${total} features...`;
+            const importRes = await fetch(`/api/courses/${editorCourse.id}/import-features`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bunkers: detected.bunkers || [],
+                    water: detected.water || [],
+                    greens: detected.greens || [],
+                    holes: detected.holes || [],
+                }),
+            });
+            const imported = await importRes.json();
+
+            // Reload course data
+            editorCourse = await fetch(`/api/courses/${editorCourse.id}`).then(r => r.json());
+            editorBuildHoleNav();
+            editorSelectHole(editorCurrentHole);
+            btn.textContent = `Imported! (${imported.bunkers || 0}B, ${imported.water || 0}W, ${imported.holes_enriched || 0}H)`;
+        } catch (e) {
+            btn.textContent = 'Import failed';
+        }
+        setTimeout(() => { btn.textContent = 'Import OSM Features'; btn.disabled = false; }, 3000);
+    });
+
+    // ========== Add Course Search & Create ==========
+
+    document.getElementById('btn-add-course')?.addEventListener('click', () => {
+        const panel = document.getElementById('add-course-panel');
+        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+        document.getElementById('add-course-name').focus();
+    });
+
+    document.getElementById('add-course-search')?.addEventListener('click', addCourseSearch);
+    document.getElementById('add-course-name')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') addCourseSearch();
+    });
+
+    async function addCourseSearch() {
+        const name = document.getElementById('add-course-name').value.trim();
+        if (!name) return;
+
+        const status = document.getElementById('add-course-status');
+        const result = document.getElementById('add-course-result');
+        status.style.display = '';
+        status.innerHTML = '<span style="color:var(--text-muted);">Searching and creating course...</span>';
+        result.style.display = 'none';
+
+        try {
+            const res = await fetch('/api/courses/search-create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            const data = await res.json();
+
+            status.style.display = 'none';
+            result.style.display = '';
+
+            if (data.status === 'existing') {
+                result.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        ${data.photo_url ? `<img src="${data.photo_url}" style="width:80px; height:50px; object-fit:cover; border-radius:6px;">` : ''}
+                        <div>
+                            <div style="font-weight:600;">${data.club_name}</div>
+                            <div style="font-size:0.8rem; color:var(--text-muted);">Already exists (${data.courses?.length || 0} course${data.courses?.length !== 1 ? 's' : ''})</div>
+                        </div>
+                        <a href="#course/${data.course_id}/edit" class="btn btn-sm" style="margin-left:auto;">Open Editor</a>
+                    </div>`;
+            } else {
+                result.innerHTML = `
+                    <div style="display:flex; align-items:center; gap:12px;">
+                        ${data.photo_url ? `<img src="${data.photo_url}" style="width:80px; height:50px; object-fit:cover; border-radius:6px;">` : ''}
+                        <div>
+                            <div style="font-weight:600;">${data.club_name}</div>
+                            <div style="font-size:0.8rem; color:var(--text-muted);">${data.address || ''}</div>
+                            <div style="font-size:0.75rem; color:var(--accent);">
+                                ${data.tees_synced || 0} tees, ${data.holes_populated || 0} holes synced
+                                ${data.courses?.length > 1 ? ` (${data.courses.length} courses)` : ''}
+                            </div>
+                        </div>
+                        <a href="#course/${data.course_id}/edit" class="btn btn-sm" style="margin-left:auto;">Open Editor</a>
+                    </div>`;
+                // Reload clubs list
+                loadClubs();
+            }
+        } catch (e) {
+            status.innerHTML = `<span style="color:var(--danger);">Error: ${e.message}</span>`;
+            result.style.display = 'none';
+        }
+    }
 
     // ========== Initial Load ==========
     loadAllData();

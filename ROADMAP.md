@@ -92,29 +92,9 @@
 
 ---
 
-## 4. Putting Analysis
+## ~~4. Putting Analysis~~ `CANCELED`
 
-**Goal:** Putts are ~40% of strokes; dedicated analysis here has outsized impact.
-
-### 4a. Putts per GIR `[ ]`
-- Track putts on holes where GIR was made (key efficiency metric)
-- Trend over time
-- Compare to PGA baseline (~1.75)
-
-### 4b. 3-Putt Rate & Tracking `[ ]`
-- Overall 3-putt percentage
-- Which holes/courses produce the most 3-putts
-- Trend over time
-
-### 4c. Putt Distance Analysis `[ ]`
-- If first-putt distance is derivable (pin_distance on putt shots):
-  - Make rate by distance bucket (3-5ft, 5-10ft, 10-20ft, 20-30ft, 30+ft)
-  - SG Putting by distance bucket
-  - Average first-putt distance (proxy for approach quality)
-
-### 4d. Putting SG Breakdown `[ ]`
-- SG Putting per round, trended
-- Identify whether putting losses come from long putts (lag) or short putts (finishing)
+> Canceled — Garmin only provides putt count per hole, no actual putt distances or GPS on green. Key putting stats (3-putt rate, putts/GIR) are already covered in the Stats dashboard (Feature 2). Dedicated putting analysis would require a putting-specific data source (Arccos, etc.) which is not planned.
 
 ---
 
@@ -174,10 +154,9 @@
 - Average score per hole, SG per hole
 - "Hole #7 costs you 0.8 strokes/round — you miss left into the bunker 75% of the time"
 
-### 7c. Course Strategy Insights `[ ]`
-- Per-hole: most common miss, best club choice historically
-- Shot pattern overlay on the course map
-- "On #14, laying up to 100 yards has produced better scores than going for it"
+### 7c. Course Strategy Insights `[x]`
+- Per-hole miss tendency and best club choice — *done in 14a/14b*
+- Advanced strategy recommendations (risk/reward, lay-up analysis) — *moved to Backlog*
 
 ---
 
@@ -332,6 +311,8 @@
   - SG breakdown (where you gain/lose strokes here)
   - Common miss pattern ("You've missed left 3 of 4 times here")
   - Best club choices historically
+  - Strategy insights from 14d: risk/reward suggestions, "laying up here saves 0.5 strokes on average"
+  - Hole verdict context: difficulty ranking, your scoring distribution on this hole
 - **Approach helper:**
   - "You're X yards out" → suggested club based on your distance data
   - Club distance card: quick reference of your carry/total per club
@@ -510,28 +491,17 @@
 
 **Goal:** Rebuild the hole view screen with rich historical data, strategy insights, and improved visualization. Best tackled after the Round screen (9) is complete.
 
-### 14a. Per-Hole Historical Stats `[ ]`
+### 14a. Per-Hole Historical Stats `[x]`
 - Integrate course-level hole difficulty data (from 7b) into the hole view
 - Show avg score, avg vs par, birdie/par/bogey percentages for each hole
 - Miss tendency summary: "You miss left 68% of the time on this hole"
 - SG breakdown per hole across all rounds
 
-### 14b. Club Usage & Strategy `[ ]`
+### 14b. Club Usage & Strategy `[x]`
 - Club usage history per hole ("Driver 4/5 times, fairway 60%")
 - Most common miss by club on this hole
 - Best club choice historically based on scoring outcomes
 - Personal strategy notes field per hole for game planning
-
-### 14c. Shot Pattern Visualization `[ ]`
-- Shot pattern overlay on the hole map (all historical shots)
-- Dispersion visualization: where tee shots land, approach miss patterns
-- Side-by-side: historical patterns vs a specific round's actual shots
-- Color-coded by outcome (fairway, rough, hazard, green)
-
-### 14d. Course Strategy Insights `[ ]`
-- Per-hole: "On #14, laying up to 100 yards has produced better scores than going for it"
-- Risk/reward analysis based on historical outcomes
-- Suggested play based on your data (club off tee, target areas)
 
 ---
 
@@ -589,3 +559,22 @@
 - **Existing round fields still useful:** The `rounds` table already has pre/post session fields. When a journal is linked to a round, the journal data merges into these fields. The range session model needs those fields added (12d).
 - **Server-first, offline-resilient:** The server DB is the single source of truth. Mobile writes go directly to the API when online. Offline is a fallback only — IndexedDB queues writes and replays them on reconnect. Read data (course info, stats, club distances) is cached locally so the UI works without signal but is refreshed from the server whenever connectivity is available.
 - **Incremental delivery:** Each numbered section is independent and can be shipped standalone. Sub-items within a section should generally be done in order (a → b → c).
+
+---
+
+## Backlog (Future Enhancements)
+
+> Items moved here from completed features. Not prioritized — revisit when enough data exists or when a related feature makes them relevant.
+
+### Shot Pattern Visualization (from 14c)
+- Shot pattern overlay on the hole map (all historical shots)
+- Dispersion visualization: where tee shots land, approach miss patterns
+- Side-by-side: historical patterns vs a specific round's actual shots
+- Color-coded by outcome (fairway, rough, hazard, green)
+- *Best tackled after 20+ rounds at a course provide enough data for meaningful patterns*
+
+### Course Strategy Insights (from 14d)
+- Per-hole: "On #14, laying up to 100 yards has produced better scores than going for it"
+- Risk/reward analysis based on historical outcomes
+- Suggested play based on your data (club off tee, target areas)
+- *Also feeds into mobile on-course mode (11c) for pre-round strategy*

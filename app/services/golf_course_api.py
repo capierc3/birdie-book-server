@@ -347,6 +347,7 @@ def _infer_tees_from_rounds(db: Session, course: Course) -> dict:
                 par=4,  # Default — user can update manually
                 flag_lat=hd["flag_lat"],
                 flag_lng=hd["flag_lng"],
+                data_source='garmin',
             )
             db.add(hole)
             holes_created += 1
@@ -581,6 +582,7 @@ def apply_golf_course_data(db: Session, course: Course, api_id: int) -> dict:
                     par=hole_data.get("par", 4),
                     yardage=hole_data.get("yardage"),
                     handicap=hole_data.get("handicap"),
+                    data_source='api',
                 )
                 db.add(hole)
                 holes_created += 1
@@ -742,6 +744,7 @@ def _apply_tees_to_course(
                     par=hole_data.get("par", 4),
                     yardage=hole_data.get("yardage"),
                     handicap=hole_data.get("handicap"),
+                    data_source='api',
                 ))
                 holes_created += 1
 
@@ -825,6 +828,7 @@ def _split_combo_tees_to_standalone(
                         par=h.get("par", 4),
                         yardage=h.get("yardage"),
                         handicap=h.get("handicap"),
+                        data_source='api',
                     ))
 
             # Back 9 → second named course (renumber 1-9)
@@ -851,6 +855,7 @@ def _split_combo_tees_to_standalone(
                         par=h.get("par", 4),
                         yardage=h.get("yardage"),
                         handicap=h.get("handicap"),
+                        data_source='api',
                     ))
 
     # Update standalone course metadata

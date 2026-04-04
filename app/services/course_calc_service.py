@@ -99,6 +99,106 @@ def _point_in_polygon(lat: float, lng: float, polygon: list[list[float]]) -> boo
     return inside
 
 
+def fairway_width_at_distance(
+    tee_lat: float, tee_lng: float,
+    fairway_boundary: list[list[float]],
+    fairway_path: list[list[float]],
+    target_distance_yards: float,
+) -> Optional[float]:
+    """
+    Compute fairway width (yards) at a given distance from the tee along the centerline.
+    Projects along fairway_path to find the point at target_distance_yards,
+    then measures perpendicular width of fairway_boundary at that point.
+    Returns None if data is insufficient.
+    """
+    if not fairway_path or len(fairway_path) < 2 or not fairway_boundary or len(fairway_boundary) < 3:
+        return None
+    if target_distance_yards <= 0:
+        return None
+
+    # Walk along centerline to find the point at target_distance
+    cumulative = 0.0
+    target_lat, target_lng = None, None
+    bearing = None
+
+    for i in range(len(fairway_path) - 1):
+        a = fairway_path[i]
+        b = fairway_path[i + 1]
+        seg_dist = haversine_yards(a[0], a[1], b[0], b[1])
+        if cumulative + seg_dist >= target_distance_yards:
+            # Interpolate within this segment
+            remaining = target_distance_yards - cumulative
+            frac = remaining / seg_dist if seg_dist > 0 else 0
+            target_lat = a[0] + frac * (b[0] - a[0])
+            target_lng = a[1] + frac * (b[1] - a[1])
+            bearing = _calc_bearing(a[0], a[1], b[0], b[1])
+            break
+        cumulative += seg_dist
+
+    if target_lat is None:
+        return None
+
+    # Cast a perpendicular ray through the target point and find intersections with boundary
+    perp_bearing = (bearing + 90) % 360  # perpendicular direction
+    cos_lat = math.cos(math.radians(target_lat))
+
+    # Extend ray in both directions (~500 yards should be more than enough)
+    offset_lat = 500 / 111320  # degrees latitude per yard (approx)
+    offset_lng = 500 / (111320 * cos_lat) if cos_lat > 0 else offset_lat
+
+    dx = math.sin(math.radians(perp_bearing)) * offset_lng
+    dy = math.cos(math.radians(perp_bearing)) * offset_lat
+
+    ray_a = (target_lat + dy, target_lng + dx)
+    ray_b = (target_lat - dy, target_lng - dx)
+
+    # Find all intersections of ray with boundary polygon edges
+    intersections = []
+    n = len(fairway_boundary)
+    for i in range(n):
+        p1 = fairway_boundary[i]
+        p2 = fairway_boundary[(i + 1) % n]
+        pt = _line_segment_intersection(ray_a, ray_b, (p1[0], p1[1]), (p2[0], p2[1]))
+        if pt:
+            intersections.append(pt)
+
+    if len(intersections) < 2:
+        return None
+
+    # Width = distance between the two closest intersections that straddle the centerline
+    # Sort by distance from ray_b end (one direction) to find the pair straddling the center
+    dists = [(haversine_yards(target_lat, target_lng, p[0], p[1]), p) for p in intersections]
+    dists.sort(key=lambda x: x[0])
+
+    # Width is the sum of the two closest intersection distances from the target point
+    # (one on each side of the centerline)
+    if len(dists) >= 2:
+        return round(dists[0][0] + dists[1][0], 1)
+
+    return None
+
+
+def _line_segment_intersection(a1, a2, b1, b2):
+    """Find intersection of two line segments. Returns (lat, lng) or None."""
+    x1, y1 = a1[1], a1[0]  # lng, lat
+    x2, y2 = a2[1], a2[0]
+    x3, y3 = b1[1], b1[0]
+    x4, y4 = b2[1], b2[0]
+
+    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(denom) < 1e-12:
+        return None
+
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
+    u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        lat = y1 + t * (y2 - y1)
+        lng = x1 + t * (x2 - x1)
+        return (lat, lng)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Metric computations
 # ---------------------------------------------------------------------------

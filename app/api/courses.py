@@ -26,6 +26,7 @@ class CourseHazardResponse(BaseModel):
     hazard_type: str
     name: Optional[str] = None
     boundary: str  # JSON [[lat, lng], ...]
+    data_source: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -42,8 +43,10 @@ class CourseHoleResponse(BaseModel):
     tee_lat: Optional[float] = None
     tee_lng: Optional[float] = None
     fairway_path: Optional[str] = None
+    fairway_boundary: Optional[str] = None
     green_boundary: Optional[str] = None
     osm_hole_id: Optional[int] = None
+    data_source: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -233,6 +236,114 @@ def list_clubs(db: Session = Depends(get_db)):
     return result
 
 
+# --- Course Search & Create ---
+
+class CourseSearchCreateRequest(BaseModel):
+    name: str
+    google_place_id: Optional[str] = None
+
+
+@router.post("/search-create")
+def search_create_course(req: CourseSearchCreateRequest, db: Session = Depends(get_db)):
+    """
+    Search for a course via Google Places, create GolfClub + Course records,
+    and auto-sync tee/hole data from the Golf Course API.
+    Returns existing club if a match is found.
+    """
+    from app.services.places_service import _do_places_search, apply_places_result, _download_photo
+
+    # 1. Check for existing club by google_place_id
+    if req.google_place_id:
+        existing = db.query(GolfClub).filter(GolfClub.google_place_id == req.google_place_id).first()
+        if existing:
+            courses = db.query(Course).filter(Course.golf_club_id == existing.id).all()
+            return {
+                "status": "existing",
+                "golf_club_id": existing.id,
+                "course_id": courses[0].id if courses else None,
+                "club_name": existing.name,
+                "courses": [{"id": c.id, "name": c.display_name, "holes": c.holes} for c in courses],
+                "photo_url": existing.photo_url,
+            }
+
+    # 2. Search Google Places
+    search_text = req.name
+    if "golf" not in search_text.lower():
+        search_text += " golf course"
+    places_result = _do_places_search(search_text)
+
+    # 3. Check for existing club by place_id from search result
+    if places_result and places_result.place_id:
+        existing = db.query(GolfClub).filter(GolfClub.google_place_id == places_result.place_id).first()
+        if existing:
+            courses = db.query(Course).filter(Course.golf_club_id == existing.id).all()
+            return {
+                "status": "existing",
+                "golf_club_id": existing.id,
+                "course_id": courses[0].id if courses else None,
+                "club_name": existing.name,
+                "courses": [{"id": c.id, "name": c.display_name, "holes": c.holes} for c in courses],
+                "photo_url": existing.photo_url,
+            }
+
+    # 4. Create new GolfClub
+    club = GolfClub(name=req.name)
+    if places_result:
+        club.name = places_result.display_name or req.name
+        club.address = places_result.address
+        club.lat = places_result.lat
+        club.lng = places_result.lng
+        club.google_place_id = places_result.place_id
+    db.add(club)
+    db.flush()  # get club.id for photo download
+
+    # Download photo
+    if places_result and places_result.photo_url:
+        local_url = _download_photo(places_result.photo_url, club.id)
+        if local_url:
+            club.photo_url = local_url
+
+    # 5. Create a default Course
+    course = Course(golf_club_id=club.id, holes=18)
+    db.add(course)
+    db.flush()
+
+    db.commit()
+
+    # 6. Auto-sync from Golf Course API (tees, holes, par, yardage)
+    sync_result = {"status": "skipped"}
+    try:
+        sync_result = sync_club_courses(db, club)
+    except Exception as e:
+        logger.warning("Golf course API sync failed for '%s': %s", club.name, e)
+        sync_result = {"status": "error", "reason": str(e)}
+
+    # Refresh to get any courses created by sync (combo courses may create additional ones)
+    db.refresh(club)
+    courses = db.query(Course).filter(Course.golf_club_id == club.id).all()
+
+    # Count what was populated
+    tee_count = db.query(CourseTee).filter(
+        CourseTee.course_id.in_([c.id for c in courses])
+    ).count()
+    hole_count = db.query(CourseHole).join(CourseTee).filter(
+        CourseTee.course_id.in_([c.id for c in courses])
+    ).count()
+
+    return {
+        "status": "created",
+        "golf_club_id": club.id,
+        "course_id": courses[0].id if courses else course.id,
+        "club_name": club.name,
+        "address": club.address,
+        "courses": [{"id": c.id, "name": c.display_name, "holes": c.holes} for c in courses],
+        "tees_synced": tee_count,
+        "holes_populated": hole_count,
+        "photo_url": club.photo_url,
+        "sync_result": sync_result.get("status", "unknown"),
+    }
+
+
 @router.get("/", response_model=list[CourseResponse])
 def list_courses(db: Session = Depends(get_db)):
     courses = (
@@ -243,6 +354,144 @@ def list_courses(db: Session = Depends(get_db)):
         .all()
     )
     return [_build_course_response(db, c) for c in courses]
+
+
+@router.get("/{course_id}/strategy")
+def get_course_strategy(course_id: int, db: Session = Depends(get_db)):
+    """
+    Return player stats needed for course strategy insights in the editor.
+    Includes club distances, scoring by par type, miss tendencies, and SG categories.
+    """
+    from app.models.club import Club, ClubStats
+
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # 1. Club distance stats (from pre-computed ClubStats)
+    clubs_data = []
+    all_clubs = (
+        db.query(Club)
+        .options(joinedload(Club.stats))
+        .filter(Club.retired == False)  # noqa: E712
+        .order_by(Club.sort_order)
+        .all()
+    )
+    for club in all_clubs:
+        s = club.stats
+        if not s:
+            continue
+        # Use combined stats (course + range) for best data
+        avg = s.combined_avg_yards or s.avg_yards
+        if not avg:
+            continue
+        clubs_data.append({
+            "id": club.id,
+            "club_type": club.club_type,
+            "name": club.name,
+            "avg_yards": avg,
+            "median_yards": s.combined_median_yards or s.median_yards,
+            "std_dev": s.combined_std_dev or s.std_dev,
+            "p10": s.combined_p10 or s.p10,
+            "p90": s.combined_p90 or s.p90,
+            "sample_count": s.combined_sample_count or s.sample_count,
+        })
+
+    # 2. Scoring by par type — join RoundHole with CourseHole to get par
+    scoring = {"par3_avg": None, "par4_avg": None, "par5_avg": None, "gir_pct": None, "fw_pct": None}
+    par_scores = {}  # {par: [scores]}
+    gir_total, gir_hit = 0, 0
+    fw_total, fw_hit = 0, 0
+
+    round_holes = db.query(RoundHole).filter(RoundHole.strokes.isnot(None)).all()
+    # Build a map of hole_number -> par from any tee of any course (for this player's rounds)
+    # Simple approach: query all CourseHoles with par data
+    hole_pars = {}  # {(course_id, hole_number): par}
+    for tee in db.query(CourseTee).all():
+        for ch in db.query(CourseHole).filter(CourseHole.tee_id == tee.id).all():
+            if ch.par:
+                hole_pars[(tee.course_id, ch.hole_number)] = ch.par
+
+    for rh in round_holes:
+        rnd = db.query(Round).filter(Round.id == rh.round_id).first()
+        if not rnd or not rnd.course_id:
+            continue
+        par = hole_pars.get((rnd.course_id, rh.hole_number))
+        if par and rh.strokes:
+            par_scores.setdefault(par, []).append(rh.strokes)
+        if rh.gir is not None:
+            gir_total += 1
+            if rh.gir:
+                gir_hit += 1
+        if rh.fairway is not None:
+            fw_total += 1
+            if rh.fairway == 'HIT':
+                fw_hit += 1
+
+    for p in [3, 4, 5]:
+        if par_scores.get(p):
+            scoring[f"par{p}_avg"] = round(sum(par_scores[p]) / len(par_scores[p]), 2)
+    if gir_total:
+        scoring["gir_pct"] = round(gir_hit / gir_total * 100, 1)
+    if fw_total:
+        scoring["fw_pct"] = round(fw_hit / fw_total * 100, 1)
+
+    # 3. Miss tendencies per club (from on-course shot data)
+    # Shot.club is a string like "Driver", "7 Iron" — group by that
+    miss_tendencies = {}
+    miss_query = (
+        db.query(Shot.club, Shot.fairway_side, sqlfunc.count())
+        .filter(
+            Shot.fairway_side.isnot(None),
+            Shot.club.isnot(None),
+            Shot.shot_number == 1,  # Tee shots only for miss tendency
+        )
+        .group_by(Shot.club, Shot.fairway_side)
+        .all()
+    )
+    club_miss_counts = {}  # {club_name: {side: count}}
+    for club_name, side, count in miss_query:
+        club_miss_counts.setdefault(club_name, {}).setdefault(side, 0)
+        club_miss_counts[club_name][side] += count
+
+    for club_name, sides in club_miss_counts.items():
+        total = sum(sides.values())
+        if total < 5:
+            continue
+        miss_tendencies[club_name] = {
+            "left_pct": round(sides.get("L", 0) / total * 100, 1),
+            "right_pct": round(sides.get("R", 0) / total * 100, 1),
+            "center_pct": round(sides.get("CENTER", 0) / total * 100, 1),
+            "total_shots": total,
+        }
+
+    # 4. SG categories (simple overall averages)
+    sg_categories = {}
+    sg_query = (
+        db.query(
+            Shot.shot_type,
+            sqlfunc.avg(Shot.sg_pga),
+            sqlfunc.count(),
+        )
+        .filter(Shot.sg_pga.isnot(None))
+        .group_by(Shot.shot_type)
+        .all()
+    )
+    for shot_type, avg_sg, count in sg_query:
+        if shot_type and count >= 5:
+            sg_categories[shot_type] = {
+                "avg_sg_pga": round(avg_sg, 3),
+                "shot_count": count,
+            }
+
+    return {
+        "player": {
+            "clubs": clubs_data,
+            "scoring": scoring,
+            "miss_tendencies": miss_tendencies,
+            "sg_categories": sg_categories,
+        }
+    }
 
 
 @router.get("/{course_id}", response_model=CourseDetailResponse)
@@ -889,7 +1138,8 @@ class HoleUpdateRequest(BaseModel):
     tee_lng: Optional[float] = None
     flag_lat: Optional[float] = None
     flag_lng: Optional[float] = None
-    fairway_path: Optional[str] = None  # JSON string of [[lat, lng], ...]
+    fairway_path: Optional[str] = None  # JSON string of [[lat, lng], ...] centerline
+    fairway_boundary: Optional[str] = None  # JSON string of [[lat, lng], ...] polygon (fairway edges)
     green_boundary: Optional[str] = None  # JSON string of [[lat, lng], ...] polygon
 
 
@@ -916,8 +1166,12 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
         hole.flag_lng = req.flag_lng
     if req.fairway_path is not None:
         hole.fairway_path = req.fairway_path
+    if req.fairway_boundary is not None:
+        hole.fairway_boundary = req.fairway_boundary
     if req.green_boundary is not None:
         hole.green_boundary = req.green_boundary
+
+    hole.data_source = 'manual'
 
     db.commit()
     db.refresh(hole)
@@ -1095,6 +1349,7 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
                 hazard_type="bunker",
                 name=b.get("name"),
                 boundary=jsonlib.dumps(b["boundary"]),
+                data_source='osm',
             )
             db.add(hazard)
             imported["bunkers"] += 1
@@ -1107,6 +1362,7 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
                 hazard_type="water",
                 name=w.get("name"),
                 boundary=jsonlib.dumps(w["boundary"]),
+                data_source='osm',
             )
             db.add(hazard)
             imported["water"] += 1
@@ -1248,6 +1504,9 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
                 waypoints = best.get("waypoints", [])
                 if waypoints and len(waypoints) >= 2 and not hole.fairway_path:
                     hole.fairway_path = jsonlib.dumps(waypoints)
+
+                if not hole.data_source or hole.data_source == 'api':
+                    hole.data_source = 'osm'
 
                 imported["holes_enriched"] += 1
 

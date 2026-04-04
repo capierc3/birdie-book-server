@@ -385,10 +385,12 @@ def get_course_strategy(course_id: int, db: Session = Depends(get_db)):
         avg = s.combined_avg_yards or s.avg_yards
         if not avg:
             continue
+        from app.api.clubs import _default_club_color
         clubs_data.append({
             "id": club.id,
             "club_type": club.club_type,
             "name": club.name,
+            "color": club.color or _default_club_color(club.club_type),
             "avg_yards": avg,
             "median_yards": s.combined_median_yards or s.median_yards,
             "std_dev": s.combined_std_dev or s.std_dev,
@@ -484,12 +486,58 @@ def get_course_strategy(course_id: int, db: Session = Depends(get_db)):
                 "shot_count": count,
             }
 
+    # 5. Lateral dispersion per club (from raw shot data)
+    from app.models.range_session import RangeShot
+    from app.models.trackman_shot import TrackmanShot
+    import statistics
+
+    lateral_dispersion = {}
+
+    # Collect lateral values per club_type from all sources
+    club_lateral = {}  # {club_type: [lateral_yards, ...]}
+
+    # On-course: fairway_side_yards
+    course_lateral = (
+        db.query(Shot.club, Shot.fairway_side_yards)
+        .filter(Shot.fairway_side_yards.isnot(None), Shot.club.isnot(None))
+        .all()
+    )
+    for club_name, lat_yards in course_lateral:
+        club_lateral.setdefault(club_name, []).append(float(lat_yards))
+
+    # Range (MLM2PRO): side_carry_yards
+    range_lateral = (
+        db.query(RangeShot.club_type_raw, RangeShot.side_carry_yards)
+        .filter(RangeShot.side_carry_yards.isnot(None), RangeShot.club_type_raw.isnot(None))
+        .all()
+    )
+    for club_name, lat_yards in range_lateral:
+        club_lateral.setdefault(club_name, []).append(float(lat_yards))
+
+    # Trackman: side_carry_yards
+    trackman_lateral = (
+        db.query(TrackmanShot.club_type_raw, TrackmanShot.side_carry_yards)
+        .filter(TrackmanShot.side_carry_yards.isnot(None), TrackmanShot.club_type_raw.isnot(None))
+        .all()
+    )
+    for club_name, lat_yards in trackman_lateral:
+        club_lateral.setdefault(club_name, []).append(float(lat_yards))
+
+    for club_name, values in club_lateral.items():
+        if len(values) >= 3:
+            lateral_dispersion[club_name] = {
+                "lateral_std_dev": round(statistics.stdev(values), 1),
+                "lateral_mean": round(statistics.mean(values), 1),
+                "sample_count": len(values),
+            }
+
     return {
         "player": {
             "clubs": clubs_data,
             "scoring": scoring,
             "miss_tendencies": miss_tendencies,
             "sg_categories": sg_categories,
+            "lateral_dispersion": lateral_dispersion,
         }
     }
 

@@ -285,18 +285,18 @@
                 <button class="toolbar-icon" data-panel="hole" title="Hole Info">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V3l12 5-12 5"/></svg>
                 </button>
-                <button class="toolbar-icon" data-panel="draw" title="Drawing Tools">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                </button>
-                <button class="toolbar-icon" data-panel="insights" title="Strategy Insights">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21h6"/><path d="M12 3a6 6 0 014 10.5V17H8v-3.5A6 6 0 0112 3z"/></svg>
-                </button>
                 <button class="toolbar-icon" data-panel="data" title="Data Import">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2"/></svg>
                 </button>
+                <button class="toolbar-icon" data-panel="draw" title="Drawing Tools">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                </button>
                 <div style="width:28px; height:1px; background:var(--border); margin:4px 0;"></div>
-                <button class="toolbar-icon" id="btn-measure-tool" title="Measure distance">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20L20 2"/><path d="M6 20l-2-2"/><path d="M10 18l-2-2"/><path d="M14 14l-2-2"/><path d="M18 10l-2-2"/></svg>
+                <button class="toolbar-icon" data-panel="insights" title="Strategy Insights">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21h6"/><path d="M12 3a6 6 0 014 10.5V17H8v-3.5A6 6 0 0112 3z"/></svg>
+                </button>
+                <button class="toolbar-icon" data-panel="strategy" title="Strategy Tools">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
                 </button>
             </div>
 
@@ -411,6 +411,41 @@
                         <button class="btn btn-sm" id="editor-sync-api">Sync Tees (Golf API)</button>
                         <button class="btn btn-sm" id="editor-import-osm">Import OSM Features</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Strategy Tools panel -->
+        <div class="editor-float-panel" data-float-panel="strategy" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Strategy</span>
+                <button class="shot-panel-btn editor-float-close">&times;</button>
+            </div>
+            <div class="editor-float-body">
+                <div class="editor-section">
+                    <div style="display:flex; flex-wrap:wrap; gap:3px; margin-bottom:8px;">
+                        <button class="edit-tool" data-strategy-tool="ruler" title="Measure distance">Ruler</button>
+                        <button class="edit-tool active" data-strategy-tool="cone" title="Shot Dispersion Cone">Dispersion</button>
+                        <button class="edit-tool" data-strategy-tool="landing" title="Landing Zone">Landing</button>
+                        <button class="edit-tool" data-strategy-tool="carry" title="Can I Carry?">Carry?</button>
+                        <button class="edit-tool" data-strategy-tool="recommend" title="Club Recommendation">Club Rec</button>
+                        <button class="edit-tool" data-strategy-tool="placeball" title="Place ball position">Place Ball</button>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <label style="font-size:0.72rem; color:var(--text-muted);">Club</label>
+                        <select id="strategy-club-select" class="edit-input" style="width:100%;"></select>
+                    </div>
+                    <div id="strategy-ball-pos" style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px; display:none;">
+                        Ball: <span id="strategy-ball-label">Tee</span>
+                        <button class="btn btn-ghost btn-sm" id="strategy-ball-reset" style="font-size:0.65rem; padding:1px 4px; margin-left:4px;">Reset to Tee</button>
+                    </div>
+                    <div id="strategy-instructions" style="font-size:0.75rem; color:var(--text-dim); font-style:italic;">
+                        Click &amp; drag from a spot to aim your shot
+                    </div>
+                </div>
+                <div class="editor-section" id="strategy-results" style="display:none;">
+                    <div class="editor-section-title">Results</div>
+                    <div id="strategy-results-content"></div>
                 </div>
             </div>
         </div>
@@ -1585,5 +1620,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=0.5.1"></script>
+<script src="/static/js/app.js?v=0.7.3"></script>
 {% endblock %}

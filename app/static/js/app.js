@@ -10297,6 +10297,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }).addTo(editorMap);
         editorLayerGroup = L.layerGroup().addTo(editorMap);
 
+        // Right-click / middle-click pan (works when normal drag is disabled by tools)
+        (function setupAltPan() {
+            const container = editorMap.getContainer();
+            let altPanning = false, panStartX = 0, panStartY = 0;
+
+            container.addEventListener('mousedown', (e) => {
+                // Right-click (2) or middle-click (1)
+                if (e.button === 2 || e.button === 1) {
+                    altPanning = true;
+                    panStartX = e.clientX;
+                    panStartY = e.clientY;
+                    e.preventDefault();
+                }
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!altPanning) return;
+                const dx = e.clientX - panStartX;
+                const dy = e.clientY - panStartY;
+                panStartX = e.clientX;
+                panStartY = e.clientY;
+                editorMap.panBy([-dx, -dy], { animate: false });
+            });
+
+            document.addEventListener('mouseup', (e) => {
+                if (e.button === 2 || e.button === 1) {
+                    altPanning = false;
+                }
+            });
+
+            // Suppress context menu on the map so right-click drag works
+            container.addEventListener('contextmenu', (e) => e.preventDefault());
+        })();
+
         // Center map on club GPS or first hole with GPS
         let centerLat = editorCourse.lat, centerLng = editorCourse.lng;
         if (!centerLat) {
@@ -10338,6 +10372,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Ensure map fills full-screen layout
         requestAnimationFrame(() => editorMap.invalidateSize());
+
+        // Auto-open Hole Info panel on load
+        if (window._editorActivateTab) window._editorActivateTab('hole', true);
     }
 
     function editorBuildHoleNav() {
@@ -10628,9 +10665,10 @@ document.addEventListener('DOMContentLoaded', () => {
         editorFairwayBoundaries.forEach((poly, polyIdx) => {
             if (poly.length >= 3) {
                 const p = L.polygon(poly.map(pt => [pt.lat, pt.lng]), {
-                    color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.15,
+                    color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.15, interactive: drawOpen,
                 }).addTo(editorLayerGroup);
                 p.on('contextmenu', () => {
+                    if (!drawOpen) return;
                     editorFairwayBoundaries.splice(polyIdx, 1);
                     editorDirty = true;
                     editorRedraw();
@@ -11284,21 +11322,409 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => { btn.textContent = 'Import OSM Features'; btn.disabled = false; }, 3000);
     });
 
-    // ========== Measure Tool ==========
+    // (Standalone measure tool removed — ruler is now in Strategy Tools panel)
 
-    (function initMeasureTool() {
-        const btn = document.getElementById('btn-measure-tool');
-        if (!btn) return;
+    // ========== Strategy Tools ==========
 
-        let measuring = false;
-        let dragging = false;
-        let origin = null;          // {lat, lng}
-        let measureLayers = L.layerGroup();
-        let measureAdded = false;
-        let measureLine = null;
-        let measureLabel = null;
-        let originMarker = null;
-        let cursorMarker = null;
+    (function initStrategyTools() {
+        const clubSelect = document.getElementById('strategy-club-select');
+        const instructions = document.getElementById('strategy-instructions');
+        const resultsSection = document.getElementById('strategy-results');
+        const resultsContent = document.getElementById('strategy-results-content');
+        const toolButtons = document.querySelectorAll('[data-strategy-tool]');
+        if (!clubSelect) return;
+
+        let activeStratTool = 'cone';
+        let strategyLayers = L.layerGroup();
+        let strategyAdded = false;
+        let stratDragging = false;
+        let stratOrigin = null;
+        let ballPos = null; // custom ball position (null = use tee)
+        let ballMarker = null;
+
+        const ballPosEl = document.getElementById('strategy-ball-pos');
+        const ballLabel = document.getElementById('strategy-ball-label');
+        const ballReset = document.getElementById('strategy-ball-reset');
+
+        const toolInstructions = {
+            ruler: 'Click & drag to measure distance',
+            cone: 'Click & drag from a spot to aim your shot',
+            landing: 'Click a spot to see where the ball lands',
+            carry: 'Click a point to check carry distances',
+            recommend: 'Click a target to get club recommendations',
+            placeball: 'Click to place ball position (used by Carry & Club Rec)',
+        };
+
+        function getShotOrigin() {
+            return ballPos || editorTeePos || null;
+        }
+
+        function updateBallDisplay() {
+            if (ballPos) {
+                ballPosEl.style.display = '';
+                ballLabel.textContent = 'Custom';
+            } else {
+                ballPosEl.style.display = '';
+                ballLabel.textContent = 'Tee';
+            }
+        }
+
+        ballReset?.addEventListener('click', () => {
+            ballPos = null;
+            if (ballMarker) { strategyLayers.removeLayer(ballMarker); ballMarker = null; }
+            updateBallDisplay();
+        });
+
+        // --- Populate club dropdown from strategy data ---
+        function populateClubs() {
+            const clubs = editorStrategy?.player?.clubs || [];
+            clubSelect.innerHTML = '';
+            clubs.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.club_type;
+                opt.textContent = `${c.club_type} (${Math.round(c.avg_yards)}y)`;
+                opt.style.color = c.color || '';
+                clubSelect.appendChild(opt);
+            });
+        }
+
+        // --- Get club data ---
+        function getClubData(clubType) {
+            const club = (editorStrategy?.player?.clubs || []).find(c => c.club_type === clubType);
+            if (!club) return null;
+            const lateral = editorStrategy?.player?.lateral_dispersion?.[clubType];
+            const miss = editorStrategy?.player?.miss_tendencies?.[clubType];
+            return {
+                type: clubType,
+                color: club.color || '#4CAF50',
+                avg: club.avg_yards,
+                std: club.std_dev || club.avg_yards * 0.08,
+                p10: club.p10 || club.avg_yards * 0.88,
+                p90: club.p90 || club.avg_yards * 1.12,
+                lateralStd: Math.min(lateral?.lateral_std_dev || (club.std_dev ? club.std_dev * 0.15 : 8), club.avg_yards * 0.12),
+                lateralMean: lateral?.lateral_mean || 0,
+                missLeft: miss?.left_pct || 33,
+                missRight: miss?.right_pct || 33,
+                missCenter: miss?.center_pct || 34,
+                samples: club.sample_count || 0,
+            };
+        }
+
+        // --- Ensure layer group is on map ---
+        function ensureLayers() {
+            if (!strategyAdded && typeof editorMap !== 'undefined' && editorMap) {
+                strategyLayers.addTo(editorMap);
+                strategyAdded = true;
+            }
+        }
+
+        // --- Calculate destination point given origin, bearing (radians), distance (yards) ---
+        function destPoint(lat, lng, bearingRad, distYards) {
+            const R = 6371000; // earth radius meters
+            const distM = distYards / 1.09361;
+            const lat1 = lat * Math.PI / 180;
+            const lng1 = lng * Math.PI / 180;
+            const lat2 = Math.asin(Math.sin(lat1) * Math.cos(distM / R) + Math.cos(lat1) * Math.sin(distM / R) * Math.cos(bearingRad));
+            const lng2 = lng1 + Math.atan2(Math.sin(bearingRad) * Math.sin(distM / R) * Math.cos(lat1), Math.cos(distM / R) - Math.sin(lat1) * Math.sin(lat2));
+            return { lat: lat2 * 180 / Math.PI, lng: lng2 * 180 / Math.PI };
+        }
+
+        // --- Calculate bearing from point A to point B ---
+        function bearing(lat1, lng1, lat2, lng2) {
+            const toRad = d => d * Math.PI / 180;
+            const dLng = toRad(lng2 - lng1);
+            const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+            const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+            return Math.atan2(y, x);
+        }
+
+        // --- Normal CDF approximation ---
+        function normalCDF(x) {
+            const t = 1 / (1 + 0.2316419 * Math.abs(x));
+            const d = 0.3989422804 * Math.exp(-x * x / 2);
+            const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.8212560 + t * 1.3302744))));
+            return x > 0 ? 1 - p : p;
+        }
+
+        // --- Tool selection ---
+        toolButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                activeStratTool = btn.dataset.strategyTool;
+                toolButtons.forEach(b => b.classList.toggle('active', b === btn));
+                instructions.textContent = toolInstructions[activeStratTool] || '';
+                resultsSection.style.display = 'none';
+                // Don't clear ball marker when switching tools
+                strategyLayers.eachLayer(l => { if (l !== ballMarker) strategyLayers.removeLayer(l); });
+
+                // Deactivate standalone measure tool if active
+                const standaloneBtn = document.getElementById('btn-measure-tool');
+                if (standaloneBtn?.classList.contains('active')) standaloneBtn.click();
+
+                // Set cursor
+                if (editorMap) {
+                    editorMap.getContainer().style.cursor =
+                        (activeStratTool === 'ruler' || activeStratTool === 'cone') ? 'crosshair' : 'pointer';
+                }
+            });
+        });
+
+        // ===== DISPERSION CONE =====
+        function drawCone(originLat, originLng, aimBearing, club) {
+            strategyLayers.clearLayers();
+            ensureLayers();
+
+            const cc = club.color;
+            const spreadAngleInner = Math.atan2(club.lateralStd, club.avg);       // ±1σ
+            const spreadAngleOuter = Math.atan2(club.lateralStd * 2, club.avg);   // ±2σ
+
+            // Bias shifts the CONE away from aim line based on miss tendency
+            const biasAngle = ((club.missRight - club.missLeft) / 100) * spreadAngleOuter * 0.5;
+            const coneBearing = aimBearing + biasAngle;
+
+            const steps = 20;
+
+            // Outer cone (±2σ, p90 distance)
+            const outerPts = [[originLat, originLng]];
+            for (let i = 0; i <= steps; i++) {
+                const frac = i / steps;
+                const angle = coneBearing - spreadAngleOuter + frac * spreadAngleOuter * 2;
+                const pt = destPoint(originLat, originLng, angle, club.p90);
+                outerPts.push([pt.lat, pt.lng]);
+            }
+            L.polygon(outerPts, {
+                color: cc, weight: 1, fillColor: cc, fillOpacity: 0.1, interactive: false,
+            }).addTo(strategyLayers);
+
+            // Inner cone (±1σ, avg distance)
+            const innerPts = [[originLat, originLng]];
+            for (let i = 0; i <= steps; i++) {
+                const frac = i / steps;
+                const angle = coneBearing - spreadAngleInner + frac * spreadAngleInner * 2;
+                const pt = destPoint(originLat, originLng, angle, club.avg);
+                innerPts.push([pt.lat, pt.lng]);
+            }
+            L.polygon(innerPts, {
+                color: cc, weight: 1, fillColor: cc, fillOpacity: 0.18, interactive: false,
+            }).addTo(strategyLayers);
+
+            // TRUE AIM LINE — where you're actually pointing (no bias)
+            const aimPt = destPoint(originLat, originLng, aimBearing, club.avg);
+            L.polyline([[originLat, originLng], [aimPt.lat, aimPt.lng]], {
+                color: '#fff', weight: 1.5, dashArray: '6,4', interactive: false, opacity: 0.7,
+            }).addTo(strategyLayers);
+
+            // Label
+            const coneCenterPt = destPoint(originLat, originLng, coneBearing, club.avg);
+            L.marker([coneCenterPt.lat, coneCenterPt.lng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="display:inline-block;background:rgba(0,0,0,0.8);color:${cc};padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${club.type} ${Math.round(club.avg)}y</div>`,
+                    iconSize: [0, 0],
+                }),
+                interactive: false,
+            }).addTo(strategyLayers);
+
+            // Origin dot
+            L.circleMarker([originLat, originLng], {
+                radius: 4, color: cc, fillColor: cc, fillOpacity: 1, interactive: false,
+            }).addTo(strategyLayers);
+        }
+
+        // ===== LANDING ZONE =====
+        // ===== LANDING ZONE (180° Distance Arc) =====
+        function drawLandingZone(clickLat, clickLng, club) {
+            strategyLayers.eachLayer(l => { if (l !== ballMarker) strategyLayers.removeLayer(l); });
+            ensureLayers();
+
+            const cc = club.color;
+
+            // Aim toward green, fall back to north
+            let aimBear = 0;
+            if (editorGreenPos) {
+                aimBear = bearing(clickLat, clickLng, editorGreenPos.lat, editorGreenPos.lng);
+            } else if (editorTeePos) {
+                aimBear = bearing(editorTeePos.lat, editorTeePos.lng, clickLat, clickLng);
+            }
+
+            const steps = 24;
+
+            // Helper: build a 180° arc of points at a given distance
+            function arcPoints(dist) {
+                const pts = [];
+                for (let i = 0; i <= steps; i++) {
+                    const frac = i / steps;
+                    const angle = aimBear - Math.PI / 2 + frac * Math.PI; // -90° to +90° from aim
+                    const pt = destPoint(clickLat, clickLng, angle, dist);
+                    pts.push([pt.lat, pt.lng]);
+                }
+                return pts;
+            }
+
+            // Outer band: p10 to p90 (full reachable range)
+            const outerArc = arcPoints(club.p90);
+            const innerArcReverse = arcPoints(club.p10).reverse();
+            const outerBand = [...outerArc, ...innerArcReverse];
+            L.polygon(outerBand, {
+                color: cc, weight: 1, fillColor: cc, fillOpacity: 0.08, interactive: false,
+            }).addTo(strategyLayers);
+
+            // Inner band: avg ± 0.5*std (most likely landing)
+            const innerNear = arcPoints(Math.max(club.avg - club.std * 0.5, club.p10));
+            const innerFar = arcPoints(club.avg + club.std * 0.5);
+            const innerFarReverse = innerFar.slice().reverse(); // clone before reversing
+            const innerBand = [...innerFarReverse, ...innerNear];
+            L.polygon(innerBand, {
+                color: cc, weight: 1, fillColor: cc, fillOpacity: 0.15, interactive: false,
+            }).addTo(strategyLayers);
+
+            // Avg distance arc line (dashed)
+            const avgArc = arcPoints(club.avg);
+            L.polyline(avgArc, {
+                color: cc, weight: 2, dashArray: '6,4', interactive: false,
+            }).addTo(strategyLayers);
+
+            // p10 and p90 arc lines (thin)
+            L.polyline(arcPoints(club.p10), {
+                color: cc, weight: 1, opacity: 0.4, interactive: false,
+            }).addTo(strategyLayers);
+            L.polyline(outerArc, {
+                color: cc, weight: 1, opacity: 0.4, interactive: false,
+            }).addTo(strategyLayers);
+
+            // Label at avg distance along aim direction
+            const labelPt = destPoint(clickLat, clickLng, aimBear, club.avg);
+            L.marker([labelPt.lat, labelPt.lng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="display:inline-block;background:rgba(0,0,0,0.8);color:${cc};padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${club.type} ${Math.round(club.p10)}-${Math.round(club.p90)}y</div>`,
+                    iconSize: [0, 0],
+                }),
+                interactive: false,
+            }).addTo(strategyLayers);
+
+            // Origin marker
+            L.circleMarker([clickLat, clickLng], {
+                radius: 4, color: '#fff', fillColor: cc, fillOpacity: 1, weight: 2, interactive: false,
+            }).addTo(strategyLayers);
+        }
+
+        // ===== CARRY CHECK =====
+        function doCarryCheck(clickLat, clickLng) {
+            strategyLayers.clearLayers();
+            ensureLayers();
+
+            // Distance from tee to clicked point
+            const from = getShotOrigin();
+            const fromLat = from?.lat || clickLat;
+            const fromLng = from?.lng || clickLng;
+            const targetDist = Math.round(_haversineYards(fromLat, fromLng, clickLat, clickLng));
+
+            // Marker at clicked point
+            L.circleMarker([clickLat, clickLng], {
+                radius: 6, color: '#f44336', fillColor: '#f44336', fillOpacity: 0.5, weight: 2, interactive: false,
+            }).addTo(strategyLayers);
+
+            // Line from tee to point
+            if (editorTeePos) {
+                L.polyline([[fromLat, fromLng], [clickLat, clickLng]], {
+                    color: '#f44336', weight: 1.5, dashArray: '4,4', interactive: false,
+                }).addTo(strategyLayers);
+            }
+
+            // Calculate carry probability for each club
+            const clubs = editorStrategy?.player?.clubs || [];
+            let html = `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">Distance: <strong style="color:var(--text);">${targetDist}y</strong></div>`;
+            const rows = [];
+            for (const c of clubs) {
+                const std = c.std_dev || c.avg_yards * 0.08;
+                if (std === 0) continue;
+                const zScore = (targetDist - c.avg_yards) / std;
+                const carryPct = Math.round((1 - normalCDF(zScore)) * 100);
+                if (carryPct < 1 || carryPct > 99) continue;
+                rows.push({ type: c.club_type, avg: c.avg_yards, pct: carryPct });
+            }
+            rows.sort((a, b) => b.pct - a.pct);
+
+            if (rows.length === 0) {
+                html += '<div class="strategy-empty">No clubs with enough data</div>';
+            } else {
+                for (const r of rows.slice(0, 8)) {
+                    const color = r.pct >= 80 ? 'var(--accent)' : r.pct >= 50 ? 'var(--warning)' : 'var(--danger)';
+                    html += `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:0.78rem;">
+                        <span>${r.type} (${Math.round(r.avg)}y)</span>
+                        <span style="color:${color};font-weight:700;">${r.pct}%</span>
+                    </div>`;
+                }
+            }
+
+            resultsContent.innerHTML = html;
+            resultsSection.style.display = '';
+        }
+
+        // ===== CLUB RECOMMENDATION =====
+        function doClubRecommend(clickLat, clickLng) {
+            strategyLayers.clearLayers();
+            ensureLayers();
+
+            const from = getShotOrigin();
+            const fromLat = from?.lat || clickLat;
+            const fromLng = from?.lng || clickLng;
+            const targetDist = Math.round(_haversineYards(fromLat, fromLng, clickLat, clickLng));
+
+            // Marker at target
+            L.circleMarker([clickLat, clickLng], {
+                radius: 6, color: '#2196F3', fillColor: '#2196F3', fillOpacity: 0.5, weight: 2, interactive: false,
+            }).addTo(strategyLayers);
+
+            if (editorTeePos) {
+                L.polyline([[fromLat, fromLng], [clickLat, clickLng]], {
+                    color: '#2196F3', weight: 1.5, dashArray: '4,4', interactive: false,
+                }).addTo(strategyLayers);
+            }
+
+            // Label at target
+            L.marker([clickLat, clickLng], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div style="display:inline-block;background:rgba(33,150,243,0.9);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700;white-space:nowrap;">${targetDist}y</div>`,
+                    iconSize: [0, 0], iconAnchor: [0, -10],
+                }),
+                interactive: false,
+            }).addTo(strategyLayers);
+
+            // Rank clubs by distance match
+            const clubs = editorStrategy?.player?.clubs || [];
+            let html = `<div style="font-size:0.78rem; color:var(--text-muted); margin-bottom:6px;">Target: <strong style="color:var(--text);">${targetDist}y</strong></div>`;
+            const ranked = clubs
+                .filter(c => c.avg_yards)
+                .map(c => {
+                    const diff = Math.abs(c.avg_yards - targetDist);
+                    const std = c.std_dev || c.avg_yards * 0.08;
+                    const matchPct = Math.max(0, Math.round(100 - (diff / std) * 25));
+                    return { type: c.club_type, avg: c.avg_yards, diff, matchPct, std };
+                })
+                .sort((a, b) => a.diff - b.diff);
+
+            if (ranked.length === 0) {
+                html += '<div class="strategy-empty">No clubs with data</div>';
+            } else {
+                for (const r of ranked.slice(0, 5)) {
+                    const sign = r.avg > targetDist ? '+' : '';
+                    const diffStr = `${sign}${Math.round(r.avg - targetDist)}y`;
+                    const color = r.matchPct >= 75 ? 'var(--accent)' : r.matchPct >= 40 ? 'var(--warning)' : 'var(--text-dim)';
+                    html += `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:0.78rem;">
+                        <span>${r.type} (${Math.round(r.avg)}y)</span>
+                        <span style="color:${color};font-weight:600;">${diffStr}</span>
+                    </div>`;
+                }
+            }
+
+            resultsContent.innerHTML = html;
+            resultsSection.style.display = '';
+        }
+
+        // ===== RULER (integrated) =====
+        let rulerLine = null, rulerLabel = null, rulerOriginMarker = null, rulerCursorMarker = null;
 
         const targetSvg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2">
             <circle cx="12" cy="12" r="8" stroke-dasharray="4,2"/>
@@ -11307,125 +11733,151 @@ document.addEventListener('DOMContentLoaded', () => {
             <line x1="0" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="24" y2="12"/>
         </svg>`;
 
-        function onMouseDown(e) {
-            if (!measuring) return;
-            // Don't measure when drawing tools are active
+        // ===== MAP EVENT HANDLERS =====
+        function onStratMouseDown(e) {
+            if (e.originalEvent && e.originalEvent.button !== 0) return;
+            // Don't interfere with drawing tools
             if (editorDrawPanelOpen && editorTool) return;
+            ensureLayers();
 
-            dragging = true;
-            origin = { lat: e.latlng.lat, lng: e.latlng.lng };
+            if (activeStratTool === 'ruler') {
+                stratDragging = true;
+                stratOrigin = { lat: e.latlng.lat, lng: e.latlng.lng };
+                // Clear old ruler elements but keep ball marker
+                if (rulerLine) strategyLayers.removeLayer(rulerLine);
+                if (rulerLabel) strategyLayers.removeLayer(rulerLabel);
+                if (rulerOriginMarker) strategyLayers.removeLayer(rulerOriginMarker);
+                if (rulerCursorMarker) strategyLayers.removeLayer(rulerCursorMarker);
 
-            measureLayers.clearLayers();
+                rulerOriginMarker = L.circleMarker([stratOrigin.lat, stratOrigin.lng], {
+                    radius: 5, color: '#FF5722', fillColor: '#FF5722', fillOpacity: 1, interactive: false,
+                }).addTo(strategyLayers);
+                rulerCursorMarker = L.marker([stratOrigin.lat, stratOrigin.lng], {
+                    icon: L.divIcon({ className: 'measure-target', html: targetSvg, iconSize: [24, 24], iconAnchor: [12, 12] }),
+                    interactive: false,
+                }).addTo(strategyLayers);
+                rulerLine = L.polyline([[stratOrigin.lat, stratOrigin.lng], [stratOrigin.lat, stratOrigin.lng]], {
+                    color: '#FF5722', weight: 2.5, interactive: false,
+                }).addTo(strategyLayers);
+                rulerLabel = L.marker([stratOrigin.lat, stratOrigin.lng], {
+                    icon: L.divIcon({ className: '', html: `<div style="display:inline-block;background:rgba(255,87,34,0.92);color:#fff;padding:5px 12px;border-radius:5px;font-size:14px;font-weight:700;white-space:nowrap;line-height:1;margin-left:16px;margin-top:-28px;">0y</div>`, iconSize: [0, 0] }),
+                    interactive: false,
+                }).addTo(strategyLayers);
 
-            // Origin dot
-            originMarker = L.circleMarker([origin.lat, origin.lng], {
-                radius: 5, color: '#FF5722', fillColor: '#FF5722', fillOpacity: 1, weight: 2, interactive: false,
-            }).addTo(measureLayers);
+                editorMap.dragging.disable();
+                return;
+            }
 
-            // Cursor target marker (moves with mouse)
-            cursorMarker = L.marker([origin.lat, origin.lng], {
-                icon: L.divIcon({
-                    className: 'measure-target',
-                    html: targetSvg,
-                    iconSize: [24, 24],
-                    iconAnchor: [12, 12],
-                }),
-                interactive: false,
-            }).addTo(measureLayers);
+            if (activeStratTool === 'cone') {
+                const club = getClubData(clubSelect.value);
+                if (!club) return;
+                stratDragging = true;
+                stratOrigin = { lat: e.latlng.lat, lng: e.latlng.lng };
+                // Clear non-ball layers
+                strategyLayers.eachLayer(l => { if (l !== ballMarker) strategyLayers.removeLayer(l); });
+                editorMap.dragging.disable();
+            }
+        }
 
-            // Init line (will update on mousemove)
-            measureLine = L.polyline([[origin.lat, origin.lng], [origin.lat, origin.lng]], {
-                color: '#FF5722', weight: 2.5, interactive: false,
-            }).addTo(measureLayers);
+        function onStratMouseMove(e) {
+            if (!stratDragging || !stratOrigin) return;
 
-            // Init distance label
-            measureLabel = L.marker([origin.lat, origin.lng], {
-                icon: L.divIcon({
-                    className: 'measure-dist-label',
-                    html: `<div style="background:rgba(255,87,34,0.9);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700;white-space:nowrap;text-align:center;">0y</div>`,
+            if (activeStratTool === 'ruler') {
+                const cur = e.latlng;
+                const dist = Math.round(_haversineYards(stratOrigin.lat, stratOrigin.lng, cur.lat, cur.lng));
+                rulerLine.setLatLngs([[stratOrigin.lat, stratOrigin.lng], [cur.lat, cur.lng]]);
+                if (rulerCursorMarker) rulerCursorMarker.setLatLng([cur.lat, cur.lng]);
+                rulerLabel.setLatLng([cur.lat, cur.lng]);
+                rulerLabel.setIcon(L.divIcon({
+                    className: '',
+                    html: `<div style="display:inline-block;background:rgba(255,87,34,0.92);color:#fff;padding:5px 12px;border-radius:5px;font-size:14px;font-weight:700;white-space:nowrap;line-height:1;margin-left:16px;margin-top:-28px;">${dist}y</div>`,
                     iconSize: [0, 0],
-                    iconAnchor: [0, 12],
-                }),
-                interactive: false,
-            }).addTo(measureLayers);
+                }));
+                return;
+            }
 
-            // Prevent map pan while measuring
-            editorMap.dragging.disable();
+            if (activeStratTool === 'cone') {
+                const club = getClubData(clubSelect.value);
+                if (!club) return;
+                const aimBear = bearing(stratOrigin.lat, stratOrigin.lng, e.latlng.lat, e.latlng.lng);
+                drawCone(stratOrigin.lat, stratOrigin.lng, aimBear, club);
+            }
         }
 
-        function onMouseMove(e) {
-            if (!dragging || !origin) return;
+        function onStratMouseUp(e) {
+            if (!stratDragging) return;
+            stratDragging = false;
+            editorMap.dragging.enable();
 
-            const cur = e.latlng;
-            const dist = Math.round(_haversineYards(origin.lat, origin.lng, cur.lat, cur.lng));
-
-            // Update line endpoint
-            measureLine.setLatLngs([[origin.lat, origin.lng], [cur.lat, cur.lng]]);
-
-            // Move target to cursor
-            if (cursorMarker) cursorMarker.setLatLng([cur.lat, cur.lng]);
-
-            // Update label position (at cursor) and text
-            measureLabel.setLatLng([cur.lat, cur.lng]);
-            measureLabel.setIcon(L.divIcon({
-                className: '',
-                html: `<div style="display:inline-block;background:rgba(255,87,34,0.92);color:#fff;padding:5px 12px;border-radius:5px;font-size:14px;font-weight:700;white-space:nowrap;line-height:1;margin-left:16px;margin-top:-28px;">${dist}y</div>`,
-                iconSize: [0, 0],
-            }));
+            if (activeStratTool === 'ruler') {
+                // Clear ruler on release
+                if (rulerLine) { strategyLayers.removeLayer(rulerLine); rulerLine = null; }
+                if (rulerLabel) { strategyLayers.removeLayer(rulerLabel); rulerLabel = null; }
+                if (rulerOriginMarker) { strategyLayers.removeLayer(rulerOriginMarker); rulerOriginMarker = null; }
+                if (rulerCursorMarker) { strategyLayers.removeLayer(rulerCursorMarker); rulerCursorMarker = null; }
+            }
+            // Cone persists
         }
 
-        function onMouseUp(e) {
-            if (!dragging) return;
-            dragging = false;
-            origin = null;
+        function onStratClick(e) {
+            if (e.originalEvent && e.originalEvent.button !== 0) return;
+            if (editorDrawPanelOpen && editorTool) return;
+            ensureLayers();
 
-            // Clear everything
-            measureLayers.clearLayers();
-            measureLine = null;
-            measureLabel = null;
-            originMarker = null;
-            cursorMarker = null;
+            if (activeStratTool === 'placeball') {
+                ballPos = { lat: e.latlng.lat, lng: e.latlng.lng };
+                if (ballMarker) strategyLayers.removeLayer(ballMarker);
+                ballMarker = L.circleMarker([ballPos.lat, ballPos.lng], {
+                    radius: 7, color: '#fff', fillColor: '#FFD700', fillOpacity: 1, weight: 2, interactive: false,
+                }).addTo(strategyLayers);
+                updateBallDisplay();
+                return;
+            }
 
-            // Re-enable map pan
-            if (editorMap) editorMap.dragging.enable();
+            const club = getClubData(clubSelect.value);
+            const origin = getShotOrigin();
+
+            if (activeStratTool === 'landing' && club) {
+                drawLandingZone(e.latlng.lat, e.latlng.lng, club);
+            } else if (activeStratTool === 'carry') {
+                doCarryCheck(e.latlng.lat, e.latlng.lng);
+            } else if (activeStratTool === 'recommend') {
+                doClubRecommend(e.latlng.lat, e.latlng.lng);
+            }
         }
 
-        btn.addEventListener('click', () => {
-            measuring = !measuring;
-            btn.classList.toggle('active', measuring);
-
-            if (measuring) {
-                measureLayers.clearLayers();
-                if (typeof editorMap !== 'undefined' && editorMap) {
-                    if (!measureAdded) {
-                        measureLayers.addTo(editorMap);
-                        measureAdded = true;
-                    }
-                    editorMap.on('mousedown', onMouseDown);
-                    editorMap.on('mousemove', onMouseMove);
-                    editorMap.on('mouseup', onMouseUp);
-                    editorMap.getContainer().style.cursor = 'crosshair';
-                }
-            } else {
-                dragging = false;
-                origin = null;
-                measureLayers.clearLayers();
-                if (typeof editorMap !== 'undefined' && editorMap) {
-                    editorMap.off('mousedown', onMouseDown);
-                    editorMap.off('mousemove', onMouseMove);
-                    editorMap.off('mouseup', onMouseUp);
+        // ===== PANEL OPEN/CLOSE → ATTACH/DETACH MAP EVENTS =====
+        // Watch for strategy panel visibility changes
+        const stratPanel = document.querySelector('.editor-float-panel[data-float-panel="strategy"]');
+        if (stratPanel) {
+            const observer = new MutationObserver(() => {
+                const isOpen = stratPanel.style.display !== 'none';
+                if (isOpen && typeof editorMap !== 'undefined' && editorMap) {
+                    populateClubs();
+                    updateBallDisplay();
+                    ensureLayers();
+                    editorMap.getContainer().style.cursor =
+                        (activeStratTool === 'ruler' || activeStratTool === 'cone') ? 'crosshair' : 'pointer';
+                    editorMap.on('mousedown', onStratMouseDown);
+                    editorMap.on('mousemove', onStratMouseMove);
+                    editorMap.on('mouseup', onStratMouseUp);
+                    editorMap.on('click', onStratClick);
+                } else if (typeof editorMap !== 'undefined' && editorMap) {
+                    editorMap.off('mousedown', onStratMouseDown);
+                    editorMap.off('mousemove', onStratMouseMove);
+                    editorMap.off('mouseup', onStratMouseUp);
+                    editorMap.off('click', onStratClick);
+                    strategyLayers.clearLayers();
+                    ballMarker = null;
+                    ballPos = null;
+                    stratDragging = false;
                     editorMap.dragging.enable();
                     editorMap.getContainer().style.cursor = '';
+                    resultsSection.style.display = 'none';
                 }
-            }
-        });
-
-        // Escape to cancel
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && measuring) {
-                btn.click(); // toggle off
-            }
-        });
+            });
+            observer.observe(stratPanel, { attributes: true, attributeFilter: ['style'] });
+        }
     })();
 
     // ========== Editor Panel: Toolbar, Drag, Independent Float Panels ==========
@@ -11438,7 +11890,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const layout = toolbar.parentElement; // .course-editor-layout
         const floatPanels = document.querySelectorAll('.editor-float-panel');
-        const panelOrder = ['hole', 'draw', 'insights', 'data'];
+        const panelOrder = ['hole', 'data', 'draw', 'insights', 'strategy'];
 
         // --- Get float panel by id ---
         function getFloatPanel(id) {
@@ -11459,6 +11911,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isPanelOpen(panelId) && !forceOpen) {
                 // Toggle off
                 fp.style.display = 'none';
+                fp._manuallyPositioned = false;
                 if (icon) icon.classList.remove('active');
                 if (panelId === 'draw') { editorDrawPanelOpen = false; editorRedraw(); }
                 return;
@@ -11472,10 +11925,33 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!fp._manuallyPositioned) {
                 positionFloatPanel(fp, panelId);
             }
-            if (panelId === 'draw') { editorDrawPanelOpen = true; editorRedraw(); }
+
+            // Mutual exclusion: draw and strategy can't be open simultaneously
+            if (panelId === 'draw') {
+                editorDrawPanelOpen = true;
+                editorRedraw();
+                // Close strategy panel if open
+                const stratFp = getFloatPanel('strategy');
+                if (stratFp && stratFp.style.display !== 'none') {
+                    stratFp.style.display = 'none';
+                    const stratIcon = toolbar.querySelector('.toolbar-icon[data-panel="strategy"]');
+                    if (stratIcon) stratIcon.classList.remove('active');
+                }
+            }
+            if (panelId === 'strategy') {
+                // Close draw panel if open
+                const drawFp = getFloatPanel('draw');
+                if (drawFp && drawFp.style.display !== 'none') {
+                    drawFp.style.display = 'none';
+                    const drawIcon = toolbar.querySelector('.toolbar-icon[data-panel="draw"]');
+                    if (drawIcon) drawIcon.classList.remove('active');
+                    editorDrawPanelOpen = false;
+                    editorRedraw();
+                }
+            }
         }
 
-        // --- Smart initial positioning ---
+        // --- Smart initial positioning: stack below existing open panels ---
         function positionFloatPanel(fp, panelId) {
             const parentRect = layout.getBoundingClientRect();
             const tbRect = toolbar.getBoundingClientRect();
@@ -11484,23 +11960,55 @@ document.addEventListener('DOMContentLoaded', () => {
             const tbCenterX = relLeft + toolbar.offsetWidth / 2;
             const parentCenterX = parentRect.width / 2;
             const gap = 8;
+            const panelWidth = 280;
 
-            // Count how many panels are already open (for vertical stacking)
-            let openCount = 0;
-            for (const id of panelOrder) {
-                if (id === panelId) break;
-                if (isPanelOpen(id)) openCount++;
-            }
-            const verticalOffset = openCount * 40;
-
-            const top = Math.min(relTop + verticalOffset, parentRect.height - 200);
-            fp.style.top = Math.max(0, top) + 'px';
-
+            // Determine X position (right or left of toolbar)
+            let baseX;
             if (tbCenterX < parentCenterX) {
-                fp.style.left = (relLeft + toolbar.offsetWidth + gap) + 'px';
+                baseX = relLeft + toolbar.offsetWidth + gap;
             } else {
-                fp.style.left = Math.max(0, relLeft - fp.offsetWidth - gap) + 'px';
+                baseX = Math.max(0, relLeft - panelWidth - gap);
             }
+
+            // Collect bounding boxes of all currently open, non-manually-positioned panels in same column
+            const openRects = [];
+            floatPanels.forEach(other => {
+                if (other === fp) return;
+                if (other.style.display === 'none') return;
+                const otherLeft = parseFloat(other.style.left) || 0;
+                // Only consider panels in the same horizontal column (within panelWidth proximity)
+                if (Math.abs(otherLeft - baseX) < panelWidth) {
+                    const otherTop = parseFloat(other.style.top) || 0;
+                    openRects.push({ top: otherTop, bottom: otherTop + other.offsetHeight });
+                }
+            });
+
+            // Sort by top position
+            openRects.sort((a, b) => a.top - b.top);
+
+            // Find the first available vertical slot
+            let targetTop = relTop; // start at toolbar top
+            for (const rect of openRects) {
+                // If our target overlaps this panel, push below it
+                if (targetTop < rect.bottom && targetTop + 50 > rect.top) {
+                    targetTop = rect.bottom + gap;
+                }
+            }
+
+            // If we'd go off the bottom, try placing in a second column
+            if (targetTop + 150 > parentRect.height) {
+                // Shift horizontally: place next to the existing column
+                if (tbCenterX < parentCenterX) {
+                    baseX += panelWidth + gap;
+                } else {
+                    baseX -= panelWidth + gap;
+                }
+                baseX = Math.max(0, Math.min(baseX, parentRect.width - panelWidth));
+                targetTop = relTop; // reset to top
+            }
+
+            fp.style.top = Math.max(0, targetTop) + 'px';
+            fp.style.left = baseX + 'px';
         }
 
         // --- Toolbar icon clicks ---
@@ -11514,6 +12022,7 @@ document.addEventListener('DOMContentLoaded', () => {
             closeBtn?.addEventListener('click', () => {
                 const panelId = fp.dataset.floatPanel;
                 fp.style.display = 'none';
+                fp._manuallyPositioned = false;
                 const icon = toolbar.querySelector(`.toolbar-icon[data-panel="${panelId}"]`);
                 if (icon) icon.classList.remove('active');
                 if (panelId === 'draw') { editorDrawPanelOpen = false; editorRedraw(); }

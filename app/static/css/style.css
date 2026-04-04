@@ -2020,7 +2020,7 @@ tr[data-shot-id] {
 .editor-panel {
     position: absolute;
     top: 12px;
-    left: 12px;
+    right: 12px;
     width: 56px;
     background: var(--bg-card);
     border: 1px solid var(--border);

@@ -10387,6 +10387,20 @@ document.addEventListener('DOMContentLoaded', () => {
         editorPopulateRoundSelect();
         editorPopulateScorecardTee();
 
+        // Eagerly load all round details for this course (needed by scorecard + overview)
+        if (editorRounds.length > 0) {
+            (async () => {
+                for (const r of editorRounds) {
+                    try {
+                        const resp = await fetch(`/api/rounds/${r.id}`);
+                        editorAllRoundDetails.push(await resp.json());
+                    } catch (e) { /* skip */ }
+                }
+                editorRenderScorecard();
+                editorRenderHoleOverview();
+            })();
+        }
+
         // Auto-open Scorecard panel on load
         if (window._editorActivateTab) window._editorActivateTab('scorecard', true);
     }
@@ -11422,6 +11436,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         editorRenderScorecard();
+        editorRenderHoleOverview();
     });
 
     function editorComputeHistoricScores() {
@@ -11656,6 +11671,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editorSelectHole = function(holeNum) {
         _origEditorSelectHole(holeNum);
         editorRenderScorecard();
+        editorRenderHoleOverview();
     };
 
     // Render scorecard when panel opens (lazy-load historic data)
@@ -11677,6 +11693,316 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         observer.observe(scorecardPanel, { attributes: true, attributeFilter: ['style'] });
+    }
+
+    // ========== Hole Overview ==========
+
+    function editorRenderHoleOverview() {
+        const container = document.getElementById('editor-hole-overview');
+        if (!container || !editorCourse) return;
+
+        const tee = (editorCourse.tees || []).find(t => t.id === editorTeeId);
+        const courseHoles = tee?.holes || [];
+        const ch = courseHoles.find(h => h.hole_number === editorCurrentHole);
+        const par = ch?.par || 0;
+        const holeNum = editorCurrentHole;
+
+        // Filter round details by tee
+        const teeRounds = editorAllRoundDetails.filter(r => r.tee_id === editorTeeId);
+
+        if (editorViewMode === 'historic') {
+            // === HISTORIC MODE ===
+            if (teeRounds.length === 0) {
+                container.innerHTML = `<div style="font-size:0.82rem; font-weight:600; margin-bottom:8px;">Hole ${holeNum} — Par ${par}</div>
+                    <div class="strategy-empty">No rounds on this tee</div>`;
+                return;
+            }
+
+            // Scores
+            const hs = editorComputeHistoricScores()[holeNum];
+
+            // Putts
+            const allPutts = teeRounds
+                .map(r => (r.holes || []).find(h => h.hole_number === holeNum)?.putts)
+                .filter(p => p != null);
+            const avgPutts = allPutts.length > 0 ? (allPutts.reduce((a, b) => a + b, 0) / allPutts.length).toFixed(1) : '—';
+
+            // Fairway
+            const allFairways = teeRounds
+                .map(r => (r.holes || []).find(h => h.hole_number === holeNum)?.fairway)
+                .filter(f => f != null);
+            const fwHits = allFairways.filter(f => f === 'HIT').length;
+            const fwLeft = allFairways.filter(f => f === 'LEFT').length;
+            const fwRight = allFairways.filter(f => f === 'RIGHT').length;
+            const fwTotal = allFairways.length;
+            const fwPct = fwTotal > 0 ? Math.round(fwHits / fwTotal * 100) : null;
+
+            // Top tee club
+            const teeShots = teeRounds
+                .flatMap(r => (r.holes || []).find(h => h.hole_number === holeNum)?.shots || [])
+                .filter(s => s.shot_number === 1 && s.club);
+            const clubCounts = {};
+            teeShots.forEach(s => { clubCounts[s.club] = (clubCounts[s.club] || 0) + 1; });
+            const topClub = Object.entries(clubCounts).sort((a, b) => b[1] - a[1])[0];
+
+            // Avg drive
+            const driveYards = teeShots.filter(s => s.distance_yards).map(s => s.distance_yards);
+            const avgDrive = driveYards.length > 0 ? Math.round(driveYards.reduce((a, b) => a + b, 0) / driveYards.length) : null;
+
+            // Miss tendency
+            let missHtml = '';
+            if (fwTotal >= 3) {
+                const leftPct = Math.round(fwLeft / fwTotal * 100);
+                const rightPct = Math.round(fwRight / fwTotal * 100);
+                if (leftPct >= 50) missHtml = `<span style="color:var(--warning);">${leftPct}% left</span>`;
+                else if (rightPct >= 50) missHtml = `<span style="color:var(--warning);">${rightPct}% right</span>`;
+            }
+
+            // GIR rate
+            const allGir = teeRounds
+                .map(r => (r.holes || []).find(h => h.hole_number === holeNum)?.gir)
+                .filter(g => g != null);
+            const girHits = allGir.filter(g => g === true).length;
+            const girTotal = allGir.length;
+            const girPct = girTotal > 0 ? Math.round(girHits / girTotal * 100) : null;
+
+            // Scoring distribution
+            const allScores = teeRounds
+                .map(r => (r.holes || []).find(h => h.hole_number === holeNum))
+                .filter(rh => rh && rh.strokes > 0);
+            let distHtml = '';
+            if (allScores.length > 0 && par > 0) {
+                const buckets = { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0 };
+                allScores.forEach(rh => {
+                    const d = rh.strokes - par;
+                    if (d <= -2) buckets.eagle++;
+                    else if (d === -1) buckets.birdie++;
+                    else if (d === 0) buckets.par++;
+                    else if (d === 1) buckets.bogey++;
+                    else buckets.double++;
+                });
+                const total = allScores.length;
+                const parts = [];
+                if (buckets.eagle) parts.push(`<span class="score-eagle">${buckets.eagle} eagle</span>`);
+                if (buckets.birdie) parts.push(`<span class="score-birdie">${buckets.birdie} birdie</span>`);
+                if (buckets.par) parts.push(`<span class="score-par">${buckets.par} par</span>`);
+                if (buckets.bogey) parts.push(`<span class="score-bogey">${buckets.bogey} bogey</span>`);
+                if (buckets.double) parts.push(`<span class="score-double">${buckets.double} double+</span>`);
+                distHtml = parts.join(' · ');
+            }
+
+            // Avg SG per category (historic)
+            const allShots = teeRounds
+                .flatMap(r => (r.holes || []).find(h => h.hole_number === holeNum)?.shots || []);
+            const sgByTypHist = {};
+            const catLabelsHist = { off_the_tee: 'Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' };
+            let totalSgShots = 0;
+            for (const s of allShots) {
+                if (s.sg_pga != null) {
+                    const cat = classifySgCategory(s, par);
+                    if (cat) {
+                        if (!sgByTypHist[cat]) sgByTypHist[cat] = { total: 0, count: 0 };
+                        sgByTypHist[cat].total += s.sg_pga;
+                        sgByTypHist[cat].count++;
+                        totalSgShots++;
+                    }
+                }
+            }
+            let sgHistHtml = '';
+            if (totalSgShots > 0) {
+                sgHistHtml = Object.entries(sgByTypHist)
+                    .map(([cat, d]) => {
+                        const avg = d.total / teeRounds.length;
+                        const c = avg >= 0 ? 'var(--accent)' : 'var(--danger)';
+                        return `<span style="color:${c};">${catLabelsHist[cat]}: ${avg.toFixed(2)}</span>`;
+                    }).join(' · ');
+            }
+
+            // Difficulty rank among all holes
+            const allHoleScores = editorComputeHistoricScores();
+            let difficultyRank = '';
+            if (Object.keys(allHoleScores).length > 1 && hs) {
+                const ranked = Object.entries(allHoleScores)
+                    .map(([h, data]) => ({ hole: parseInt(h), vspar: data.avg - data.par }))
+                    .sort((a, b) => b.vspar - a.vspar); // hardest first
+                const pos = ranked.findIndex(r => r.hole === holeNum) + 1;
+                const total = ranked.length;
+                if (pos === 1) difficultyRank = 'Hardest hole';
+                else if (pos === total) difficultyRank = 'Easiest hole';
+                else if (pos <= 3) difficultyRank = `${pos}${pos === 2 ? 'nd' : 'rd'} hardest`;
+                else if (pos >= total - 2) difficultyRank = `${total - pos + 1}${total - pos + 1 === 2 ? 'nd' : 'rd'} easiest`;
+                else difficultyRank = `#${pos}/${total} difficulty`;
+            }
+
+            // Best/avg score formatting
+            let bestHtml = '—', avgHtml = '—';
+            if (hs) {
+                const bestDiff = hs.best - par;
+                const bestCls = bestDiff <= -2 ? 'score-eagle' : bestDiff === -1 ? 'score-birdie' : bestDiff === 0 ? 'score-par' : bestDiff === 1 ? 'score-bogey' : 'score-double';
+                bestHtml = `<span class="${bestCls}">${hs.best} (${bestDiff >= 0 ? '+' : ''}${bestDiff})</span>`;
+                const avgDiff = hs.avg - par;
+                const avgCls = avgDiff < -0.5 ? 'color:var(--accent)' : avgDiff > 0.5 ? 'color:var(--danger)' : 'color:var(--text)';
+                avgHtml = `<span style="${avgCls}">${hs.avg.toFixed(1)} (${avgDiff >= 0 ? '+' : ''}${avgDiff.toFixed(1)})</span>`;
+            }
+
+            container.innerHTML = `
+                <div style="font-size:0.82rem; font-weight:600; margin-bottom:2px;">Hole ${holeNum} — Par ${par}${difficultyRank ? ` · <span style="font-size:0.72rem; color:var(--text-muted); font-weight:400;">${difficultyRank}</span>` : ''}</div>
+                <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:10px;">${teeRounds.length} round${teeRounds.length !== 1 ? 's' : ''}</div>
+                <div class="hole-stats-grid">
+                    <div class="hole-stat"><span class="hole-stat-label">Best</span><span class="hole-stat-value">${bestHtml}</span></div>
+                    <div class="hole-stat"><span class="hole-stat-label">Average</span><span class="hole-stat-value">${avgHtml}</span></div>
+                    <div class="hole-stat"><span class="hole-stat-label">Avg Putts</span><span class="hole-stat-value">${avgPutts}</span></div>
+                    ${girPct !== null ? `<div class="hole-stat"><span class="hole-stat-label">GIR</span><span class="hole-stat-value" style="color:${girPct >= 50 ? 'var(--accent)' : girPct > 0 ? 'var(--warning)' : 'var(--danger)'};">${girPct}% (${girHits}/${girTotal})</span></div>` : ''}
+                    ${fwPct !== null ? `<div class="hole-stat"><span class="hole-stat-label">Fairway</span><span class="hole-stat-value">${fwPct}% (${fwHits}/${fwTotal})</span></div>` : ''}
+                    ${missHtml ? `<div class="hole-stat"><span class="hole-stat-label">Miss Tendency</span><span class="hole-stat-value">${missHtml}</span></div>` : ''}
+                    ${topClub ? `<div class="hole-stat"><span class="hole-stat-label">Tee Club</span><span class="hole-stat-value">${topClub[0]} (${topClub[1]}x)</span></div>` : ''}
+                    ${avgDrive ? `<div class="hole-stat"><span class="hole-stat-label">Avg Drive</span><span class="hole-stat-value">${avgDrive}y</span></div>` : ''}
+                </div>
+                ${distHtml ? `<div style="font-size:0.72rem; margin-top:8px; padding-top:6px; border-top:1px solid var(--border);">${distHtml}</div>` : ''}
+                ${sgHistHtml ? `<div style="font-size:0.72rem; margin-top:6px; padding-top:6px; border-top:1px solid var(--border);">Avg SG: ${sgHistHtml}</div>` : ''}
+                ${(() => {
+                    const hints = [];
+                    if (!ch?.tee_lat) hints.push('Add tee GPS position in Drawing Tools for richer analysis');
+                    if (!ch?.flag_lat) hints.push('Add green GPS position in Drawing Tools for SG data');
+                    if (!ch?.fairway_path) hints.push('Add a fairway path in Drawing Tools for distance markers');
+                    if (teeRounds.length < 3) hints.push('Play more rounds for better historic accuracy');
+                    return hints.length > 0 ? '<div style="margin-top:8px; padding-top:6px; border-top:1px solid var(--border);">' +
+                        hints.map(h => '<div style="font-size:0.68rem; color:var(--text-dim); font-style:italic; margin-bottom:2px;">* ' + h + '</div>').join('') + '</div>' : '';
+                })()}`;
+        } else {
+            // === ROUND MODE ===
+            if (!editorRoundDetail) {
+                container.innerHTML = '<div class="strategy-empty">No round selected</div>';
+                return;
+            }
+
+            const rh = (editorRoundDetail.holes || []).find(h => h.hole_number === holeNum);
+            if (!rh) {
+                container.innerHTML = `<div style="font-size:0.82rem; font-weight:600; margin-bottom:8px;">Hole ${holeNum} — Par ${par}</div>
+                    <div class="strategy-empty">No data for this hole in selected round</div>`;
+                return;
+            }
+
+            // Score color + comparison to avg
+            const scoreDiff = (rh.strokes || 0) - par;
+            const scoreCls = scoreDiff <= -2 ? 'score-eagle' : scoreDiff === -1 ? 'score-birdie' : scoreDiff === 0 ? 'score-par' : scoreDiff === 1 ? 'score-bogey' : 'score-double';
+            const scoreStr = `${rh.strokes} (${scoreDiff >= 0 ? '+' : ''}${scoreDiff})`;
+
+            // Historic comparison
+            const hs = editorComputeHistoricScores()[holeNum];
+            let scoreVsAvg = '', verdictHtml = '';
+            let avgComp = '', bestComp = '';
+            if (hs) {
+                const vsAvg = rh.strokes - hs.avg;
+                const vsAvgStr = `${vsAvg >= 0 ? '+' : ''}${vsAvg.toFixed(1)} vs avg`;
+                const vsAvgColor = vsAvg <= -0.5 ? 'var(--accent)' : vsAvg >= 0.5 ? 'var(--danger)' : 'var(--text-muted)';
+                scoreVsAvg = `<span style="color:${vsAvgColor}; font-size:0.72rem; margin-left:4px;">(${vsAvgStr})</span>`;
+                // Verdict badge
+                if (vsAvg <= -1) verdictHtml = ' <span style="background:#22c55e1a;color:#22c55e;padding:2px 8px;border-radius:4px;font-size:0.72rem;">Great hole</span>';
+                else if (vsAvg <= -0.3) verdictHtml = ' <span style="background:#22c55e1a;color:#22c55e;padding:2px 8px;border-radius:4px;font-size:0.72rem;">Above average</span>';
+                else if (vsAvg >= 1) verdictHtml = ' <span style="background:#ef44441a;color:#ef4444;padding:2px 8px;border-radius:4px;font-size:0.72rem;">Below average</span>';
+                else verdictHtml = ' <span style="background:#3b82f61a;color:#3b82f6;padding:2px 8px;border-radius:4px;font-size:0.72rem;">Average</span>';
+                avgComp = `<div class="hole-stat"><span class="hole-stat-label">Hole Avg</span><span class="hole-stat-value">${hs.avg.toFixed(1)}</span></div>`;
+                bestComp = `<div class="hole-stat"><span class="hole-stat-label">Hole Best</span><span class="hole-stat-value">${hs.best}</span></div>`;
+            }
+
+            // Putts comparison to avg
+            const teeRoundsForAvg = editorAllRoundDetails.filter(r => r.tee_id === editorTeeId);
+            const allPuttsAvg = teeRoundsForAvg
+                .map(r => (r.holes || []).find(h => h.hole_number === holeNum)?.putts)
+                .filter(p => p != null);
+            let puttsComp = '';
+            if (allPuttsAvg.length > 0) {
+                const pAvg = allPuttsAvg.reduce((a, b) => a + b, 0) / allPuttsAvg.length;
+                const pDiff = (rh.putts || 0) - pAvg;
+                const pColor = pDiff <= -0.3 ? 'var(--accent)' : pDiff >= 0.3 ? 'var(--danger)' : 'var(--text-muted)';
+                puttsComp = `<span style="color:${pColor}; font-size:0.72rem;"> (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(1)} avg)</span>`;
+            }
+
+            // GIR
+            const girHtml = rh.gir != null ? `<div class="hole-stat"><span class="hole-stat-label">GIR</span><span class="hole-stat-value" style="color:${rh.gir ? 'var(--accent)' : 'var(--danger)'};">${rh.gir ? 'Yes' : 'No'}</span></div>` : '';
+
+            // SG
+            let sgPga = 0, sgPersonal = 0, sgCount = 0;
+            const sgByType = {};
+            const catLabels = { off_the_tee: 'Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' };
+            for (const s of (rh.shots || [])) {
+                if (s.sg_pga != null) {
+                    sgPga += s.sg_pga;
+                    sgCount++;
+                    const cat = classifySgCategory(s, par);
+                    if (cat) {
+                        if (!sgByType[cat]) sgByType[cat] = 0;
+                        sgByType[cat] += s.sg_pga;
+                    }
+                }
+                if (s.sg_personal != null) sgPersonal += s.sg_personal;
+            }
+
+            const sgPgaStr = sgCount > 0 ? sgPga.toFixed(2) : '—';
+            const sgPersStr = sgCount > 0 ? sgPersonal.toFixed(2) : '—';
+            const sgPgaColor = sgPga >= 0 ? 'var(--accent)' : 'var(--danger)';
+            const sgPersColor = sgPersonal >= 0 ? 'var(--accent)' : 'var(--danger)';
+
+            // SG breakdown line
+            let sgBreakdown = '';
+            if (sgCount > 0) {
+                sgBreakdown = Object.entries(sgByType)
+                    .map(([cat, v]) => {
+                        const c = v >= 0 ? 'var(--accent)' : 'var(--danger)';
+                        return `<span style="color:${c};">${catLabels[cat] || cat}: ${v.toFixed(2)}</span>`;
+                    }).join(' · ');
+            }
+
+            // Round date
+            const roundDate = editorRoundDetail.date ? new Date(editorRoundDetail.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+
+            container.innerHTML = `
+                <div style="font-size:0.82rem; font-weight:600; margin-bottom:4px;">Hole ${holeNum} — Par ${par}</div>
+                <div style="font-size:0.72rem; color:var(--text-dim); margin-bottom:10px;">${roundDate} · ${editorRoundDetail.total_strokes}(${editorRoundDetail.score_vs_par >= 0 ? '+' : ''}${editorRoundDetail.score_vs_par})</div>
+                <div class="hole-stats-grid">
+                    <div class="hole-stat"><span class="hole-stat-label">Score</span><span class="hole-stat-value ${scoreCls}">${scoreStr}${scoreVsAvg}${verdictHtml}</span></div>
+                    <div class="hole-stat"><span class="hole-stat-label">Putts</span><span class="hole-stat-value">${rh.putts ?? '—'}${puttsComp}</span></div>
+                    <div class="hole-stat"><span class="hole-stat-label">Fairway</span><span class="hole-stat-value">${rh.fairway || '—'}</span></div>
+                    ${girHtml}
+                    ${rh.penalty_strokes ? `<div class="hole-stat"><span class="hole-stat-label">Penalties</span><span class="hole-stat-value" style="color:var(--danger);">${rh.penalty_strokes}</span></div>` : ''}
+                    ${sgCount > 0 ? `<div class="hole-stat"><span class="hole-stat-label">SG vs PGA</span><span class="hole-stat-value" style="color:${sgPgaColor};">${sgPgaStr}</span></div>` : ''}
+                    ${sgCount > 0 ? `<div class="hole-stat"><span class="hole-stat-label">SG vs Personal</span><span class="hole-stat-value" style="color:${sgPersColor};">${sgPersStr}</span></div>` : ''}
+                    ${avgComp}${bestComp}
+                </div>
+                ${sgBreakdown ? `<div style="font-size:0.72rem; margin-top:8px; padding-top:6px; border-top:1px solid var(--border);">${sgBreakdown}</div>` : ''}
+                ${(() => {
+                    const hints = [];
+                    if (sgCount === 0) {
+                        if (!ch?.tee_lat) hints.push('Add tee GPS position for strokes gained data');
+                        else if (!ch?.flag_lat) hints.push('Add green GPS position for strokes gained data');
+                        else hints.push('Recalculate shots to generate strokes gained data');
+                    }
+                    if (!rh.fairway && par >= 4) hints.push('No fairway data — Garmin may not have tracked this hole');
+                    if (!rh.gir) hints.push('No GIR data available');
+                    return hints.length > 0 ? '<div style="margin-top:8px; padding-top:6px; border-top:1px solid var(--border);">' +
+                        hints.map(h => '<div style="font-size:0.68rem; color:var(--text-dim); font-style:italic; margin-bottom:2px;">* ' + h + '</div>').join('') + '</div>' : '';
+                })()}`;
+        }
+    }
+
+    // Re-render overview when panel opens (lazy-load historic data if needed)
+    const overviewPanel = document.querySelector('.editor-float-panel[data-float-panel="overview"]');
+    if (overviewPanel) {
+        const observer = new MutationObserver(async () => {
+            if (overviewPanel.style.display !== 'none') {
+                if (editorViewMode === 'historic' && editorAllRoundDetails.length === 0 && editorRounds.length > 0) {
+                    for (const r of editorRounds) {
+                        try {
+                            const resp = await fetch(`/api/rounds/${r.id}`);
+                            editorAllRoundDetails.push(await resp.json());
+                        } catch (e) { /* skip */ }
+                    }
+                }
+                editorRenderHoleOverview();
+            }
+        });
+        observer.observe(overviewPanel, { attributes: true, attributeFilter: ['style'] });
     }
 
     // ========== Strategy Tools ==========
@@ -12240,12 +12566,11 @@ document.addEventListener('DOMContentLoaded', () => {
     (function initEditorPanel() {
         const toolbar = document.getElementById('editor-panel');
         const toolbarHeader = document.getElementById('editor-panel-header');
-        const popoutBtn = document.getElementById('btn-editor-popout');
         if (!toolbar || !toolbarHeader) return;
 
         const layout = toolbar.parentElement; // .course-editor-layout
         const floatPanels = document.querySelectorAll('.editor-float-panel');
-        const panelOrder = ['scorecard', 'insights', 'strategy', 'hole', 'draw', 'data'];
+        const panelOrder = ['scorecard', 'overview', 'insights', 'strategy', 'hole', 'draw', 'data'];
 
         // --- Get float panel by id ---
         function getFloatPanel(id) {
@@ -12444,52 +12769,49 @@ document.addEventListener('DOMContentLoaded', () => {
             tbDragging = false;
         });
 
-        // --- Popout ---
-        let editorPopout = null;
+        // --- Per-panel Popout ---
+        floatPanels.forEach(fp => {
+            const popoutBtn = fp.querySelector('.editor-float-popout');
+            if (!popoutBtn) return;
+            popoutBtn.addEventListener('click', () => {
+                const panelId = fp.dataset.floatPanel;
+                const title = fp.querySelector('.editor-float-title')?.textContent || 'Birdie Book';
+                const body = fp.querySelector('.editor-float-body');
+                if (!body) return;
 
-        popoutBtn?.addEventListener('click', () => {
-            editorPopout = window.open('', 'CourseEditor', 'width=340,height=700,scrollbars=yes');
-            if (!editorPopout) return;
+                const popout = window.open('', `BB_${panelId}`, 'width=500,height=700,scrollbars=yes');
+                if (!popout) return;
 
-            const doc = editorPopout.document;
-            doc.title = 'Course Editor — Birdie Book';
+                const doc = popout.document;
+                doc.title = `${title} — Birdie Book`;
 
-            const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
-                .map(el => el.outerHTML).join('\n');
-            doc.head.innerHTML = styles + `<style>
-                body { background: var(--bg-card); color: var(--text); font-family: var(--font); margin: 0; padding: 0; }
-                .editor-float-panel { position: static !important; display: block !important; width: 100% !important;
-                    max-height: none !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
-                .editor-float-header { display: none !important; }
-                .editor-float-body { overflow: visible; }
-                .editor-hole-nav { padding: 8px 12px; border-bottom: 1px solid var(--border); }
-                .editor-hole-info { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-                .editor-section { padding: 8px 12px; border-bottom: 1px solid var(--border); }
-            </style>`;
+                const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+                    .map(el => el.outerHTML).join('\n');
+                doc.head.innerHTML = styles + `<style>
+                    body { background: var(--bg-card); color: var(--text); font-family: var(--font); margin: 0; padding: 0; }
+                    .editor-float-body { overflow: visible; padding: 8px; }
+                    .editor-section { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+                    .editor-hole-nav { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+                    .editor-hole-info { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+                    .scorecard-table { font-size: 0.85rem; }
+                </style>`;
 
-            // Move all float panels into popout
-            const container = doc.createElement('div');
-            floatPanels.forEach(fp => container.appendChild(fp));
-            doc.body.innerHTML = '';
-            doc.body.appendChild(container);
-            toolbar.style.display = 'none';
+                // Move body content to popout
+                doc.body.innerHTML = '';
+                doc.body.appendChild(body);
+                fp.style.display = 'none';
+                const icon = toolbar.querySelector(`.toolbar-icon[data-panel="${panelId}"]`);
+                if (icon) icon.classList.remove('active');
 
-            const checkClosed = setInterval(() => {
-                if (editorPopout.closed) {
-                    clearInterval(checkClosed);
-                    // Restore panels back to layout
-                    floatPanels.forEach(fp => {
-                        layout.appendChild(fp);
-                        fp.style.display = 'none';
-                    });
-                    toolbar.style.display = '';
-                    toolbar.querySelectorAll('.toolbar-icon').forEach(b => b.classList.remove('active'));
-                    editorPopout = null;
-                    if (typeof editorMap !== 'undefined' && editorMap) {
-                        editorMap.invalidateSize();
+                // When popout closes, restore content
+                const checkClosed = setInterval(() => {
+                    if (popout.closed) {
+                        clearInterval(checkClosed);
+                        fp.appendChild(body);
+                        if (typeof editorMap !== 'undefined' && editorMap) editorMap.invalidateSize();
                     }
-                }
-            }, 500);
+                }, 500);
+            });
         });
 
         // --- Expose for external use ---

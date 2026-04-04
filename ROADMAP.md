@@ -555,11 +555,17 @@
 - Click a hole number to navigate to that hole on the map
 - Front 9 / Back 9 / Total subtotals
 
-### 16b. Hole Overview Sub-Pane `[ ]`
-- Stats row: Score, Putts, Fairway, SG vs PGA, SG vs Personal, Hole Avg, Hole Best
-- Round selector (shared with scorecard): historic / specific round / planning mode
+### 16b. Hole Overview Sub-Pane `[x]`
+- Stats row: Score, Putts, GIR, Fairway, SG vs PGA, SG vs Personal, Hole Avg, Hole Best
+- Reads round context from Scorecard (no duplicate round selector)
 - SG category breakdown per hole (Tee, Approach, Short Game, Putting)
-- Miss tendency + club usage history for the selected hole
+- Miss tendency + club usage history + avg drive distance
+- Score comparison to avg with verdict badges (Great hole / Above average / Average / Below average)
+- Putts comparison to avg
+- Scoring distribution (eagle/birdie/par/bogey/double+ counts)
+- GIR rate, Difficulty rank (#1 hardest / easiest)
+- Avg SG per category in historic mode
+- Contextual hints when data is missing (add tee GPS, green GPS, fairway path)
 
 ### 16c. Shots Sub-Pane + Map Rendering `[ ]`
 - Shot list for the hole (club, shot type, distance, SG per shot)

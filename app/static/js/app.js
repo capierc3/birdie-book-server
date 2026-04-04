@@ -7728,13 +7728,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const titleEl = document.getElementById('shot-panel-title');
         titleEl.textContent = `Shot ${shot.shot_number} \u2014 ${shot.club || 'Unknown'}`;
 
-        // Hide range-specific buttons
+        // Hide range-specific buttons (keep popout visible)
         const compareBtn = document.getElementById('btn-panel-compare');
         const swapBtn = document.getElementById('btn-panel-swap');
-        const popoutBtn = document.getElementById('btn-panel-popout');
         if (compareBtn) compareBtn.style.display = 'none';
         if (swapBtn) swapBtn.style.display = 'none';
-        if (popoutBtn) popoutBtn.style.display = 'none';
 
         // Show recalc button for course panel
         const recalcBtn = document.getElementById('btn-panel-recalc');
@@ -7968,39 +7966,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const panel = document.getElementById('shot-panel');
         if (!panel) return;
 
-        shotPanelPopout = window.open('', 'ShotDetail', 'width=680,height=800,scrollbars=yes');
-        if (!shotPanelPopout) return;
+        const popout = window.open('', 'ShotDetail', 'width=500,height=700,scrollbars=yes');
+        if (!popout) return;
 
-        const doc = shotPanelPopout.document;
-        doc.title = 'Shot Detail — Birdie Book';
-        doc.head.innerHTML = `<style>
-            body { font-family: system-ui, -apple-system, sans-serif; background: #111318; color: #e4e4e7; margin: 0; padding: 16px; }
-            .shot-panel-diagrams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-            .club-diagram-card { background: #e8e8e8; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-            .club-diagram-card canvas { width: 100%; height: auto; }
-            .shot-panel-footnote { font-size: 0.7rem; color: #71717a; text-align: center; margin-bottom: 10px; font-style: italic; }
-            .shot-panel-section { margin-bottom: 14px; }
-            .shot-panel-section-title { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: #71717a; margin-bottom: 6px; font-weight: 600; }
-            .shot-panel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; }
-            .shot-panel-item { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-            .shot-panel-item-label { color: #a1a1aa; }
-            .shot-panel-item-value { font-weight: 500; }
-            h2 { font-size: 1rem; margin: 0 0 12px 0; }
+        const doc = popout.document;
+        const title = document.getElementById('shot-panel-title')?.textContent || 'Shot Detail';
+        doc.title = `${title} — Birdie Book`;
+
+        // Copy stylesheets + inline styles for full fidelity
+        const styles = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+            .map(el => el.outerHTML).join('\n');
+        doc.head.innerHTML = styles + `<style>
+            body { background: var(--bg-card); color: var(--text); font-family: var(--font); margin: 0; padding: 16px; }
         </style>`;
-        doc.body.innerHTML = `<h2 id="popout-title">Shot Detail</h2>
-            <div class="shot-panel-diagrams">
-                <div class="club-diagram-card" id="club-side-card"><img id="club-side-img" src="" alt="Side view"><div class="diagram-overlay" id="club-side-overlay"></div></div>
-                <div class="club-diagram-card" id="club-top-card"><img id="club-top-img" src="" alt="Top view"><div class="diagram-overlay" id="club-top-overlay"></div></div>
-            </div>
-            <div class="shot-panel-footnote" id="shot-panel-footnote" style="display:none;">* Partial data — some measurements unavailable</div>
-            <div id="shot-panel-data"></div>`;
 
-        // Render current shot into pop-out
-        const currentShot = _getCurrentSelectedShot();
-        if (currentShot) updatePopoutPanel(currentShot);
+        // Clone the rendered content (not move — so inline panel stays intact)
+        const titleHtml = `<h2 style="font-size:1rem; margin:0 0 12px;">${title}</h2>`;
+        const bodyContent = document.getElementById('shot-panel-data')?.innerHTML || '';
+        const diagrams = panel.querySelector('.shot-panel-diagrams');
+        const diagramsHtml = diagrams ? diagrams.outerHTML : '';
+        doc.body.innerHTML = titleHtml + diagramsHtml + '<div class="shot-panel-data">' + bodyContent + '</div>';
 
         // Hide inline panel
         panel.style.display = 'none';
+
+        // Restore inline panel when popout closes
+        const checkClosed = setInterval(() => {
+            if (popout.closed) {
+                clearInterval(checkClosed);
+                // Don't re-show inline — user can click another shot to reopen
+            }
+        }, 500);
     });
 
     function updatePopoutPanel(shot) {

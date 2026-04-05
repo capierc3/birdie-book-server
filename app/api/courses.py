@@ -1086,6 +1086,42 @@ async def set_club_photo_upload(golf_club_id: int, file: UploadFile = File(...),
 
 
 
+class TeeCreateRequest(BaseModel):
+    tee_name: str
+    par_total: Optional[int] = None
+    total_yards: Optional[int] = None
+    course_rating: Optional[float] = None
+    slope_rating: Optional[float] = None
+
+
+@router.post("/{course_id}/tees")
+def create_tee(course_id: int, req: TeeCreateRequest, db: Session = Depends(get_db)):
+    """Create a new tee box with empty holes."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    tee = CourseTee(
+        course_id=course_id,
+        tee_name=req.tee_name,
+        par_total=req.par_total,
+        total_yards=req.total_yards,
+        course_rating=req.course_rating,
+        slope_rating=req.slope_rating,
+        inferred=False,
+    )
+    db.add(tee)
+    db.flush()
+
+    # Create empty holes
+    num_holes = course.holes or 18
+    for i in range(1, num_holes + 1):
+        db.add(CourseHole(tee_id=tee.id, hole_number=i))
+
+    db.commit()
+    return {"status": "ok", "tee_id": tee.id}
+
+
 @router.put("/{course_id}/tees/{tee_id}")
 def update_tee(course_id: int, tee_id: int, req: TeeUpdateRequest, db: Session = Depends(get_db)):
     """Update tee data (name, par, yards, rating, slope)."""

@@ -10422,8 +10422,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 editorRenderScorecard();
                 editorRenderHoleOverview();
+                editorRenderShots();
+                editorRenderShotsList();
             })();
         }
+
+        // Refresh panels that may already be open
+        editorRenderTeeManager();
+        editorRenderObjectList();
 
         // Auto-open Scorecard panel on load
         if (window._editorActivateTab) window._editorActivateTab('scorecard', true);
@@ -11284,6 +11290,142 @@ document.addEventListener('DOMContentLoaded', () => {
         editorTeeId = parseInt(e.target.value);
         editorSelectHole(editorCurrentHole);
     });
+
+    // ========== Tee Management ==========
+
+    function editorRenderTeeManager() {
+        const container = document.getElementById('editor-tee-manager');
+        if (!container || !editorCourse) return;
+
+        const tees = editorCourse.tees || [];
+        if (tees.length === 0) {
+            container.innerHTML = '<div class="strategy-empty">No tees configured</div>';
+            return;
+        }
+
+        let html = '';
+        tees.forEach(t => {
+            html += `<div class="tee-manager-item" data-tee-id="${t.id}" style="padding:6px 0; border-bottom:1px solid var(--border);">
+                <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
+                    <input type="text" class="edit-input tee-field" data-field="tee_name" value="${t.tee_name || ''}" style="flex:1; font-size:0.78rem; font-weight:600;" placeholder="Tee name">
+                    <button class="btn btn-ghost btn-sm tee-delete-btn" data-tee-id="${t.id}" title="Delete tee" style="color:var(--danger); padding:2px 4px; font-size:0.72rem;">&times;</button>
+                </div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+                    <label style="font-size:0.68rem; color:var(--text-dim);">Yards
+                        <input type="number" class="edit-input tee-field" data-field="total_yards" value="${t.total_yards || ''}" style="width:100%; font-size:0.75rem;" placeholder="—">
+                    </label>
+                    <label style="font-size:0.68rem; color:var(--text-dim);">Par
+                        <input type="number" class="edit-input tee-field" data-field="par_total" value="${t.par_total || ''}" style="width:100%; font-size:0.75rem;" placeholder="—">
+                    </label>
+                    <label style="font-size:0.68rem; color:var(--text-dim);">Rating
+                        <input type="number" step="0.1" class="edit-input tee-field" data-field="course_rating" value="${t.course_rating || ''}" style="width:100%; font-size:0.75rem;" placeholder="—">
+                    </label>
+                    <label style="font-size:0.68rem; color:var(--text-dim);">Slope
+                        <input type="number" class="edit-input tee-field" data-field="slope_rating" value="${t.slope_rating || ''}" style="width:100%; font-size:0.75rem;" placeholder="—">
+                    </label>
+                </div>
+            </div>`;
+        });
+        container.innerHTML = html;
+
+        // Edit handlers — save on blur
+        container.querySelectorAll('.tee-field').forEach(input => {
+            input.addEventListener('change', async () => {
+                const item = input.closest('.tee-manager-item');
+                const teeId = parseInt(item.dataset.teeId);
+                const field = input.dataset.field;
+                let value = input.value;
+                if (field !== 'tee_name') value = value ? parseFloat(value) : null;
+
+                try {
+                    await fetch(`/api/courses/${editorCourse.id}/tees/${teeId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ [field]: value }),
+                    });
+                    await editorReloadCourse();
+                } catch (e) { console.error('Failed to update tee', e); }
+            });
+        });
+
+        // Delete handlers
+        container.querySelectorAll('.tee-delete-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const teeId = parseInt(btn.dataset.teeId);
+                const tee = tees.find(t => t.id === teeId);
+                if (!confirm(`Delete tee "${tee?.tee_name}"? This cannot be undone.`)) return;
+
+                try {
+                    const resp = await fetch(`/api/courses/${editorCourse.id}/tees/${teeId}`, { method: 'DELETE' });
+                    if (resp.status === 409) {
+                        const data = await resp.json();
+                        const msg = typeof data.detail === 'string' ? data.detail : data.detail?.message || 'This tee has linked rounds. Reassign them first.';
+                        alert(`Cannot delete: ${msg}`);
+                        return;
+                    }
+                    if (!resp.ok) {
+                        const data = await resp.json().catch(() => ({}));
+                        alert(`Failed to delete tee: ${data.detail || resp.statusText}`);
+                        return;
+                    }
+                    await editorReloadCourse();
+                } catch (e) { console.error('Failed to delete tee', e); }
+            });
+        });
+    }
+
+    // Add tee button
+    document.getElementById('btn-add-tee')?.addEventListener('click', async () => {
+        const name = prompt('New tee name (e.g. "Blue", "Gold"):');
+        if (!name || !name.trim()) return;
+
+        try {
+            await fetch(`/api/courses/${editorCourse.id}/tees`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tee_name: name.trim() }),
+            });
+            await editorReloadCourse();
+        } catch (e) { console.error('Failed to create tee', e); }
+    });
+
+    // Helper: reload course data and refresh all selectors
+    async function editorReloadCourse() {
+        editorCourse = await fetch(`/api/courses/${editorCourse.id}`).then(r => r.json());
+
+        // Re-check if selected tee still exists
+        const teeExists = (editorCourse.tees || []).some(t => t.id === editorTeeId);
+        if (!teeExists) {
+            editorTeeId = editorCourse.tees?.[0]?.id || null;
+        }
+
+        // Re-populate all tee selectors
+        const holeInfoTee = document.getElementById('editor-tee-select');
+        if (holeInfoTee) {
+            holeInfoTee.innerHTML = '';
+            (editorCourse.tees || []).forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = `${t.tee_name} (${t.total_yards || '?'}yd)`;
+                holeInfoTee.appendChild(opt);
+            });
+            holeInfoTee.value = editorTeeId;
+        }
+        editorPopulateScorecardTee();
+        editorPopulateRoundSelect();
+        editorRenderTeeManager();
+        editorSelectHole(editorCurrentHole);
+        editorRenderScorecard();
+    }
+
+    // Render tee manager when Edit Hole panel opens
+    const holePanel = document.querySelector('.editor-float-panel[data-float-panel="hole"]');
+    if (holePanel) {
+        const observer = new MutationObserver(() => {
+            if (holePanel.style.display !== 'none') editorRenderTeeManager();
+        });
+        observer.observe(holePanel, { attributes: true, attributeFilter: ['style'] });
+    }
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {

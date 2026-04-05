@@ -80,20 +80,34 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleRoute() {
         const hash = window.location.hash.replace('#', '');
 
-        // Round hole view route: round/123/hole/5 (check FIRST — more specific)
+        // Course editor with round+hole context: course/123/edit/round/456/hole/3
+        const editorRoundHoleMatch = hash.match(/^course\/(\d+)\/edit\/round\/(\d+)\/hole\/(\d+)$/);
+        if (editorRoundHoleMatch) {
+            navigateTo('section-course-editor');
+            loadCourseEditor(parseInt(editorRoundHoleMatch[1]), parseInt(editorRoundHoleMatch[2]), parseInt(editorRoundHoleMatch[3]));
+            return;
+        }
+
+        // Course editor with round context (no hole): course/123/edit/round/456
+        const editorRoundMatch = hash.match(/^course\/(\d+)\/edit\/round\/(\d+)$/);
+        if (editorRoundMatch) {
+            navigateTo('section-course-editor');
+            loadCourseEditor(parseInt(editorRoundMatch[1]), parseInt(editorRoundMatch[2]));
+            return;
+        }
+
+        // Legacy round hole view → redirect to workspace
         const roundHoleMatch = hash.match(/^round\/(\d+)\/hole\/(\d+)$/);
         if (roundHoleMatch) {
             const roundId = parseInt(roundHoleMatch[1]);
             const holeNum = parseInt(roundHoleMatch[2]);
             const round = roundsCache.find(r => r.id === roundId);
             if (round && round.course_id) {
-                navigateTo('section-hole-view');
-                loadHoleView(round.course_id, roundId, holeNum);
+                window.location.hash = `course/${round.course_id}/edit/round/${roundId}/hole/${holeNum}`;
             } else {
                 fetch(`/api/rounds/${roundId}`).then(r => r.json()).then(data => {
                     if (data.course_id) {
-                        navigateTo('section-hole-view');
-                        loadHoleView(data.course_id, roundId, holeNum);
+                        window.location.hash = `course/${data.course_id}/edit/round/${roundId}/hole/${holeNum}`;
                     }
                 });
             }
@@ -116,11 +130,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Course holes route: course/123/holes
+        // Legacy course holes route → redirect to workspace
         const holesMatch = hash.match(/^course\/(\d+)\/holes$/);
         if (holesMatch) {
-            navigateTo('section-hole-view');
-            loadHoleView(parseInt(holesMatch[1]));
+            window.location.hash = `course/${parseInt(holesMatch[1])}/edit`;
             return;
         }
 
@@ -982,8 +995,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <h2><a href="#course/${cc.id}" style="color:inherit; text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='inherit'">${cc.course_name || '(Main Course)'}</a> <span style="color:var(--text-muted); font-size:0.84rem;">${cc.holes || 18} holes \u00b7 Par ${cc.par || '\u2014'}</span></h2>
                     <div style="display:flex; gap:6px; align-items:center;">
                         ${mergeHtml}
-                        <button class="btn btn-ghost btn-sm" onclick="location.hash='course/${cc.id}/edit'">Edit Course</button>
-                        <button class="btn btn-primary btn-sm" onclick="location.hash='course/${cc.id}/holes'">View Holes</button>
+                        <button class="btn btn-primary btn-sm" onclick="location.hash='course/${cc.id}/edit'">View Holes</button>
                     </div>
                 </div>
                 ${teesHtml}
@@ -1231,7 +1243,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clubLink.textContent = `← ${d.club_name}`;
         clubLink.style.display = '';
 
-        document.getElementById('cs-view-holes').href = `#course/${courseId}/holes`;
+        document.getElementById('cs-view-holes').href = `#course/${courseId}/edit`;
         document.getElementById('cs-view-club').href = `#club/${d.club_id}`;
 
         // Stat cards
@@ -1657,7 +1669,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Action links
         const firstHole = rdCache.holes?.length ? rdCache.holes[0].hole_number : 1;
-        document.getElementById('rd-view-holes').href = `#round/${rdCache.id}/hole/${firstHole}`;
+        document.getElementById('rd-view-holes').href = `#course/${rdCache.course_id}/edit/round/${rdCache.id}/hole/${firstHole}`;
         if (rdCache.course_id) {
             document.getElementById('rd-view-course').href = `#course/${rdCache.course_id}`;
             document.getElementById('rd-view-course').style.display = '';
@@ -2241,7 +2253,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const courseId = rdCache.course_id;
                 return `<div style="margin-top:10px; padding:8px 12px; background:#f59e0b11; border:1px solid #f59e0b33; border-radius:6px; font-size:0.78rem; color:#f59e0b;">
                     ⚠ Hole GPS data is incomplete (${holesWithTee}/${totalHoles} tees, ${holesWithGreen}/${totalHoles} greens).
-                    <a href="#course/${courseId}/holes" style="color:#f59e0b; text-decoration:underline;">Edit holes</a> to enable full SG analysis.
+                    <a href="#course/${courseId}/edit" style="color:#f59e0b; text-decoration:underline;">Edit holes</a> to enable full SG analysis.
                 </div>`;
             }
             return '';
@@ -2495,7 +2507,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnViewHoles) {
         btnViewHoles.addEventListener('click', () => {
             if (currentCourseDetail) {
-                location.hash = `course/${currentCourseDetail.id}/holes`;
+                location.hash = `course/${currentCourseDetail.id}/edit`;
             }
         });
     }
@@ -3821,7 +3833,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let maxGap = 0;
             let maxGapIdx = -1;
             for (let i = 0; i < fullPath.length - 1; i++) {
-                const gap = _haversineYards(fullPath[i].lat, fullPath[i].lng, fullPath[i + 1].lat, fullPath[i + 1].lng);
+                const gap = __haversineYards(fullPath[i].lat, fullPath[i].lng, fullPath[i + 1].lat, fullPath[i + 1].lng);
                 if (gap > maxGap) { maxGap = gap; maxGapIdx = i; }
             }
             if (maxGap > 80) {
@@ -3972,15 +3984,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const bx = bLng * cosLat, by = bLat;
         const px = pLng * cosLat, py = pLat;
         const dx = bx - ax, dy = by - ay;
-        if (dx === 0 && dy === 0) return _haversineYards(pLat, pLng, aLat, aLng);
+        if (dx === 0 && dy === 0) return __haversineYards(pLat, pLng, aLat, aLng);
         const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
         // Interpolate back to GPS
         const projLat = aLat + t * (bLat - aLat);
         const projLng = aLng + t * (bLng - aLng);
-        return _haversineYards(pLat, pLng, projLat, projLng);
+        return __haversineYards(pLat, pLng, projLat, projLng);
     }
 
-    function _haversineYards(lat1, lng1, lat2, lng2) {
+    function __haversineYards(lat1, lng1, lat2, lng2) {
         const R = 6371000; // Earth radius in meters
         const toRad = d => d * Math.PI / 180;
         const dLat = toRad(lat2 - lat1);
@@ -4027,7 +4039,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (editTeePos) {
                     let prev = editTeePos;
                     for (let j = 0; j <= i; j++) {
-                        distFromTee += _haversineYards(prev.lat, prev.lng, editFairwayPath[j].lat, editFairwayPath[j].lng);
+                        distFromTee += __haversineYards(prev.lat, prev.lng, editFairwayPath[j].lat, editFairwayPath[j].lng);
                         prev = editFairwayPath[j];
                     }
                 }
@@ -4065,7 +4077,7 @@ document.addEventListener('DOMContentLoaded', () => {
             for (let i = 0; i < fullPath.length - 1; i++) {
                 const p1 = fullPath[i];
                 const p2 = fullPath[i + 1];
-                const dist = _haversineYards(p1.lat, p1.lng, p2.lat, p2.lng);
+                const dist = __haversineYards(p1.lat, p1.lng, p2.lat, p2.lng);
                 const midLat = (p1.lat + p2.lat) / 2;
                 const midLng = (p1.lng + p2.lng) / 2;
 
@@ -4086,7 +4098,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }).addTo(editLayerGroup);
 
             // Total distance label
-            const dist = _haversineYards(editTeePos.lat, editTeePos.lng, editGreenPos.lat, editGreenPos.lng);
+            const dist = __haversineYards(editTeePos.lat, editTeePos.lng, editGreenPos.lat, editGreenPos.lng);
             const midLat = (editTeePos.lat + editGreenPos.lat) / 2;
             const midLng = (editTeePos.lng + editGreenPos.lng) / 2;
             L.marker([midLat, midLng], {
@@ -4104,7 +4116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (fullPath.length >= 2) {
             let totalDist = 0;
             for (let i = 0; i < fullPath.length - 1; i++) {
-                totalDist += _haversineYards(fullPath[i].lat, fullPath[i].lng, fullPath[i + 1].lat, fullPath[i + 1].lng);
+                totalDist += __haversineYards(fullPath[i].lat, fullPath[i].lng, fullPath[i + 1].lat, fullPath[i + 1].lng);
             }
             // Update the yardage field if it's empty
             const ydsInput = document.getElementById('edit-yardage');
@@ -10270,7 +10282,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let editorRounds = [];          // rounds at this course (from roundsCache)
     let editorRoundDetail = null;   // selected round's full detail
     let editorAllRoundDetails = []; // all round details for historic mode
-    let editorViewMode = 'historic'; // 'historic' or round ID
+    let editorViewMode = 'historic'; // 'historic' or round ID (number)
+    let editorPlans = [];            // all plans for this course
+    let editorCurrentPlan = null;    // loaded plan detail (used by Planning panel)
+    let editorPlanInsights = null;   // insights for current plan
     let editorTeePos = null;
     let editorTeePositions = {};
     let editorGreenPos = null;
@@ -10282,14 +10297,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let editorCurrentHazard = [];
     let editorDirty = false;
 
-    async function loadCourseEditor(courseId) {
-        // Fetch course data and strategy in parallel
-        const [courseResp, stratResp] = await Promise.all([
+    async function loadCourseEditor(courseId, initialRoundId, initialHoleNum) {
+        // Fetch course data, strategy, and plans in parallel
+        const [courseResp, stratResp, plansResp] = await Promise.all([
             fetch(`/api/courses/${courseId}`).then(r => r.json()),
             fetch(`/api/courses/${courseId}/strategy`).then(r => r.json()).catch(() => ({ player: {} })),
+            fetch(`/api/plans?course_id=${courseId}`).then(r => r.json()).catch(() => []),
         ]);
         editorCourse = courseResp;
         editorStrategy = stratResp;
+        editorPlans = plansResp;
+        editorCurrentPlan = null;
+        editorPlanInsights = null;
 
         // Set header
         // Back btn removed — browser back handles navigation
@@ -10433,6 +10452,65 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Auto-open Scorecard panel on load
         if (window._editorActivateTab) window._editorActivateTab('scorecard', true);
+
+        // If opened with a specific round+hole context, select them after data loads
+        if (initialRoundId) {
+            // Wait for round details to load, then select the round
+            const waitForRounds = () => {
+                if (editorAllRoundDetails.length > 0 || editorRounds.length === 0) {
+                    // Select the round in the dropdown
+                    editorViewMode = initialRoundId;
+                    editorRoundDetail = editorAllRoundDetails.find(r => r.id === initialRoundId);
+                    if (!editorRoundDetail) {
+                        // Fetch it if not in cache
+                        fetch(`/api/rounds/${initialRoundId}`).then(r => r.json()).then(data => {
+                            editorRoundDetail = data;
+                            editorAllRoundDetails.push(data);
+                            // Match tee from the round
+                            if (data.tee_id) {
+                                editorTeeId = data.tee_id;
+                                const holeInfoTee = document.getElementById('editor-tee-select');
+                                if (holeInfoTee) holeInfoTee.value = editorTeeId;
+                                editorPopulateScorecardTee();
+                            }
+                            editorPopulateRoundSelect();
+                            const roundSel = document.getElementById('editor-round-select');
+                            if (roundSel) roundSel.value = initialRoundId;
+                            const hole = initialHoleNum || 1;
+                            editorSelectHole(hole);
+                            const quickLabel = document.getElementById('editor-hole-quick-label');
+                            if (quickLabel) quickLabel.textContent = hole;
+                            editorRenderScorecard();
+                            editorRenderHoleOverview();
+                            editorRenderShots();
+                            editorRenderShotsList();
+                        });
+                        return;
+                    }
+                    // Round found in cache
+                    if (editorRoundDetail?.tee_id) {
+                        editorTeeId = editorRoundDetail.tee_id;
+                        const holeInfoTee = document.getElementById('editor-tee-select');
+                        if (holeInfoTee) holeInfoTee.value = editorTeeId;
+                        editorPopulateScorecardTee();
+                    }
+                    editorPopulateRoundSelect();
+                    const roundSel = document.getElementById('editor-round-select');
+                    if (roundSel) roundSel.value = initialRoundId;
+                    const hole = initialHoleNum || 1;
+                    editorSelectHole(hole);
+                    const quickLabel = document.getElementById('editor-hole-quick-label');
+                    if (quickLabel) quickLabel.textContent = hole;
+                    editorRenderScorecard();
+                    editorRenderHoleOverview();
+                    editorRenderShots();
+                    editorRenderShotsList();
+                } else {
+                    setTimeout(waitForRounds, 200);
+                }
+            };
+            setTimeout(waitForRounds, 300);
+        }
     }
 
     function editorBuildHoleNav() {
@@ -10578,7 +10656,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === Map Click Handler ===
+    let editorPlanPlacingShot = false; // set by Planning panel when placing a shot aim point
+    let editorBallPos = null; // shared ball position — set by strategy tools Place Ball, read by insights
+
     function onEditorMapClick(e) {
+        // Let planning panel's shot placement handle the click
+        if (editorPlanPlacingShot) return;
         // Ignore map clicks when draw panel is not open
         if (!editorDrawPanelOpen) return;
 
@@ -10666,7 +10749,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (i > 0 || editorTeePos) {
                         const prev = i === 0 ? editorTeePos : editorFairwayPath[i - 1];
                         if (prev) {
-                            const segDist = Math.round(_haversineYards(prev.lat, prev.lng, p.lat, p.lng));
+                            const segDist = Math.round(__haversineYards(prev.lat, prev.lng, p.lat, p.lng));
                             const midLat = (prev.lat + p.lat) / 2;
                             const midLng = (prev.lng + p.lng) / 2;
                             L.marker([midLat, midLng], {
@@ -10703,7 +10786,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Last segment: last waypoint to green
                 if (editorGreenPos && editorFairwayPath.length > 0) {
                     const last = editorFairwayPath[editorFairwayPath.length - 1];
-                    const segDist = Math.round(_haversineYards(last.lat, last.lng, editorGreenPos.lat, editorGreenPos.lng));
+                    const segDist = Math.round(__haversineYards(last.lat, last.lng, editorGreenPos.lat, editorGreenPos.lng));
                     const midLat = (last.lat + editorGreenPos.lat) / 2;
                     const midLng = (last.lng + editorGreenPos.lng) / 2;
                     L.marker([midLat, midLng], {
@@ -10869,7 +10952,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (editorTeePos && editorGreenPos) {
             const yardInput = document.getElementById('editor-yardage');
             if (!yardInput.value) {
-                yardInput.value = Math.round(_haversineYards(editorTeePos.lat, editorTeePos.lng, editorGreenPos.lat, editorGreenPos.lng));
+                yardInput.value = Math.round(__haversineYards(editorTeePos.lat, editorTeePos.lng, editorGreenPos.lat, editorGreenPos.lng));
             }
         }
 
@@ -10973,7 +11056,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // === Strategy Insights ===
+    // === Strategy Insights (context-aware based on ball position) ===
     function editorUpdateStrategy() {
         const content = document.getElementById('editor-strategy-content');
         const player = editorStrategy?.player;
@@ -10989,107 +11072,181 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const items = [];
-
-        // Suggested tee club
-        let targetDist;
-        if (par === 3) {
-            targetDist = yardage;
-        } else if (par === 4) {
-            targetDist = yardage - 140; // leave ~140 approach
-        } else {
-            targetDist = Math.min(yardage * 0.55, 280); // max out around 280 for par 5s
-        }
-
         const clubs = player.clubs.sort((a, b) => (b.avg_yards || 0) - (a.avg_yards || 0));
-        let bestClub = clubs[0];
-        let bestDiff = Infinity;
-        for (const c of clubs) {
-            const diff = Math.abs((c.avg_yards || 0) - targetDist);
-            if (diff < bestDiff) { bestDiff = diff; bestClub = c; }
+        const ballOrigin = editorBallPos || editorTeePos;
+        const distToGreen = (ballOrigin && editorGreenPos) ? Math.round(__haversineYards(ballOrigin.lat, ballOrigin.lng, editorGreenPos.lat, editorGreenPos.lng)) : yardage;
+        const distFromTee = (editorBallPos && editorTeePos) ? Math.round(__haversineYards(editorTeePos.lat, editorTeePos.lng, editorBallPos.lat, editorBallPos.lng)) : 0;
+        const hasBallPlaced = !!editorBallPos;
+
+        // Determine context
+        let context = 'tee'; // tee, approach, short_game, green
+        if (hasBallPlaced) {
+            if (distToGreen <= 10) context = 'green';
+            else if (distToGreen <= 50) context = 'short_game';
+            else context = 'approach';
         }
 
-        if (bestClub) {
-            const remaining = yardage - (bestClub.avg_yards || 0);
-            items.push({
-                label: par === 3 ? 'Club to green' : 'Club off tee',
-                value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y avg)`,
-                cls: 'good',
-            });
-            if (par !== 3 && remaining > 0) {
-                // Find approach club
-                let approachClub = clubs[clubs.length - 1];
-                let aDiff = Infinity;
-                for (const c of clubs) {
-                    const d = Math.abs((c.avg_yards || 0) - remaining);
-                    if (d < aDiff) { aDiff = d; approachClub = c; }
-                }
-                items.push({
-                    label: 'Approach club',
-                    value: `${approachClub.club_type} (${Math.round(remaining)}y to green)`,
-                    cls: '',
-                });
+        const items = [];
+        const contextLabels = { tee: 'From the Tee', approach: 'Approach Shot', short_game: 'Short Game', green: 'On the Green' };
+
+        // Context header
+        items.push({
+            label: hasBallPlaced ? `${distFromTee}y from tee` : 'Hole Overview',
+            value: hasBallPlaced ? `${distToGreen}y to green` : `${yardage}y par ${par}`,
+            cls: '',
+            header: contextLabels[context],
+        });
+
+        if (context === 'tee') {
+            // === TEE CONTEXT ===
+            // Best tee club
+            let targetDist = par === 3 ? yardage : par === 4 ? yardage - 140 : Math.min(yardage * 0.55, 280);
+            let bestClub = clubs[0], bestDiff = Infinity;
+            for (const c of clubs) {
+                const diff = Math.abs((c.avg_yards || 0) - targetDist);
+                if (diff < bestDiff) { bestDiff = diff; bestClub = c; }
             }
-        }
-
-        // Expected scoring
-        const parKey = `par${par}_avg`;
-        const parAvg = player.scoring?.[parKey];
-        if (parAvg) {
-            const diff = parAvg - par;
-            items.push({
-                label: `Your avg on par ${par}s`,
-                value: `${parAvg} (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})`,
-                cls: diff <= 0 ? 'good' : diff <= 1 ? 'warning' : 'danger',
-            });
-        }
-
-        // Miss tendency for suggested club
-        if (bestClub && player.miss_tendencies) {
-            const miss = player.miss_tendencies[bestClub.club_type];
-            if (miss && miss.total_shots >= 5) {
-                const dominant = miss.left_pct > miss.right_pct ? 'left' : 'right';
-                const pct = Math.max(miss.left_pct, miss.right_pct);
-                if (pct > 55) {
-                    items.push({
-                        label: `${bestClub.club_type} miss tendency`,
-                        value: `${pct}% ${dominant} (${miss.total_shots} shots)`,
-                        cls: pct > 70 ? 'danger' : 'warning',
-                    });
+            if (bestClub) {
+                const remaining = yardage - (bestClub.avg_yards || 0);
+                items.push({ label: par === 3 ? 'Club to green' : 'Club off tee', value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y avg)`, cls: 'good' });
+                if (par !== 3 && remaining > 0) {
+                    let approachClub = clubs[clubs.length - 1], aDiff = Infinity;
+                    for (const c of clubs) { const d = Math.abs((c.avg_yards || 0) - remaining); if (d < aDiff) { aDiff = d; approachClub = c; } }
+                    items.push({ label: 'Approach club', value: `${approachClub.club_type} (${Math.round(remaining)}y to green)`, cls: '' });
                 }
             }
+
+            // Scoring avg
+            const parAvg = player.scoring?.[`par${par}_avg`];
+            if (parAvg) {
+                const diff = parAvg - par;
+                items.push({ label: `Your avg on par ${par}s`, value: `${parAvg} (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})`, cls: diff <= 0 ? 'good' : diff <= 1 ? 'warning' : 'danger' });
+            }
+
+            // FW% and GIR%
+            if (player.scoring?.fw_pct != null) {
+                items.push({ label: 'Fairway %', value: `${Math.round(player.scoring.fw_pct)}%`, cls: player.scoring.fw_pct >= 50 ? 'good' : 'warning' });
+            }
+            if (player.scoring?.gir_pct != null) {
+                items.push({ label: 'GIR %', value: `${Math.round(player.scoring.gir_pct)}%`, cls: player.scoring.gir_pct >= 40 ? 'good' : 'warning' });
+            }
+
+            // Miss tendency for tee club
+            if (bestClub && player.miss_tendencies) {
+                const miss = player.miss_tendencies[bestClub.club_type];
+                if (miss && miss.total_shots >= 5) {
+                    const dominant = miss.left_pct > miss.right_pct ? 'left' : 'right';
+                    const pct = Math.max(miss.left_pct, miss.right_pct);
+                    if (pct > 55) {
+                        items.push({ label: `${bestClub.club_type} miss`, value: `${pct}% ${dominant} (${miss.total_shots} shots)`, cls: pct > 70 ? 'danger' : 'warning' });
+                    }
+                }
+            }
+
+            // Dispersion
+            if (bestClub?.std_dev) {
+                items.push({ label: `${bestClub.club_type} spread`, value: `${Math.round(bestClub.std_dev * 2)}yd (2σ)`, cls: '' });
+            }
+
+        } else if (context === 'approach') {
+            // === APPROACH CONTEXT ===
+            // Best club for this distance (exclude Driver)
+            let bestClub = null, bestDiff = Infinity;
+            for (const c of clubs) {
+                if (c.club_type === 'Driver' || c.club_type === 'Unknown') continue;
+                const diff = Math.abs((c.avg_yards || 0) - distToGreen);
+                if (diff < bestDiff) { bestDiff = diff; bestClub = c; }
+            }
+            if (bestClub) {
+                const delta = Math.round(bestClub.avg_yards) - distToGreen;
+                const deltaStr = delta >= 0 ? `+${delta}y` : `${delta}y`;
+                items.push({ label: 'Recommended club', value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y, ${deltaStr})`, cls: 'good' });
+            }
+
+            // Second option
+            let secondClub = null, secondDiff = Infinity;
+            for (const c of clubs) {
+                if (c.club_type === 'Driver' || c.club_type === 'Unknown' || c === bestClub) continue;
+                const diff = Math.abs((c.avg_yards || 0) - distToGreen);
+                if (diff < secondDiff) { secondDiff = diff; secondClub = c; }
+            }
+            if (secondClub) {
+                const delta = Math.round(secondClub.avg_yards) - distToGreen;
+                items.push({ label: 'Alternative', value: `${secondClub.club_type} (${Math.round(secondClub.avg_yards)}y, ${delta >= 0 ? '+' : ''}${delta}y)`, cls: '' });
+            }
+
+            // Miss tendency for recommended club
+            if (bestClub && player.miss_tendencies) {
+                const miss = player.miss_tendencies[bestClub.club_type];
+                if (miss && miss.total_shots >= 5) {
+                    const dominant = miss.left_pct > miss.right_pct ? 'left' : 'right';
+                    const pct = Math.max(miss.left_pct, miss.right_pct);
+                    if (pct > 55) {
+                        items.push({ label: `${bestClub.club_type} miss`, value: `${pct}% ${dominant}`, cls: pct > 70 ? 'danger' : 'warning' });
+                    }
+                }
+            }
+
+            // Dispersion for recommended club
+            if (bestClub?.std_dev) {
+                items.push({ label: 'Dispersion', value: `±${Math.round(bestClub.std_dev)}y (1σ)`, cls: '' });
+                const lateralDisp = player.lateral_dispersion?.[bestClub.club_type];
+                if (lateralDisp?.lateral_std_dev) {
+                    items.push({ label: 'Lateral spread', value: `±${Math.round(lateralDisp.lateral_std_dev)}y`, cls: '' });
+                }
+            }
+
+            // SG category for approach
+            if (player.sg_categories?.APPROACH) {
+                const sg = player.sg_categories.APPROACH;
+                items.push({ label: 'Approach SG', value: `${sg.avg_sg_pga >= 0 ? '+' : ''}${sg.avg_sg_pga.toFixed(2)}/shot (${sg.shot_count} shots)`, cls: sg.avg_sg_pga >= 0 ? 'good' : 'danger' });
+            }
+
+        } else if (context === 'short_game') {
+            // === SHORT GAME CONTEXT ===
+            // Best wedge for distance
+            let bestClub = null, bestDiff = Infinity;
+            for (const c of clubs) {
+                if (c.club_type === 'Driver' || c.club_type === 'Unknown') continue;
+                const diff = Math.abs((c.avg_yards || 0) - distToGreen);
+                if (diff < bestDiff) { bestDiff = diff; bestClub = c; }
+            }
+            if (bestClub) {
+                items.push({ label: 'Club recommendation', value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y avg)`, cls: 'good' });
+            }
+
+            // SG short game
+            if (player.sg_categories?.CHIP) {
+                const sg = player.sg_categories.CHIP;
+                items.push({ label: 'Short Game SG', value: `${sg.avg_sg_pga >= 0 ? '+' : ''}${sg.avg_sg_pga.toFixed(2)}/shot`, cls: sg.avg_sg_pga >= 0 ? 'good' : 'danger' });
+            }
+
+            // Scramble context
+            items.push({ label: 'Distance', value: `${distToGreen}y to green`, cls: '' });
+
+        } else if (context === 'green') {
+            // === GREEN CONTEXT ===
+            if (player.sg_categories?.PUTT) {
+                const sg = player.sg_categories.PUTT;
+                items.push({ label: 'Putting SG', value: `${sg.avg_sg_pga >= 0 ? '+' : ''}${sg.avg_sg_pga.toFixed(2)}/shot`, cls: sg.avg_sg_pga >= 0 ? 'good' : 'danger' });
+            }
+            items.push({ label: 'Distance', value: `${distToGreen}y to pin`, cls: '' });
         }
 
-        // Dispersion
-        if (bestClub && bestClub.std_dev) {
-            items.push({
-                label: `${bestClub.club_type} spread`,
-                value: `${Math.round(bestClub.std_dev * 2)}yd (2 StdDev)`,
-                cls: '',
-            });
-        }
-
-        // Carry to hazards (if tee GPS exists)
-        if (editorTeePos && editorHazards.length > 0) {
+        // Hazards from ball position (all contexts except green)
+        if (context !== 'green' && ballOrigin && editorHazards.length > 0) {
             for (const h of editorHazards) {
                 if (h.boundary.length < 3) continue;
-                // Find closest point of hazard to tee
                 let minDist = Infinity;
                 for (const p of h.boundary) {
-                    const d = _haversineYards(editorTeePos.lat, editorTeePos.lng, p.lat, p.lng);
+                    const d = __haversineYards(ballOrigin.lat, ballOrigin.lng, p.lat, p.lng);
                     if (d < minDist) minDist = d;
                 }
-                // Only show if hazard is within play range (50-350 yards)
-                if (minDist > 50 && minDist < 350) {
-                    const carryYd = Math.round(minDist);
-                    let cls = '';
-                    if (bestClub && bestClub.p10) {
-                        cls = bestClub.p10 > carryYd ? 'good' : 'danger';
-                    }
+                if (minDist > 20 && minDist < (context === 'tee' ? 350 : 200)) {
                     items.push({
-                        label: `${h.hazard_type}${h.name ? ' (' + h.name + ')' : ''} carry`,
-                        value: `${carryYd}yd${bestClub?.p10 ? ` (your p10: ${Math.round(bestClub.p10)}y)` : ''}`,
-                        cls,
+                        label: `${h.hazard_type}${h.name ? ' (' + h.name + ')' : ''}`,
+                        value: `${Math.round(minDist)}y away`,
+                        cls: minDist < 30 ? 'danger' : minDist < 80 ? 'warning' : '',
                     });
                 }
             }
@@ -11100,9 +11257,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        content.innerHTML = items.map(it =>
-            `<div class="strategy-item"><span class="strategy-label">${it.label}</span><span class="strategy-value ${it.cls}">${it.value}</span></div>`
-        ).join('');
+        content.innerHTML = items.map(it => {
+            if (it.header) {
+                return `<div style="font-size:0.68rem; color:var(--accent); font-weight:600; margin-bottom:6px; padding-bottom:4px; border-bottom:1px solid var(--border);">${it.header}</div>
+                    <div class="strategy-item"><span class="strategy-label">${it.label}</span><span class="strategy-value ${it.cls}">${it.value}</span></div>`;
+            }
+            return `<div class="strategy-item"><span class="strategy-label">${it.label}</span><span class="strategy-value ${it.cls}">${it.value}</span></div>`;
+        }).join('');
     }
 
     // === Sequential Hole Navigation ===
@@ -11802,7 +11963,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Click handlers: goal editing
+        // Click handlers: goal editing (non-plan mode)
         container.querySelectorAll('.scorecard-goal-cell').forEach(cell => {
             cell.style.cursor = 'pointer';
             cell.addEventListener('click', () => {
@@ -11830,6 +11991,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             });
         });
+
     }
 
     // Re-render scorecard when hole changes
@@ -12472,8 +12634,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ballReset?.addEventListener('click', () => {
             ballPos = null;
+            editorBallPos = null;
             if (ballMarker) { strategyLayers.removeLayer(ballMarker); ballMarker = null; }
             updateBallDisplay();
+            editorUpdateStrategy();
         });
 
         // --- Populate club dropdown from strategy data ---
@@ -12718,7 +12882,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const from = getShotOrigin();
             const fromLat = from?.lat || clickLat;
             const fromLng = from?.lng || clickLng;
-            const targetDist = Math.round(_haversineYards(fromLat, fromLng, clickLat, clickLng));
+            const targetDist = Math.round(__haversineYards(fromLat, fromLng, clickLat, clickLng));
 
             // Marker at clicked point
             L.circleMarker([clickLat, clickLng], {
@@ -12770,7 +12934,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const from = getShotOrigin();
             const fromLat = from?.lat || clickLat;
             const fromLng = from?.lng || clickLng;
-            const targetDist = Math.round(_haversineYards(fromLat, fromLng, clickLat, clickLng));
+            const targetDist = Math.round(__haversineYards(fromLat, fromLng, clickLat, clickLng));
 
             // Marker at target
             L.circleMarker([clickLat, clickLng], {
@@ -12837,6 +13001,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // ===== MAP EVENT HANDLERS =====
         function onStratMouseDown(e) {
             if (e.originalEvent && e.originalEvent.button !== 0) return;
+            if (editorPlanPlacingShot) return;
             // Don't interfere with drawing tools
             if (editorDrawPanelOpen && editorTool) return;
             ensureLayers();
@@ -12885,7 +13050,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (activeStratTool === 'ruler') {
                 const cur = e.latlng;
-                const dist = Math.round(_haversineYards(stratOrigin.lat, stratOrigin.lng, cur.lat, cur.lng));
+                const dist = Math.round(__haversineYards(stratOrigin.lat, stratOrigin.lng, cur.lat, cur.lng));
                 rulerLine.setLatLngs([[stratOrigin.lat, stratOrigin.lng], [cur.lat, cur.lng]]);
                 if (rulerCursorMarker) rulerCursorMarker.setLatLng([cur.lat, cur.lng]);
                 rulerLabel.setLatLng([cur.lat, cur.lng]);
@@ -12922,16 +13087,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function onStratClick(e) {
             if (e.originalEvent && e.originalEvent.button !== 0) return;
+            if (editorPlanPlacingShot) return;
             if (editorDrawPanelOpen && editorTool) return;
             ensureLayers();
 
             if (activeStratTool === 'placeball') {
                 ballPos = { lat: e.latlng.lat, lng: e.latlng.lng };
+                editorBallPos = ballPos; // sync to shared state for insights
                 if (ballMarker) strategyLayers.removeLayer(ballMarker);
                 ballMarker = L.circleMarker([ballPos.lat, ballPos.lng], {
                     radius: 7, color: '#fff', fillColor: '#FFD700', fillOpacity: 1, weight: 2, interactive: false,
                 }).addTo(strategyLayers);
                 updateBallDisplay();
+                editorUpdateStrategy(); // refresh insights for new ball position
                 return;
             }
 
@@ -12978,6 +13146,734 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             observer.observe(stratPanel, { attributes: true, attributeFilter: ['style'] });
+        }
+    })();
+
+    // ========== Round Planning Panel ==========
+
+    (function initPlanningPanel() {
+        const planSelect = document.getElementById('planning-plan-select');
+        const contentEl = document.getElementById('planning-content');
+        const btnNew = document.getElementById('btn-new-plan');
+        if (!planSelect || !contentEl) return;
+
+        let planLayers = L.layerGroup(); // separate layer group for planned shots on map
+        let planLayersAdded = false;
+        // editorPlanPlacingShot is declared in outer scope so onEditorMapClick can check it
+        let planPlacingShotNum = null;
+        let mapClickHandler = null;
+
+        function ensurePlanLayers() {
+            if (!planLayersAdded && typeof editorMap !== 'undefined' && editorMap) {
+                planLayers.addTo(editorMap);
+                planLayersAdded = true;
+            }
+        }
+
+        // Geo helpers
+        function _destPt(lat, lng, brng, distYards) {
+            const R = 6371000, distM = distYards / 1.09361;
+            const la = lat * Math.PI / 180, lo = lng * Math.PI / 180;
+            const la2 = Math.asin(Math.sin(la) * Math.cos(distM / R) + Math.cos(la) * Math.sin(distM / R) * Math.cos(brng));
+            const lo2 = lo + Math.atan2(Math.sin(brng) * Math.sin(distM / R) * Math.cos(la), Math.cos(distM / R) - Math.sin(la) * Math.sin(la2));
+            return { lat: la2 * 180 / Math.PI, lng: lo2 * 180 / Math.PI };
+        }
+        function _brng(lat1, lng1, lat2, lng2) {
+            const toR = d => d * Math.PI / 180;
+            const dL = toR(lng2 - lng1);
+            return Math.atan2(Math.sin(dL) * Math.cos(toR(lat2)), Math.cos(toR(lat1)) * Math.sin(toR(lat2)) - Math.sin(toR(lat1)) * Math.cos(toR(lat2)) * Math.cos(dL));
+        }
+        function _clubData(clubType) {
+            const clubs = editorStrategy?.player?.clubs || [];
+            const c = clubs.find(cl => cl.club_type === clubType);
+            if (!c) return null;
+            const lat = editorStrategy?.player?.lateral_dispersion?.[clubType];
+            return {
+                color: c.color || getClubColor(clubType), avg: c.avg_yards || 0, std: c.std_dev || 0,
+                p10: c.p10 || 0, p90: c.p90 || 0,
+                lateralStd: lat?.lateral_std_dev || (c.std_dev || 0) * 0.15,
+                lateralMean: lat?.lateral_mean || 0,
+            };
+        }
+
+        // --- Populate plan selector ---
+        function populatePlanSelect() {
+            planSelect.innerHTML = '<option value="">Select a plan...</option>';
+            const teePlans = editorPlans.filter(p => p.tee_id === editorTeeId);
+            teePlans.forEach(p => {
+                const dateStr = p.planned_date ? new Date(p.planned_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+                const badge = p.status === 'played' ? ' [played]' : '';
+                planSelect.innerHTML += `<option value="${p.id}">${p.name}${dateStr ? ' ' + dateStr : ''}${badge}</option>`;
+            });
+            if (editorCurrentPlan) planSelect.value = editorCurrentPlan.id;
+        }
+
+        // --- Create new plan ---
+        btnNew?.addEventListener('click', async () => {
+            const courseName = editorCourse?.display_name || editorCourse?.club?.name || 'Course';
+            const name = prompt('Plan name:', `Plan for ${courseName}`);
+            if (!name) return;
+            const dateStr = prompt('Planned date (YYYY-MM-DD, or leave blank):', '');
+            try {
+                const resp = await fetch('/api/plans', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ course_id: editorCourse.id, tee_id: editorTeeId, name, planned_date: dateStr || null }),
+                });
+                const plan = await resp.json();
+                editorPlans = await fetch(`/api/plans?course_id=${editorCourse.id}`).then(r => r.json()).catch(() => []);
+                editorCurrentPlan = plan;
+                editorPlanInsights = await fetch(`/api/plans/${plan.id}/insights`).then(r => r.json()).catch(() => ({ holes: {} }));
+                populatePlanSelect();
+                renderPlanContent();
+            } catch (err) { alert('Failed to create plan'); }
+        });
+
+        // --- Plan selector change ---
+        planSelect.addEventListener('change', async () => {
+            const planId = parseInt(planSelect.value);
+            if (!planId) {
+                editorCurrentPlan = null;
+                editorPlanInsights = null;
+                planLayers.clearLayers();
+                contentEl.innerHTML = '<div class="strategy-empty" style="margin-top:12px;">Select or create a plan</div>';
+                return;
+            }
+            try {
+                const [planResp, insightsResp] = await Promise.all([
+                    fetch(`/api/plans/${planId}`).then(r => r.json()),
+                    fetch(`/api/plans/${planId}/insights`).then(r => r.json()).catch(() => ({ holes: {} })),
+                ]);
+                editorCurrentPlan = planResp;
+                editorPlanInsights = insightsResp;
+                renderPlanContent();
+            } catch (err) { editorCurrentPlan = null; }
+        });
+
+        // --- Render the main plan content ---
+        function renderPlanContent() {
+            if (!editorCurrentPlan) {
+                contentEl.innerHTML = '<div class="strategy-empty" style="margin-top:12px;">Select or create a plan</div>';
+                planLayers.clearLayers();
+                return;
+            }
+            const plan = editorCurrentPlan;
+            const holeNum = editorCurrentHole;
+            const planHole = (plan.holes || []).find(h => h.hole_number === holeNum);
+            const tee = (editorCourse?.tees || []).find(t => t.id === editorTeeId);
+            const ch = (tee?.holes || []).find(h => h.hole_number === holeNum);
+            const par = ch?.par || 0;
+            const insight = editorPlanInsights?.holes?.[String(holeNum)] || null;
+            const plannedShots = (planHole?.shots || []).sort((a, b) => a.shot_number - b.shot_number);
+
+            // --- Build HTML ---
+            let html = '';
+
+            // Plan header with status
+            html += `<div style="font-size:0.78rem; font-weight:600; margin:8px 0 4px;">${plan.name}</div>`;
+            if (plan.planned_date) {
+                html += `<div style="font-size:0.68rem; color:var(--text-dim); margin-bottom:8px;">${new Date(plan.planned_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>`;
+            }
+
+            // Hole header
+            html += `<div style="font-size:0.78rem; font-weight:600; margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">Hole ${holeNum} — Par ${par}</div>`;
+
+            // Strategy notes (course-level + plan-level)
+            const courseNotes = ch?.notes || '';
+            html += `<div style="margin-top:8px;">`;
+            html += `<div style="background:var(--bg-hover); padding:6px 10px; border-radius:6px; margin-bottom:6px; font-size:0.75rem; border-left:3px solid var(--accent);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                    <span style="font-size:0.65rem; color:var(--text-dim);">Course Note</span>
+                    <button class="btn-icon" id="btn-edit-course-note" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.65rem;padding:0;">edit</button>
+                </div>
+                <div id="course-note-display">${courseNotes ? courseNotes.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') : '<span style="color:var(--text-dim); font-style:italic;">No course note</span>'}</div>
+                <textarea id="course-note-edit" class="edit-input" rows="2" style="width:100%;resize:vertical;font-size:0.75rem;display:none;margin-top:4px;">${(courseNotes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+            </div>`;
+            html += `<label style="font-size:0.68rem; font-weight:600; display:block; margin-bottom:3px;">Hole Strategy</label>
+                <textarea id="plan-hole-notes" rows="2" class="edit-input" placeholder="Strategy for this hole..."
+                    style="width:100%; resize:vertical; font-size:0.75rem;">${(planHole?.strategy_notes || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+            </div>`;
+
+            // --- Ball position info ---
+            const ballPosition = plannedShots.length === 0 ? editorTeePos
+                : (plannedShots[plannedShots.length - 1].aim_lat ? { lat: plannedShots[plannedShots.length - 1].aim_lat, lng: plannedShots[plannedShots.length - 1].aim_lng } : editorTeePos);
+            const ballToGreen = (ballPosition && editorGreenPos) ? Math.round(__haversineYards(ballPosition.lat, ballPosition.lng, editorGreenPos.lat, editorGreenPos.lng)) : null;
+            const ballFromTee = (ballPosition && editorTeePos) ? Math.round(__haversineYards(editorTeePos.lat, editorTeePos.lng, ballPosition.lat, ballPosition.lng)) : null;
+
+            // --- Compute per-shot probabilities ---
+            // Probability = chance the shot lands within 1σ of the aim point (using normal CDF on distance + lateral)
+            // Normal CDF approximation
+            function _ncdf(x) { const t=1/(1+0.2316419*Math.abs(x)),d=0.3989422804*Math.exp(-x*x/2),p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.8212560+t*1.3302744)))); return x>0?1-p:p; }
+
+            // Shot probability: "how likely does this club execute this shot well?"
+            // Considers: is the aim distance reachable? How tight is the dispersion?
+            function calcShotProb(cd, aimDist) {
+                if (!cd || cd.avg <= 0) return null;
+                const std = cd.std || cd.avg * 0.08;
+                // Accept radius scales with club distance — longer clubs get more forgiveness
+                // Driver ~30y, mid-iron ~15y, wedge ~8y
+                const acceptRadius = Math.max(8, Math.round(cd.avg * 0.12));
+                // Distance: P(ball lands within acceptRadius of aim point)
+                // The club hits avg±std, so if aim=avg, P is high. If aim is far from avg, P drops.
+                const zLow = (aimDist - acceptRadius - cd.avg) / std;
+                const zHigh = (aimDist + acceptRadius - cd.avg) / std;
+                const pDist = _ncdf(zHigh) - _ncdf(zLow);
+                // Lateral: P(within acceptRadius laterally) — lateral std is usually much smaller
+                const latStd = cd.lateralStd || std * 0.15;
+                const pLat = _ncdf(acceptRadius / latStd) - _ncdf(-acceptRadius / latStd);
+                // Combined — but don't double-penalize, take geometric mean instead of product
+                const combined = Math.sqrt(pDist * pLat);
+                return Math.max(0.02, Math.min(0.99, combined));
+            }
+
+            let cumulativeProb = 1;
+            const shotProbs = plannedShots.map((ps, idx) => {
+                if (ps.club === 'Putter') return 0.85; // putts get flat probability
+                const cd = ps.club ? _clubData(ps.club) : null;
+                if (!cd || cd.avg <= 0) return null;
+                const origin2 = idx === 0 ? editorTeePos : (plannedShots[idx - 1].aim_lat ? { lat: plannedShots[idx - 1].aim_lat, lng: plannedShots[idx - 1].aim_lng } : null);
+                if (!origin2 || !ps.aim_lat) return null;
+                const shotD = __haversineYards(origin2.lat, origin2.lng, ps.aim_lat, ps.aim_lng);
+                const prob = calcShotProb(cd, shotD);
+                if (prob != null) cumulativeProb *= prob;
+                return prob;
+            });
+
+            // --- Determine shot type and filter/recommend clubs ---
+            const allClubs = (editorStrategy?.player?.clubs || []).filter(c => c.avg_yards > 0 && c.club_type !== 'Unknown');
+            const isFirstShot = plannedShots.length === 0;
+            // Check if ball is on the green using boundary polygon
+            function pointInGreen(ptLat, ptLng) {
+                if (!editorGreenBoundary || editorGreenBoundary.length < 3) return false;
+                // Ray-casting point-in-polygon
+                let inside = false;
+                const pts = editorGreenBoundary;
+                for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                    const xi = pts[i].lng, yi = pts[i].lat;
+                    const xj = pts[j].lng, yj = pts[j].lat;
+                    if (((yi > ptLat) !== (yj > ptLat)) && (ptLng < (xj - xi) * (ptLat - yi) / (yj - yi) + xi)) {
+                        inside = !inside;
+                    }
+                }
+                return inside;
+            }
+
+            const ballOnGreen = ballPosition && pointInGreen(ballPosition.lat, ballPosition.lng);
+            let shotType = 'approach'; // tee, approach, short_game, putt
+            if (isFirstShot) shotType = 'tee';
+            else if (ballOnGreen) shotType = 'putt';
+            else if (ballToGreen != null && ballToGreen <= 10) shotType = 'putt'; // fallback if no green boundary
+            else if (ballToGreen != null && ballToGreen <= 50) shotType = 'short_game';
+
+            // Filter clubs by shot type
+            const teeClubTypes = ['Driver', '3 Wood', '5 Wood', '3 Hybrid', '4 Hybrid', '5 Hybrid', '2 Iron', '3 Iron', '4 Iron'];
+            const wedgeTypes = ['Pitching Wedge', 'Gap Wedge', 'Sand Wedge', 'Lob Wedge'];
+            const shortGameTypes = [...wedgeTypes, '9 Iron', '8 Iron'];
+            let clubs;
+            if (shotType === 'tee') {
+                clubs = allClubs; // any club off the tee
+            } else if (shotType === 'short_game') {
+                clubs = allClubs.filter(c => c.club_type !== 'Driver' && c.club_type !== 'Unknown');
+            } else {
+                // approach: everything except Driver
+                clubs = allClubs.filter(c => c.club_type !== 'Driver' && c.club_type !== 'Unknown');
+            }
+            // Sort by avg distance descending for dropdown
+            clubs.sort((a, b) => (b.avg_yards || 0) - (a.avg_yards || 0));
+
+            let recommendedClub = '';
+            if (shotType === 'tee' && insight?.best_tee_club?.club) {
+                recommendedClub = insight.best_tee_club.club;
+            } else if (shotType === 'putt') {
+                recommendedClub = '';
+            } else if (ballToGreen != null && clubs.length > 0) {
+                let bestDiff = Infinity;
+                clubs.forEach(c => { const d = Math.abs(c.avg_yards - ballToGreen); if (d < bestDiff) { bestDiff = d; recommendedClub = c.club_type; } });
+            }
+
+            const shotTypeLabel = { tee: 'Tee Shot', approach: 'Approach', short_game: 'Short Game', putt: 'Putting' }[shotType];
+
+            // --- Planned shots section ---
+            html += `<div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span style="font-size:0.72rem; font-weight:600;">Shot Plan</span>
+                    ${plannedShots.length > 0 ? `<span style="font-size:0.68rem; color:${cumulativeProb >= 0.5 ? 'var(--accent)' : cumulativeProb >= 0.25 ? 'var(--warning)' : 'var(--danger)'}; font-weight:600;">${Math.round(cumulativeProb * 100)}% plan probability</span>` : ''}
+                </div>`;
+
+            // Ball position display
+            html += `<div style="background:var(--bg-hover); padding:6px 10px; border-radius:6px; margin-bottom:8px; font-size:0.72rem; display:flex; gap:12px; align-items:center;">
+                <span style="color:#FFD700; font-weight:600;">Ball</span>
+                ${ballFromTee != null && plannedShots.length > 0 ? `<span>${ballFromTee}y from tee</span>` : '<span>On tee</span>'}
+                ${ballToGreen != null ? `<span>${ballToGreen}y to green</span>` : ''}
+            </div>`;
+
+            // Shot list
+            html += '<div class="shot-list">';
+            plannedShots.forEach((ps, idx) => {
+                const color = getClubColor(ps.club) || '#888';
+                const origin3 = idx === 0 ? editorTeePos : (plannedShots[idx - 1].aim_lat ? { lat: plannedShots[idx - 1].aim_lat, lng: plannedShots[idx - 1].aim_lng } : null);
+                let distStr = '';
+                if (origin3 && ps.aim_lat) distStr = `${Math.round(__haversineYards(origin3.lat, origin3.lng, ps.aim_lat, ps.aim_lng))}y`;
+                const prob = shotProbs[idx];
+                const probStr = prob != null ? `${Math.round(prob * 100)}%` : '';
+                const probColor = prob >= 0.7 ? 'var(--accent)' : prob >= 0.4 ? 'var(--warning)' : 'var(--danger)';
+
+                html += `<div class="shot-item" style="cursor:default;">
+                    <span class="shot-num" style="background:${color};color:#000;border:2px dashed #fff;">${idx + 1}</span>
+                    <span class="shot-club">${ps.club || '?'}</span>
+                    <span class="shot-dist">${distStr}</span>
+                    ${probStr ? `<span style="color:${probColor};font-size:0.68rem;font-weight:600;margin-left:4px;">${probStr}</span>` : ''}
+                    <button class="plan-shot-del" data-idx="${idx}" style="margin-left:auto;background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.85rem;opacity:0.6;">&times;</button>
+                </div>`;
+            });
+            html += '</div>';
+
+            // Next shot type badge
+            html += `<div style="font-size:0.68rem; color:var(--text-muted); margin-top:8px;">Next: <span style="color:var(--accent); font-weight:600;">${shotTypeLabel}</span></div>`;
+
+            if (shotType === 'putt') {
+                // Putt entry — number input instead of map placement
+                html += `<div style="display:flex; gap:4px; margin-top:6px; align-items:center;">
+                    <label style="font-size:0.72rem;">Expected putts:</label>
+                    <input type="number" id="plan-putt-count" min="1" max="5" value="2" class="edit-input" style="width:50px; font-size:0.72rem; text-align:center;">
+                    <button class="btn btn-sm" id="btn-add-putts" style="font-size:0.72rem;">Add Putts</button>
+                </div>`;
+            } else {
+                // Club selector + Place Shot button
+                html += `<div style="display:flex; gap:4px; margin-top:6px; align-items:center;">
+                    <select id="plan-shot-club" class="edit-input" style="flex:1; font-size:0.72rem;">`;
+                clubs.forEach(c => {
+                    const sel = c.club_type === recommendedClub ? ' selected' : '';
+                    html += `<option value="${c.club_type}"${sel}>${c.club_type} (${Math.round(c.avg_yards)}y)</option>`;
+                });
+                html += `</select>
+                    <button class="btn btn-sm" id="btn-place-shot" style="font-size:0.72rem; white-space:nowrap;">Place Shot</button>
+                </div>`;
+                // Club detail
+                html += `<div id="plan-shot-club-detail" style="font-size:0.65rem; color:var(--text-dim); margin-top:3px;"></div>`;
+            }
+            html += '</div>';
+
+            // Data-driven insights
+            if (insight) {
+                html += `<div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">
+                    <div style="font-size:0.72rem; font-weight:600; margin-bottom:6px; color:var(--accent);">Insights</div>`;
+                if (insight.best_tee_club) {
+                    const c = insight.best_tee_club;
+                    html += `<div style="font-size:0.72rem; margin-bottom:3px;">Best tee club: <strong>${c.club}</strong> (avg ${c.avg_score}${c.fw_pct != null ? ', ' + c.fw_pct + '% FW' : ''}, ${c.rounds}x)</div>`;
+                }
+                if (insight.fairway_impact && insight.fairway_impact.savings > 0.3) {
+                    html += `<div style="font-size:0.72rem; margin-bottom:3px;">Hitting fairway saves <strong>${insight.fairway_impact.savings.toFixed(1)}</strong> strokes</div>`;
+                }
+                if (insight.club_scores && insight.club_scores.length > 1) {
+                    html += `<div style="font-size:0.72rem; margin-bottom:3px;">` + insight.club_scores.slice(0, 3).map(c =>
+                        `${c.club}: avg ${c.avg_score}${c.fw_pct != null ? ' (' + c.fw_pct + '%FW)' : ''}`
+                    ).join(' · ') + '</div>';
+                }
+                if (insight.scoring_dist) {
+                    const d = insight.scoring_dist;
+                    const parts = [];
+                    if (d.eagle) parts.push(`<span class="score-eagle">${d.eagle}E</span>`);
+                    if (d.birdie) parts.push(`<span class="score-birdie">${d.birdie}B</span>`);
+                    if (d.par) parts.push(`<span class="score-par">${d.par}P</span>`);
+                    if (d.bogey) parts.push(`<span class="score-bogey">${d.bogey}Bo</span>`);
+                    if (d.double_plus) parts.push(`<span class="score-double">${d.double_plus}D+</span>`);
+                    if (parts.length) html += `<div style="font-size:0.72rem;">${parts.join(' · ')}</div>`;
+                }
+                html += '</div>';
+            }
+
+            // Plan actions: link to round, delete
+            html += `<div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">`;
+            if (plan.round_id) {
+                const linkedRound = editorRounds.find(r => r.id === plan.round_id);
+                const lbl = linkedRound ? `${new Date(linkedRound.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (${linkedRound.total_strokes})` : `Round #${plan.round_id}`;
+                html += `<div style="font-size:0.72rem; margin-bottom:6px; color:var(--accent);">Linked: ${lbl}</div>
+                    <button class="btn btn-ghost btn-sm" id="btn-unlink-plan" style="font-size:0.68rem; width:100%; margin-bottom:4px;">Unlink Round</button>`;
+            } else {
+                const matchingRounds = editorRounds.filter(r => r.tee_id === editorTeeId);
+                if (matchingRounds.length > 0) {
+                    html += `<div style="display:flex; gap:4px; margin-bottom:6px;">
+                        <select id="plan-link-select" class="edit-input" style="flex:1; font-size:0.72rem;">
+                            <option value="">Link to round...</option>
+                            ${matchingRounds.map(r => {
+                                const d = new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                                return `<option value="${r.id}">${d} ${r.total_strokes}(${r.score_vs_par >= 0 ? '+' : ''}${r.score_vs_par})</option>`;
+                            }).join('')}
+                        </select>
+                        <button class="btn btn-ghost btn-sm" id="btn-link-plan" style="font-size:0.68rem;">Link</button>
+                    </div>`;
+                }
+            }
+            html += `<button class="btn btn-ghost btn-sm" id="btn-delete-plan" style="font-size:0.68rem; width:100%; color:var(--danger);">Delete Plan</button>`;
+            html += '</div>';
+
+            contentEl.innerHTML = html;
+
+            // --- Wire up event handlers ---
+
+            // Strategy notes auto-save
+            contentEl.querySelector('#plan-hole-notes')?.addEventListener('blur', async function() {
+                const val = this.value.trim();
+                try {
+                    await fetch(`/api/plans/${plan.id}/holes/${holeNum}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ strategy_notes: val }),
+                    });
+                    if (planHole) planHole.strategy_notes = val || null;
+                } catch (err) { /* ignore */ }
+            });
+
+            // --- Course note edit ---
+            contentEl.querySelector('#btn-edit-course-note')?.addEventListener('click', () => {
+                const display = contentEl.querySelector('#course-note-display');
+                const edit = contentEl.querySelector('#course-note-edit');
+                const btn = contentEl.querySelector('#btn-edit-course-note');
+                if (edit.style.display === 'none') {
+                    edit.style.display = '';
+                    display.style.display = 'none';
+                    btn.textContent = 'save';
+                    edit.focus();
+                } else {
+                    const val = edit.value.trim();
+                    edit.style.display = 'none';
+                    display.style.display = '';
+                    display.innerHTML = val ? val.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') : '<span style="color:var(--text-dim); font-style:italic;">No course note</span>';
+                    btn.textContent = 'edit';
+                    // Save to API
+                    if (ch) {
+                        fetch(`/api/courses/${editorCourse.id}/holes/${ch.id}`, {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ notes: val || '' }),
+                        });
+                        ch.notes = val || null;
+                    }
+                }
+            });
+
+            // --- Club detail update ---
+            function updateClubDetail() {
+                const sel = contentEl.querySelector('#plan-shot-club');
+                const detail = contentEl.querySelector('#plan-shot-club-detail');
+                if (!sel || !detail) return;
+                const cdd = _clubData(sel.value);
+                if (cdd && cdd.avg > 0) {
+                    const delta = ballToGreen != null ? Math.round(cdd.avg) - ballToGreen : 0;
+                    const deltaStr = ballToGreen != null ? (delta >= 0 ? `+${delta}y over` : `${delta}y short of green`) : '';
+                    detail.textContent = `Avg: ${Math.round(cdd.avg)}y · P10/P90: ${Math.round(cdd.p10)}–${Math.round(cdd.p90)}y${deltaStr ? ' · ' + deltaStr : ''}`;
+                } else {
+                    detail.textContent = '';
+                }
+            }
+            if (contentEl.querySelector('#plan-shot-club')) {
+                updateClubDetail();
+                contentEl.querySelector('#plan-shot-club').addEventListener('change', updateClubDetail);
+            }
+
+            // --- Add Putts handler ---
+            contentEl.querySelector('#btn-add-putts')?.addEventListener('click', () => {
+                const count = parseInt(contentEl.querySelector('#plan-putt-count')?.value) || 2;
+                // Add putt shots (no aim point, just club = "Putter")
+                for (let i = 0; i < count; i++) {
+                    plannedShots.push({
+                        shot_number: plannedShots.length + 1,
+                        club: 'Putter',
+                        aim_lat: editorGreenPos?.lat || null,
+                        aim_lng: editorGreenPos?.lng || null,
+                        notes: `Putt ${i + 1} of ${count}`,
+                    });
+                }
+                savePlanShots(planHole, plannedShots).then(() => { renderPlanContent(); renderPlanShotsOnMap(); });
+            });
+
+            // --- Place Shot: enter aiming mode with live cone ---
+            contentEl.querySelector('#btn-place-shot')?.addEventListener('click', () => {
+                const clubSel = contentEl.querySelector('#plan-shot-club');
+                if (!clubSel?.value || !ballPosition) return;
+                const selectedClub = clubSel.value;
+                const cd = _clubData(selectedClub);
+                if (!cd || cd.avg <= 0) return;
+
+                editorPlanPlacingShot = true;
+                planPlacingShotNum = plannedShots.length + 1;
+                editorMap.getContainer().style.cursor = 'crosshair';
+                editorMap.dragging.disable();
+
+                const placeBtn = contentEl.querySelector('#btn-place-shot');
+                if (placeBtn) { placeBtn.textContent = 'Aiming... (Esc to cancel)'; placeBtn.disabled = true; }
+
+                let liveConeLayer = L.layerGroup().addTo(planLayers);
+
+                function drawLiveCone(aimLat, aimLng) {
+                    liveConeLayer.clearLayers();
+                    const b = _brng(ballPosition.lat, ballPosition.lng, aimLat, aimLng);
+                    const cc = cd.color || '#888';
+                    const spreadInner = Math.atan2(cd.lateralStd, cd.avg);
+                    const spreadOuter = Math.atan2(cd.lateralStd * 2, cd.avg);
+
+                    // Outer cone (±2σ, p90)
+                    const outerPts = [[ballPosition.lat, ballPosition.lng]];
+                    for (let i = 0; i <= 20; i++) {
+                        const angle = b - spreadOuter + (i / 20) * spreadOuter * 2;
+                        const pt = _destPt(ballPosition.lat, ballPosition.lng, angle, cd.p90);
+                        outerPts.push([pt.lat, pt.lng]);
+                    }
+                    L.polygon(outerPts, { color: cc, weight: 1, fillColor: cc, fillOpacity: 0.08, interactive: false }).addTo(liveConeLayer);
+
+                    // Inner cone (±1σ, avg)
+                    const innerPts = [[ballPosition.lat, ballPosition.lng]];
+                    for (let i = 0; i <= 20; i++) {
+                        const angle = b - spreadInner + (i / 20) * spreadInner * 2;
+                        const pt = _destPt(ballPosition.lat, ballPosition.lng, angle, cd.avg);
+                        innerPts.push([pt.lat, pt.lng]);
+                    }
+                    L.polygon(innerPts, { color: cc, weight: 1, fillColor: cc, fillOpacity: 0.2, interactive: false }).addTo(liveConeLayer);
+
+                    // Aim line
+                    const aimPt = _destPt(ballPosition.lat, ballPosition.lng, b, cd.avg);
+                    L.polyline([[ballPosition.lat, ballPosition.lng], [aimPt.lat, aimPt.lng]], { color: '#fff', weight: 1.5, dashArray: '6,4', opacity: 0.7, interactive: false }).addTo(liveConeLayer);
+
+                    // Distance + probability label at cursor
+                    const dist = Math.round(__haversineYards(ballPosition.lat, ballPosition.lng, aimLat, aimLng));
+                    const shotProb = calcShotProb(cd, dist);
+                    const prob = shotProb != null ? Math.round(shotProb * 100) : 0;
+                    const probColor = prob >= 60 ? '#4caf50' : prob >= 30 ? '#ff9800' : '#ef4444';
+                    L.marker([aimLat, aimLng], {
+                        icon: L.divIcon({
+                            className: '',
+                            html: `<div style="display:inline-block;background:rgba(0,0,0,0.85);color:#fff;padding:4px 10px;border-radius:5px;font-size:12px;font-weight:700;white-space:nowrap;margin-left:16px;margin-top:-14px;">${dist}y <span style="color:${probColor}">${prob}%</span></div>`,
+                            iconSize: [0, 0],
+                        }), interactive: false,
+                    }).addTo(liveConeLayer);
+                }
+
+                function cancelAiming() {
+                    editorPlanPlacingShot = false;
+                    editorMap.getContainer().style.cursor = '';
+                    editorMap.dragging.enable();
+                    editorMap.off('mousemove', onAimMove);
+                    editorMap.off('mousedown', onAimClick);
+                    document.removeEventListener('keydown', onEscCancel);
+                    if (liveConeLayer) { planLayers.removeLayer(liveConeLayer); liveConeLayer = null; }
+                    mapClickHandler = null;
+                    renderPlanContent();
+                }
+
+                function onAimMove(e) {
+                    if (!editorPlanPlacingShot) return;
+                    drawLiveCone(e.latlng.lat, e.latlng.lng);
+                }
+
+                function onAimClick(e) {
+                    if (!editorPlanPlacingShot) return;
+                    if (e.originalEvent && e.originalEvent.button !== 0) return;
+                    const latlng = e.latlng;
+
+                    // Cleanup
+                    editorPlanPlacingShot = false;
+                    editorMap.getContainer().style.cursor = '';
+                    editorMap.dragging.enable();
+                    editorMap.off('mousemove', onAimMove);
+                    editorMap.off('mousedown', onAimClick);
+                    document.removeEventListener('keydown', onEscCancel);
+                    if (liveConeLayer) { planLayers.removeLayer(liveConeLayer); liveConeLayer = null; }
+                    mapClickHandler = null;
+
+                    // Add the shot
+                    plannedShots.push({ shot_number: planPlacingShotNum, club: selectedClub, aim_lat: latlng.lat, aim_lng: latlng.lng, notes: null });
+                    savePlanShots(planHole, plannedShots).then(() => { renderPlanContent(); renderPlanShotsOnMap(); });
+                }
+
+                function onEscCancel(e) {
+                    if (e.key === 'Escape') cancelAiming();
+                }
+
+                // Cleanup old handlers
+                if (mapClickHandler) {
+                    editorMap.off('mousedown', mapClickHandler);
+                    if (mapClickHandler._moveHandler) editorMap.off('mousemove', mapClickHandler._moveHandler);
+                }
+                editorMap.on('mousemove', onAimMove);
+                editorMap.on('mousedown', onAimClick);
+                document.addEventListener('keydown', onEscCancel);
+                mapClickHandler = onAimClick;
+                mapClickHandler._moveHandler = onAimMove;
+            });
+
+            // Delete shot
+            contentEl.querySelectorAll('.plan-shot-del').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const idx = parseInt(btn.dataset.idx);
+                    plannedShots.splice(idx, 1);
+                    plannedShots.forEach((s, i) => { s.shot_number = i + 1; });
+                    await savePlanShots(planHole, plannedShots);
+                    renderPlanContent();
+                    renderPlanShotsOnMap();
+                });
+            });
+
+            // Link round
+            contentEl.querySelector('#btn-link-plan')?.addEventListener('click', async () => {
+                const roundId = parseInt(contentEl.querySelector('#plan-link-select')?.value);
+                if (!roundId) return;
+                await fetch(`/api/plans/${plan.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ round_id: roundId, status: 'played' }) });
+                editorCurrentPlan.round_id = roundId;
+                editorCurrentPlan.status = 'played';
+                renderPlanContent();
+            });
+
+            // Unlink round
+            contentEl.querySelector('#btn-unlink-plan')?.addEventListener('click', async () => {
+                await fetch(`/api/plans/${plan.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ round_id: 0, status: 'draft' }) });
+                editorCurrentPlan.round_id = null;
+                editorCurrentPlan.status = 'draft';
+                renderPlanContent();
+            });
+
+            // Delete plan
+            contentEl.querySelector('#btn-delete-plan')?.addEventListener('click', async () => {
+                if (!confirm('Delete this plan?')) return;
+                await fetch(`/api/plans/${plan.id}`, { method: 'DELETE' });
+                editorPlans = await fetch(`/api/plans?course_id=${editorCourse.id}`).then(r => r.json()).catch(() => []);
+                editorCurrentPlan = null;
+                editorPlanInsights = null;
+                populatePlanSelect();
+                contentEl.innerHTML = '<div class="strategy-empty" style="margin-top:12px;">Plan deleted</div>';
+                planLayers.clearLayers();
+            });
+
+            // Render shots on map
+            renderPlanShotsOnMap();
+        }
+
+        // --- Save shots to API ---
+        async function savePlanShots(planHole, shots) {
+            if (!editorCurrentPlan || !planHole) return;
+            try {
+                const resp = await fetch(`/api/plans/${editorCurrentPlan.id}/holes/${planHole.hole_number}/shots`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shots: shots.map(s => ({ shot_number: s.shot_number, club: s.club, aim_lat: s.aim_lat, aim_lng: s.aim_lng, notes: s.notes || null })) }),
+                });
+                planHole.shots = await resp.json();
+                // Auto-update goal score to match total planned shots
+                const goalScore = shots.length;
+                if (goalScore > 0 && planHole.goal_score !== goalScore) {
+                    planHole.goal_score = goalScore;
+                    await fetch(`/api/plans/${editorCurrentPlan.id}/holes/${planHole.hole_number}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ goal_score: goalScore }),
+                    });
+                    // Sync to localStorage so scorecard picks it up
+                    editorSaveGoal(planHole.hole_number, goalScore);
+                    editorRenderScorecard();
+                }
+                // Sync ball position to last shot's aim point for insights
+                if (shots.length > 0) {
+                    const lastShot = shots[shots.length - 1];
+                    if (lastShot.aim_lat) {
+                        editorBallPos = { lat: lastShot.aim_lat, lng: lastShot.aim_lng };
+                    }
+                } else {
+                    editorBallPos = null; // no shots = ball on tee
+                }
+                editorUpdateStrategy();
+            } catch (err) { /* ignore */ }
+        }
+
+        // --- Draw planned shots on map ---
+        function renderPlanShotsOnMap() {
+            ensurePlanLayers();
+            planLayers.clearLayers();
+            if (!editorCurrentPlan) return;
+
+            const planHole = (editorCurrentPlan.holes || []).find(h => h.hole_number === editorCurrentHole);
+            const shots = (planHole?.shots || []).sort((a, b) => a.shot_number - b.shot_number);
+
+            shots.forEach((ps, idx) => {
+                const origin = idx === 0 ? editorTeePos : (shots[idx - 1].aim_lat ? { lat: shots[idx - 1].aim_lat, lng: shots[idx - 1].aim_lng } : null);
+                if (!origin || !ps.aim_lat) return;
+                const cd = ps.club ? _clubData(ps.club) : null;
+                const color = cd?.color || getClubColor(ps.club) || '#888';
+
+                // Dashed line
+                L.polyline([[origin.lat, origin.lng], [ps.aim_lat, ps.aim_lng]], { color, weight: 3, dashArray: '8,6', opacity: 0.9 }).addTo(planLayers);
+                // Numbered badge
+                L.marker([origin.lat, origin.lng], {
+                    icon: L.divIcon({ className: 'leaflet-shot-number', html: `<div style="background:${color};color:#000;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;border:2px dashed #fff;">${idx + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }),
+                }).addTo(planLayers);
+                // Aim marker
+                L.circleMarker([ps.aim_lat, ps.aim_lng], { radius: 6, color: '#fff', fillColor: color, fillOpacity: 0.9, weight: 2 }).bindTooltip(`${ps.club || '?'}`, { permanent: false }).addTo(planLayers);
+                // Dispersion cone (fan shape, same as strategy tools)
+                if (cd && cd.avg > 0) {
+                    const b = _brng(origin.lat, origin.lng, ps.aim_lat, ps.aim_lng);
+                    const spreadInner = Math.atan2(cd.lateralStd, cd.avg);
+                    const spreadOuter = Math.atan2(cd.lateralStd * 2, cd.avg);
+                    // Outer cone
+                    const outerPts = [[origin.lat, origin.lng]];
+                    for (let i = 0; i <= 20; i++) {
+                        const angle = b - spreadOuter + (i / 20) * spreadOuter * 2;
+                        const pt = _destPt(origin.lat, origin.lng, angle, cd.p90);
+                        outerPts.push([pt.lat, pt.lng]);
+                    }
+                    L.polygon(outerPts, { color, fillColor: color, fillOpacity: 0.08, weight: 1, opacity: 0.3, interactive: false }).addTo(planLayers);
+                    // Inner cone
+                    const innerPts = [[origin.lat, origin.lng]];
+                    for (let i = 0; i <= 20; i++) {
+                        const angle = b - spreadInner + (i / 20) * spreadInner * 2;
+                        const pt = _destPt(origin.lat, origin.lng, angle, cd.avg);
+                        innerPts.push([pt.lat, pt.lng]);
+                    }
+                    L.polygon(innerPts, { color, fillColor: color, fillOpacity: 0.15, weight: 1, opacity: 0.3, interactive: false }).addTo(planLayers);
+                }
+            });
+
+            // Line from last shot to green
+            if (shots.length > 0 && editorGreenPos) {
+                const last = shots[shots.length - 1];
+                if (last.aim_lat) {
+                    L.polyline([[last.aim_lat, last.aim_lng], [editorGreenPos.lat, editorGreenPos.lng]], { color: '#4caf50', weight: 2, dashArray: '4,4', opacity: 0.5 }).addTo(planLayers);
+                }
+            }
+        }
+
+        // --- Re-render when hole changes ---
+        const _prevSelectHole3 = editorSelectHole;
+        editorSelectHole = function(holeNum) {
+            _prevSelectHole3(holeNum);
+            if (editorCurrentPlan) { renderPlanContent(); }
+        };
+
+        // --- Re-render when panel opens ---
+        const planPanel = document.querySelector('.editor-float-panel[data-float-panel="planning"]');
+        if (planPanel) {
+            const observer = new MutationObserver(() => {
+                if (planPanel.style.display !== 'none') {
+                    populatePlanSelect();
+                    if (editorCurrentPlan) renderPlanContent();
+                    else contentEl.innerHTML = '<div class="strategy-empty" style="margin-top:12px;">Select or create a plan</div>';
+                }
+            });
+            observer.observe(planPanel, { attributes: true, attributeFilter: ['style'] });
+        }
+
+        // --- Clear plan layers when panel closes ---
+        if (planPanel) {
+            const closeObserver = new MutationObserver(() => {
+                if (planPanel.style.display === 'none') {
+                    planLayers.clearLayers();
+                    if (editorPlanPlacingShot) {
+                        editorPlanPlacingShot = false;
+                        if (mapClickHandler) {
+                            editorMap.off('mousedown', mapClickHandler);
+                            if (mapClickHandler._moveHandler) editorMap.off('mousemove', mapClickHandler._moveHandler);
+                            mapClickHandler = null;
+                        }
+                        editorMap.dragging.enable();
+                        editorMap.getContainer().style.cursor = '';
+                    }
+                }
+            });
+            closeObserver.observe(planPanel, { attributes: true, attributeFilter: ['style'] });
         }
     })();
 

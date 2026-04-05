@@ -574,16 +574,63 @@
 - Filter: all historic shots / specific round / planning mode
 - Planning mode: tie into strategy tools (dispersion, carry check) to simulate shots
 
-### 16d. Edit Hole Info → Tee Management `[ ]`
-- Expand current Hole Info panel with tee box CRUD (add/edit/delete tees)
-- Per-tee fields: name, total yardage, rating, slope
-- Notes field per hole for personal strategy
+### 16d. Edit Hole Info → Tee Management `[x]`
+- Tee box CRUD in Edit Hole panel: add, inline-edit, delete tees
+- Per-tee fields: name, total yardage, par, course rating, slope rating
+- All tee selectors (Edit Hole + Scorecard) sync after changes
+- New POST `/api/courses/{id}/tees` endpoint for manual tee creation
+- Notes field per hole deferred to 16f
 
-### 16e. Navigation & Route Integration `[ ]`
-- `#round/{id}/hole/{n}` redirects to workspace with that round pre-selected
-- `#course/{id}/edit` continues to work as-is (workspace with no round selected)
-- Toolbar icons updated for new sub-panes
-- Hole-by-hole navigation (prev/next) carries round context
+### 16e. Navigation & Route Integration `[x]`
+- `#round/{id}/hole/{n}` redirects to workspace with that round + hole pre-selected
+- `#course/{id}/holes` redirects to `#course/{id}/edit`
+- New route: `#course/{id}/edit/round/{roundId}/hole/{holeNum}` for deep-linking with round context
+- All "View Holes" / "View Hole-by-Hole" links updated across the app
+- Auto-selects correct tee, round, and hole when opening with round context
+- Old hole-by-hole screen code preserved for now (can be removed after full testing)
+
+---
+
+## 17. Round Planning & Note Taking
+
+**Goal:** Add pre-round planning and in-context note taking to the hole workspace. Let the player prepare a game plan, set goals, write strategy notes per hole, and capture post-round reflections — all within the same screen they use to review and edit course data.
+
+### 17a. Per-Hole Strategy Notes `[ ]`
+- Add `notes` text field to CourseHole model (DB migration)
+- Textarea in the Edit Hole panel for personal strategy notes per hole
+- Notes persist per course/tee/hole — not tied to a specific round
+- Examples: "Aim left of bunker", "7 iron to front of green", "Don't go for it in two"
+- Notes visible in the Hole Overview panel when viewing the hole
+
+### 17b. Round Planning Mode `[ ]`
+- New "Plan" mode alongside Historic and Round modes in the scorecard
+- Set goal scores per hole (already built in scorecard Goal row)
+- Plan which club to use off the tee per hole (new field)
+- Pre-round notes: overall strategy, focus areas, conditions
+- Tie into strategy tools: use dispersion/carry/club rec to validate the plan
+- Save plans to localStorage or DB per course
+- Risk/reward analysis based on historical outcomes (absorbed from 14d)
+- Per-hole insights: "Laying up to 100y has produced better scores than going for it"
+- Suggested play based on your data (best club off tee, target areas)
+
+### 17c. Shot Planning Sub-Pane `[ ]`
+- Plan a sequence of shots for a hole (club selections + aim points)
+- Visualize planned shots on the map using strategy tools (dispersion cones along planned route)
+- Compare planned shots vs actual shots from past rounds
+- "What if" analysis: "If I hit driver here, where does my approach land?"
+- Feeds into mobile on-course mode (11c) for pre-round strategy
+
+### 17d. Round Journal Integration `[ ]`
+- Post-round reflection notes per hole (what worked, what didn't)
+- Link journal entries to specific rounds (extends existing Round notes model)
+- Per-hole tags: "Great drive", "Missed green left", "3-putt" (quick tagging)
+- View journal entries in the Hole Overview when reviewing a past round
+
+### 17e. Game Plan Export `[ ]`
+- Export the game plan as a printable summary (PDF or formatted page)
+- Hole-by-hole: yardage, par, goal, planned club, strategy notes
+- Include key stats: miss tendencies, carry distances, hazard warnings
+- Shareable link or PDF for pre-round review on phone
 
 ---
 
@@ -623,8 +670,4 @@
 - Color-coded by outcome (fairway, rough, hazard, green)
 - *Best tackled after 20+ rounds at a course provide enough data for meaningful patterns*
 
-### Course Strategy Insights (from 14d)
-- Per-hole: "On #14, laying up to 100 yards has produced better scores than going for it"
-- Risk/reward analysis based on historical outcomes
-- Suggested play based on your data (club off tee, target areas)
-- *Also feeds into mobile on-course mode (11c) for pre-round strategy*
+### ~~Course Strategy Insights (from 14d)~~ → Absorbed into Feature 17b/17c

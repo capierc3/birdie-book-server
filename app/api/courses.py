@@ -47,6 +47,7 @@ class CourseHoleResponse(BaseModel):
     green_boundary: Optional[str] = None
     osm_hole_id: Optional[int] = None
     data_source: Optional[str] = None
+    notes: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -1225,6 +1226,7 @@ class HoleUpdateRequest(BaseModel):
     fairway_path: Optional[str] = None  # JSON string of [[lat, lng], ...] centerline
     fairway_boundary: Optional[str] = None  # JSON string of [[lat, lng], ...] polygon (fairway edges)
     green_boundary: Optional[str] = None  # JSON string of [[lat, lng], ...] polygon
+    notes: Optional[str] = None  # Personal strategy notes
 
 
 @router.put("/{course_id}/holes/{hole_id}")
@@ -1254,6 +1256,8 @@ def update_hole(course_id: int, hole_id: int, req: HoleUpdateRequest, db: Sessio
         hole.fairway_boundary = req.fairway_boundary or None
     if req.green_boundary is not None:
         hole.green_boundary = req.green_boundary or None
+    if req.notes is not None:
+        hole.notes = req.notes.strip() if req.notes.strip() else None
 
     hole.data_source = 'manual'
 

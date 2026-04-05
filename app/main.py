@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
-from app.api import rounds, courses, clubs, import_api, range_sessions, stats
+from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans
 from app.config import settings
 from app.database import Base, engine
 import app.models  # noqa: F401 — registers all models with Base.metadata
@@ -30,6 +30,7 @@ app.include_router(clubs.router)
 app.include_router(import_api.router)
 app.include_router(range_sessions.router)
 app.include_router(stats.router)
+app.include_router(round_plans.router)
 
 
 @app.get("/", response_class=HTMLResponse)

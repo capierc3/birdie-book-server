@@ -92,6 +92,7 @@ class CourseHole(Base):
     fairway_boundary = Column(Text)  # JSON array of [lat, lng] polygon defining fairway edges (for width calcs)
     green_boundary = Column(Text)  # JSON array of [lat, lng] polygon points defining green edge
     data_source = Column(String(20))  # Provenance: 'api', 'osm', 'manual', 'garmin'
+    notes = Column(Text)  # Personal strategy notes for this hole
 
     tee = relationship("CourseTee", back_populates="holes")
     osm_hole = relationship("OSMHole")

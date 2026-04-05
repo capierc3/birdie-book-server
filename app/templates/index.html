@@ -296,6 +296,9 @@
                 <button class="toolbar-icon" data-panel="strategy" title="Strategy Tools">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
                 </button>
+                <button class="toolbar-icon" data-panel="planning" title="Round Planning">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
+                </button>
                 <div style="width:28px; height:1px; background:var(--border); margin:4px 0;"></div>
                 <!-- Editing -->
                 <button class="toolbar-icon" data-panel="hole" title="Edit Hole">
@@ -510,6 +513,23 @@
                     <div class="editor-section-title">Results</div>
                     <div id="strategy-results-content"></div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Round Planning panel -->
+        <div class="editor-float-panel" data-float-panel="planning" style="display:none;">
+            <div class="editor-float-header">
+                <span class="editor-float-title">Round Planning</span>
+                <div style="display:flex;gap:4px;"><button class="shot-panel-btn editor-float-popout" title="Pop out to window">&#x29c9;</button><button class="shot-panel-btn editor-float-close">&times;</button></div>
+            </div>
+            <div class="editor-float-body">
+                <!-- Plan selector + create -->
+                <div class="editor-section" style="display:flex; gap:6px; align-items:center;">
+                    <select id="planning-plan-select" class="edit-input" style="flex:1;"></select>
+                    <button class="btn btn-ghost btn-sm" id="btn-new-plan" style="font-size:0.68rem; white-space:nowrap;">+ New</button>
+                </div>
+                <!-- Plan content (populated by JS) -->
+                <div id="planning-content"></div>
             </div>
         </div>
     </div>
@@ -1683,5 +1703,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/app.js?v=1.1.3"></script>
+<script src="/static/js/app.js?v=1.2.1"></script>
 {% endblock %}

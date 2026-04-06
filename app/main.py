@@ -1,7 +1,11 @@
+import os
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills
 from app.config import settings
@@ -13,6 +17,17 @@ app = FastAPI(
     description="Golf data API — Garmin FIT import, round tracking, course management",
     version="0.1.0",
 )
+
+# CORS — only active when CORS_ORIGINS is set (e.g. dev: "http://localhost:5173")
+_cors_origins = os.getenv("CORS_ORIGINS", "")
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in _cors_origins.split(",") if o.strip()],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Create tables if they don't exist (dev mode — no alembic needed)
 Base.metadata.create_all(bind=engine)
@@ -164,3 +179,16 @@ def create_backup_endpoint():
     if path:
         return {"status": "ok", "path": path}
     return {"status": "skipped", "reason": "Not a SQLite database"}
+
+
+# --- React SPA (Feature 18) ---
+# Serves the built React app at /app/*. During dev, use Vite's dev server instead.
+_frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if _frontend_dist.is_dir():
+    app.mount("/app/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="spa-assets")
+
+    @app.get("/app")
+    @app.get("/app/{full_path:path}")
+    async def serve_spa(full_path: str = ""):
+        return FileResponse(str(_frontend_dist / "index.html"))

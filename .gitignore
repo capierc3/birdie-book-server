@@ -194,5 +194,9 @@ app/static/images/clubs/
 !app/static/images/holes/.gitkeep
 !app/static/images/default-course.jpg
 
+# Frontend (React/Vite)
+frontend/node_modules/
+frontend/dist/
+
 # Claude
 .claude/

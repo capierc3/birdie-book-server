@@ -75,17 +75,20 @@
 - Toggle between on-course, range, and Trackman data
 - Show dispersion ellipse or bounding area
 
-### 3b. Miss Tendency Summary `[ ]`
+### 3b. Miss Tendency Summary → Absorbed into 5a `[x]`
 - Per-club: "You miss **68% LEFT** with Driver"
 - Aggregate miss direction stats: left %, right %, center %
-- Filter by on-course vs range to compare
+- On-course (fairway_side) + range (side_carry_yards) + Trackman root cause (face_angle, club_path, face_to_path)
+- *Implemented in practice plan engine's `_build_miss_analysis()` and displayed in Game Analysis card*
 
-### 3c. ~~Approach Proximity to Pin~~ → Absorbed into 5a `[ ]`
+### 3c. ~~Approach Proximity to Pin~~ → Absorbed into 5a `[x]`
+- *Implemented in `_build_proximity_analysis()` — bucketed by distance, shows GIR%, proximity, SG per shot*
 
 ### 3d. On-Course vs Range Dispersion Comparison `[ ]`
 - Side-by-side dispersion patterns: same club, course vs range
 - Standard deviation comparison
 - "Your 7-iron has 15yd std dev on course vs 8yd on Trackman"
+- *Partial: range vs course gaps computed and displayed. Scatter plot visualization not yet built.*
 
 ---
 
@@ -642,6 +645,129 @@
 
 ---
 
+## 18. Frontend Modernization — React + Vite
+
+**Goal:** Replace the vanilla JS / Jinja2 frontend with a React + Vite SPA. One codebase that serves both desktop and mobile, with PWA capabilities and offline support baked in from the start. This is the foundation that enables Features 11 (On-Course Mode) and 12 (At-Range Mode) and improves the developer experience for all future UI work.
+
+**Why now:** The vanilla JS frontend has grown past the point where it's lightweight. Complex screens like the Hole Workspace with floating panels, Chart.js dashboards, and Leaflet map interactions are increasingly difficult to maintain and extend without a component model, proper state management, or a build pipeline. Migrating to React unlocks the ecosystem needed for mobile, offline, and the next generation of features.
+
+### 18a. Project Scaffold & Build Pipeline `[ ]`
+- Initialize `frontend/` directory with Vite + React + TypeScript
+- Configure Vite to build the SPA into FastAPI's static file directory
+- Update `main.py` to serve the React SPA (catch-all route for client-side routing) with API routes taking priority
+- Set up path aliases, ESLint, Prettier
+- Development workflow: `npm run dev` proxies API calls to FastAPI backend
+- Production workflow: `npm run build` → FastAPI serves the built bundle
+- **Key libraries to install:**
+  - `react-router-dom` — client-side routing
+  - `@tanstack/react-query` — server state management, caching, offline persistence
+  - `react-leaflet` + `leaflet` — map components (replaces raw Leaflet JS)
+  - `recharts` or `nivo` — chart components (replaces Chart.js)
+  - `idb` — IndexedDB wrapper for offline data
+  - Workbox (via `vite-plugin-pwa`) — service worker generation
+- Verify: React app renders at `/`, FastAPI API still accessible at `/api/*`
+
+### 18b. Shared Component Library `[ ]`
+- Build reusable components that mirror the existing UI patterns:
+  - `StatCard` — the dashboard stat display cards
+  - `DataTable` — sortable, filterable table (rounds, shots, clubs)
+  - `FloatingPanel` — draggable/resizable panel system (replaces current JS implementation)
+  - `Chart` wrappers — line, bar, scatter, radar using Recharts
+  - `MapView` — React-Leaflet wrapper with the project's common map setup
+  - `Sidebar` / `MobileNav` — responsive navigation (sidebar on desktop, hamburger/bottom nav on mobile)
+  - Form components — inputs, selects, sliders, tag pickers
+- Design tokens / theme file for consistent spacing, colors, typography
+- Responsive breakpoints: desktop (>1024px), tablet (768-1024px), mobile (<768px)
+
+### 18c. Data Layer & API Client `[ ]`
+- TypeScript API client with typed request/response for all existing endpoints
+- TanStack Query hooks for every API domain:
+  - `useRounds()`, `useRound(id)`, `useRoundHoles(id)`, etc.
+  - `useCourses()`, `useCourse(id)`, `useCourseHoles(id)`, etc.
+  - `useClubs()`, `useClubStats()`, etc.
+  - `useSGSummary()`, `useSGTrends()`, etc.
+  - `usePracticePlans()`, `useRoundPlans()`, etc.
+- Query cache configuration:
+  - `staleTime` tuned per domain (stats can be stale longer than active round data)
+  - `gcTime` (garbage collection) keeps data available for offline
+- Mutation hooks with optimistic updates for write operations
+- Error boundary and retry logic
+
+### 18d. Offline & PWA Foundation `[ ]`
+- **PWA manifest** (`manifest.json`): app name, icons, theme color, `display: standalone`
+- **Service worker** via `vite-plugin-pwa` + Workbox:
+  - Pre-cache app shell (HTML, JS, CSS, fonts)
+  - Runtime cache for API responses (stale-while-revalidate for reads)
+  - Cache-first for static assets (map tiles can be cached per course)
+- **TanStack Query persistence**: `persistQueryClient` plugin backed by IndexedDB
+  - On app open, hydrate query cache from IndexedDB → UI renders instantly with cached data
+  - Background refetch updates the cache when online
+- **Offline write queue**:
+  - When offline, mutations serialize to IndexedDB via `idb`
+  - Sync manager replays queued writes when `navigator.onLine` fires or on app open
+  - Simple last-write-wins conflict resolution (single-user app)
+  - Visual indicator: "X changes pending sync" badge
+- **Cache priming**: "Preparing for round at [course]..." pre-fetches and caches all hole data, hazards, stats, and club distances for a specific course
+- **Online/offline status** indicator in the UI
+
+### 18e. Screen Migration — Phase 1: Core Screens `[ ]`
+- **Dashboard**: stat cards, scoring breakdowns, recent rounds, charts
+- **Rounds list**: sortable/filterable table with round summaries
+- **Round detail**: round stats, hole-by-hole breakdown, shot data
+- **Clubs**: club list, club stats, distance cards
+- **Strokes Gained**: SG summary, category breakdowns, trend charts
+- Each screen migrated one at a time; old Jinja2 template removed after React version is verified
+- Routing: React Router handles all navigation, hash-based routes migrate to path-based
+
+### 18f. Screen Migration — Phase 2: Complex Screens `[ ]`
+- **Hole Workspace** (Feature 16): floating panel system, map with shots/plans, scorecard, hole overview
+  - This is the most complex migration — the floating panel system, Leaflet map overlays (shot lines, dispersion cones, hazards, green boundaries), and cross-panel state coordination
+  - React-Leaflet custom components for: shot markers, shot lines, dispersion cones, ball placement, green/fairway/hazard polygons
+  - Panel state management: which panels are open, positions, sizes, active hole/round context
+- **Course Editor**: course list, course detail, hole editing with map drawing tools
+  - `react-leaflet-draw` for polygon/polyline editing (tee boxes, greens, fairways, hazards)
+- **Practice Plans**: plan wizard, activity editor, drill browser, session review
+- **Data Import**: Garmin/Trackman/Rapsodo upload flows
+- **Settings / Handicap / other minor screens**
+
+### 18g. Screen Migration — Phase 3: Mobile Layouts `[ ]`
+- Responsive layouts for all migrated screens:
+  - Dashboard: stacked cards, swipeable chart sections
+  - Rounds/Clubs: full-width cards instead of tables
+  - Hole Workspace: panels become bottom sheets or swipeable tabs instead of floating windows
+  - Maps: full-screen with overlay controls
+- Touch-optimized interactions: larger tap targets, swipe gestures, pull-to-refresh
+- Bottom navigation bar on mobile viewports
+- This phase makes the *existing* desktop features usable on a phone — Features 11/12 add the *new* mobile-specific workflows on top
+
+### 18h. GPS Rangefinder Integration `[ ]`
+- `navigator.geolocation.watchPosition()` for live GPS tracking
+- Display user position on the Leaflet hole map as a pulsing marker
+- Distance calculations using Haversine formula against cached course data:
+  - Distance to green center / front / back
+  - Distance to hazards (carry distances)
+  - Distance from tee
+- Club suggestion based on remaining distance vs club distance data
+- Works on any device with GPS (phone browser, tablet) — no native app required
+- Requires connectivity only for initial map tile loading; distances computed from cached hole geometry
+
+### 18i. Legacy Cleanup `[ ]`
+- Remove Jinja2 templates (`app/templates/`)
+- Remove vanilla JS files (`app/static/js/`)
+- Remove old CSS (`app/static/css/style.css`)
+- Remove Chart.js and raw Leaflet CDN script tags from `base.html`
+- Update Dockerfile to include `npm run build` step
+- Update any documentation referencing the old frontend
+
+**Migration strategy — incremental, never broken:**
+- During migration, both old (Jinja2) and new (React) screens coexist
+- React app mounts at `/app/` initially; legacy stays at `/`
+- As screens are migrated, routes shift from legacy to React
+- Once all screens are migrated (18i), React takes over `/` and legacy is removed
+- At every phase, the app is fully functional — no "half-broken" intermediate states
+
+---
+
 ## Completed Bonus Work (not in original roadmap)
 
 - **Pin distance estimation**: Garmin doesn't track distance once ball is on green. Added putt-count-based estimation (1 putt=6ft, 2=22ft, 3+=40ft) with green boundary capping.
@@ -651,6 +777,12 @@
 - **Shot classification expansion**: Added RECOVERY, LAYUP, UNKNOWN shot types to SG classification (Approach or Short Game based on distance to green).
 - **Shot deletion**: Added `POST /api/clubs/delete-shot` endpoint and UI in the Edit Shot modal.
 - **Dashboard 9/18-hole breakdowns**: Replaced single "Avg Score vs Par" with separate 18-hole and 9-hole stat cards (count, best, avg vs par, std dev).
+- **Smart Practice Plans (Feature 5)**: Full practice plan system with 3-step wizard, SG-weighted recommendation engine, 5 analysis functions (miss direction, approach proximity, scoring patterns, player context, range swing analysis), decision-tree drill selection, focus tags (club/skill/situational/surprise-me), 41 seeded drills in DB with drill browser + custom drill creation, activity editing (inline edit, add/remove, drill picker), range session linking, session review with before/after deltas, gap trending.
+- **Drills database table**: `drills` table with 41 default practice drills seeded on first startup. Users can create custom drills. Drills linked to activities by FK. Drill browser with search/filter by category, focus area, club type, session type.
+- **Focus tags system**: Shared tag vocabulary across practice plans and round plans. Predefined tags (clubs, skills, situational) + custom tags. Tags steer the recommendation engine: club tags boost allocation 5x, skill tags override focus area, situational tags modify behavior (swing_change → fewer clubs/deeper reps, scoring_zones → force approach+short game).
+- **Practice plan decision tree**: Comprehensive decision tree document (`docs/practice-plan-decision-tree.md`) mapping every data point to drill selection logic, with fallback behavior for missing data at each tier (T0 no data → T4 full Trackman).
+- **SQLite for production**: Switched default DATABASE_URL from PostgreSQL to SQLite. Updated docker-compose.yml (removed postgres service), Dockerfile, .env.example, alembic.ini. PostgreSQL migration path documented in Architecture Notes for future multi-user.
+- **Automatic database backups**: Silent backup service — daily at midnight (keep 7), weekly (keep 4), pre-import snapshots before every data import (keep 5). Uses SQLite atomic backup API. Skips empty databases. Background scheduler thread. Manual trigger via `POST /api/settings/backup`.
 
 ---
 
@@ -659,10 +791,11 @@
 - **Data availability:** Most features in sections 1-4 can be built entirely from existing data (shots, round_holes, rounds tables). No new data collection needed.
 - **SG is the foundation:** The strokes gained category rollup (1a) is the highest-leverage feature — it powers recommendations (5a), identifies weaknesses, and is the most actionable stat in golf analytics.
 - **Existing API infrastructure:** The Add New Course feature (10) can be built almost entirely on existing endpoints — the main work is the UI flow to tie them together and the pre-round strategy view.
-- **Mobile PWA (11-12) depends on analytics (1-5):** The on-course and at-range screens are most powerful when they can surface SG insights, practice recommendations, and historical patterns. Build the analytics engine first, then the mobile layer consumes it.
+- **Mobile PWA (11-12) depends on analytics (1-5) and frontend modernization (18):** The on-course and at-range screens are most powerful when they can surface SG insights, practice recommendations, and historical patterns. Build the analytics engine first. The React migration (18) provides the component model, offline data layer, and PWA foundation that Features 11-12 build on top of — do 18a-18d before starting 11/12 mobile screens.
 - **Journal-first, link-later architecture:** Mobile notes are stored as standalone journal records (not directly in `rounds` or `range_sessions`). Data from Garmin/Trackman/Rapsodo is imported separately via PC. The two are linked after the fact by matching course+date (rounds) or date (range). This avoids any dependency on mobile data import and lets each record have value independently.
 - **Existing round fields still useful:** The `rounds` table already has pre/post session fields. When a journal is linked to a round, the journal data merges into these fields. The range session model needs those fields added (12d).
-- **Server-first, offline-resilient:** The server DB is the single source of truth. Mobile writes go directly to the API when online. Offline is a fallback only — IndexedDB queues writes and replays them on reconnect. Read data (course info, stats, club distances) is cached locally so the UI works without signal but is refreshed from the server whenever connectivity is available.
+- **Server-first, offline-resilient:** The server DB is the single source of truth. All writes go directly to the API when online. Offline is a fallback only — IndexedDB queues writes and replays them on reconnect. Read data (course info, stats, club distances) is cached locally via TanStack Query persistence so the UI works without signal but is refreshed from the server whenever connectivity is available.
+- **React migration is incremental:** Feature 18 migrates screens one at a time. During migration, Jinja2 and React coexist — React mounts at `/app/`, legacy stays at `/`. Once all screens are ported, React takes over `/` and legacy templates are removed. The FastAPI backend and all API endpoints remain unchanged throughout.
 - **Incremental delivery:** Each numbered section is independent and can be shipped standalone. Sub-items within a section should generally be done in order (a → b → c).
 
 ---

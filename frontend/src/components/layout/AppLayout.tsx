@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { MobileHeader } from './MobileHeader'
+import { OfflineIndicator } from '../ui/OfflineIndicator'
 import { cn } from '../../utils/cn'
 import styles from './AppLayout.module.css'
 
@@ -21,6 +22,7 @@ export function AppLayout() {
           <Outlet />
         </div>
       </main>
+      <OfflineIndicator />
     </>
   )
 }

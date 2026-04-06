@@ -1,0 +1,506 @@
+// ============================================================
+// Rounds
+// ============================================================
+
+export interface RoundSummary {
+  id: number
+  garmin_id?: number | null
+  course_id?: number | null
+  course_name?: string | null
+  tee_name?: string | null
+  tee_id?: number | null
+  date: string
+  holes_completed?: number | null
+  total_strokes?: number | null
+  score_vs_par?: number | null
+  course_rating?: number | null
+  slope_rating?: number | null
+  shots_tracked?: number | null
+  source?: string | null
+  exclude_from_stats: boolean
+  game_format?: string | null
+}
+
+export interface Shot {
+  id: number
+  shot_number: number
+  club?: string | null
+  shot_type?: string | null
+  start_lie?: string | null
+  end_lie?: string | null
+  start_lat?: number | null
+  start_lng?: number | null
+  end_lat?: number | null
+  end_lng?: number | null
+  distance_yards?: number | null
+  pin_distance_yards?: number | null
+  fairway_side?: string | null
+  fairway_side_yards?: number | null
+  fairway_progress_yards?: number | null
+  nearest_hazard_type?: string | null
+  nearest_hazard_name?: string | null
+  nearest_hazard_yards?: number | null
+  green_distance_yards?: number | null
+  on_green?: boolean | null
+  sg_pga?: number | null
+  sg_personal?: number | null
+}
+
+export interface RoundHole {
+  id: number
+  hole_number: number
+  strokes?: number | null
+  handicap_strokes?: number | null
+  putts?: number | null
+  fairway?: string | null
+  gir?: boolean | null
+  penalty_strokes: number
+  shots: Shot[]
+}
+
+export interface RoundDetail extends RoundSummary {
+  handicapped_strokes?: number | null
+  player_handicap?: number | null
+  session_type?: string | null
+  weather_temp_f?: number | null
+  weather_description?: string | null
+  overall_rating?: number | null
+  key_takeaway?: string | null
+  holes: RoundHole[]
+}
+
+// ============================================================
+// Courses
+// ============================================================
+
+export interface Course {
+  id: number
+  display_name: string
+  club_name: string
+  course_name?: string | null
+  address?: string | null
+  lat?: number | null
+  lng?: number | null
+  holes?: number | null
+  par?: number | null
+  slope_rating?: number | null
+  course_rating?: number | null
+  user_rating?: number | null
+  user_notes?: string | null
+  photo_url?: string | null
+  slope_min?: number | null
+  slope_max?: number | null
+  tee_count: number
+  golf_club_id: number
+  osm_id?: number | null
+  osm_boundary?: string | null
+}
+
+export interface CourseHole {
+  id: number
+  hole_number: number
+  par: number
+  yardage?: number | null
+  handicap?: number | null
+  flag_lat?: number | null
+  flag_lng?: number | null
+  tee_lat?: number | null
+  tee_lng?: number | null
+  fairway_path?: string | null
+  fairway_boundary?: string | null
+  green_boundary?: string | null
+  osm_hole_id?: number | null
+  data_source?: string | null
+  notes?: string | null
+}
+
+export interface CourseTee {
+  id: number
+  tee_name: string
+  course_rating?: number | null
+  slope_rating?: number | null
+  par_total?: number | null
+  total_yards?: number | null
+  inferred: boolean
+  holes: CourseHole[]
+}
+
+export interface CourseHazard {
+  id: number
+  hazard_type: string
+  name?: string | null
+  boundary: string
+  data_source?: string | null
+}
+
+export interface CourseDetail extends Course {
+  tees: CourseTee[]
+  hazards: CourseHazard[]
+  osm_holes: {
+    id: number
+    osm_id?: number | null
+    hole_number?: number | null
+    par?: number | null
+    tee_lat?: number | null
+    tee_lng?: number | null
+    green_lat?: number | null
+    green_lng?: number | null
+  }[]
+}
+
+export interface CourseHoleStats {
+  hole_number: number
+  par: number
+  yardage?: number | null
+  handicap?: number | null
+  avg_score: number
+  avg_vs_par: number
+  birdie_pct: number
+  par_pct: number
+  bogey_pct: number
+  double_plus_pct: number
+  times_played: number
+}
+
+export interface CourseRoundStats {
+  round_id: number
+  date: string
+  tee_name?: string | null
+  holes_played: number
+  score: number
+  score_vs_par: number
+  vs_par_per_hole: number
+  gir_pct?: number | null
+  fw_pct?: number | null
+  putts?: number | null
+  putts_per_hole?: number | null
+}
+
+export interface CourseSGCategory {
+  per_round: number
+  total: number
+  personal_per_round?: number | null
+  personal_total?: number | null
+  shots: number
+  round_count: number
+}
+
+export interface CourseStats {
+  course_id: number
+  course_name?: string | null
+  club_name: string
+  club_id: number
+  par?: number | null
+  holes?: number | null
+  rounds_played: number
+  avg_score?: number | null
+  best_score?: number | null
+  worst_score?: number | null
+  avg_vs_par?: number | null
+  gir_pct?: number | null
+  fairway_pct?: number | null
+  avg_putts_per_hole?: number | null
+  scramble_pct?: number | null
+  three_putt_pct?: number | null
+  scoring_distribution: ScoringDistribution
+  hole_stats: CourseHoleStats[]
+  rounds: CourseRoundStats[]
+  sg_categories: Record<string, CourseSGCategory>
+  avg_differential?: number | null
+  best_differential?: number | null
+  differentials: {
+    round_id: number
+    date: string
+    differential: number
+    score: number
+    holes_played: number
+    rating: number
+    slope: number
+  }[]
+  excluded_rounds: number
+}
+
+export interface GolfClubSummary {
+  id: number
+  name: string
+  address?: string | null
+  photo_url?: string | null
+  course_count: number
+  total_rounds: number
+  courses: {
+    id: number
+    name?: string | null
+    holes?: number | null
+    par?: number | null
+    tee_count: number
+    slope_min?: number | null
+    slope_max?: number | null
+    rounds_played: number
+  }[]
+}
+
+// ============================================================
+// Clubs (Equipment)
+// ============================================================
+
+export interface ClubDistanceStats {
+  avg_yards?: number | null
+  median_yards?: number | null
+  std_dev?: number | null
+  min_yards?: number | null
+  max_yards?: number | null
+  p10?: number | null
+  p90?: number | null
+  sample_count?: number | null
+}
+
+export interface ClubFullStats extends ClubDistanceStats {
+  range_avg_yards?: number | null
+  range_median_yards?: number | null
+  range_std_dev?: number | null
+  range_min_yards?: number | null
+  range_max_yards?: number | null
+  range_p10?: number | null
+  range_p90?: number | null
+  range_sample_count?: number | null
+  combined_avg_yards?: number | null
+  combined_median_yards?: number | null
+  combined_std_dev?: number | null
+  combined_min_yards?: number | null
+  combined_max_yards?: number | null
+  combined_p10?: number | null
+  combined_p90?: number | null
+  combined_sample_count?: number | null
+}
+
+export interface Club {
+  id: number
+  club_type: string
+  name?: string | null
+  model?: string | null
+  shaft_length_in?: number | null
+  flex?: string | null
+  loft_deg?: number | null
+  lie_deg?: number | null
+  color?: string | null
+  retired: boolean
+  sort_order: number
+  source: string
+  garmin_id?: number | null
+  stats?: ClubFullStats | null
+  windowed_stats?: ClubDistanceStats | null
+}
+
+export interface ClubShot {
+  id: string
+  raw_id: number
+  source: string
+  date?: string | null
+  shot_number: number
+  carry_yards?: number | null
+  total_yards?: number | null
+  distance_yards?: number | null
+  ball_speed_mph?: number | null
+  club_speed_mph?: number | null
+  smash_factor?: number | null
+  launch_angle_deg?: number | null
+  launch_direction_deg?: number | null
+  attack_angle_deg?: number | null
+  club_path_deg?: number | null
+  face_angle_deg?: number | null
+  face_to_path_deg?: number | null
+  dynamic_loft_deg?: number | null
+  spin_loft_deg?: number | null
+  swing_plane_deg?: number | null
+  swing_direction_deg?: number | null
+  dynamic_lie_deg?: number | null
+  landing_angle_deg?: number | null
+  descent_angle_deg?: number | null
+  spin_rate_rpm?: number | null
+  spin_axis_deg?: number | null
+  apex_yards?: number | null
+  side_carry_yards?: number | null
+  side_total_yards?: number | null
+  curve_yards?: number | null
+  hang_time_sec?: number | null
+  impact_offset_in?: number | null
+  impact_height_in?: number | null
+  low_point_distance_in?: number | null
+  shot_type?: string | null
+  start_lie?: string | null
+  end_lie?: string | null
+  pin_distance_yards?: number | null
+  fairway_side?: string | null
+  fairway_side_yards?: number | null
+  fairway_progress_yards?: number | null
+  green_distance_yards?: number | null
+  on_green?: boolean | null
+  sg_pga?: number | null
+  sg_personal?: number | null
+  nearest_hazard_type?: string | null
+  nearest_hazard_name?: string | null
+  nearest_hazard_yards?: number | null
+  round_id?: number | null
+  hole_number?: number | null
+  course_name?: string | null
+  session_name?: string | null
+}
+
+export interface ClubDetail {
+  club: Club
+  shots: ClubShot[]
+  source_counts: {
+    course: number
+    range: number
+    trackman: number
+  }
+  avg_ball_speed?: number | null
+  avg_club_speed?: number | null
+  avg_smash_factor?: number | null
+  avg_launch_angle?: number | null
+  avg_attack_angle?: number | null
+  avg_spin_rate?: number | null
+  avg_club_path?: number | null
+}
+
+// ============================================================
+// Stats
+// ============================================================
+
+export interface ScoringDistribution {
+  birdie_or_better: number
+  par: number
+  bogey: number
+  double: number
+  triple_plus: number
+}
+
+export interface SGCategory {
+  sg_pga_total: number
+  sg_pga_per_round: number
+  sg_pga_per_shot: number
+  sg_personal_total: number
+  sg_personal_per_round: number
+  sg_personal_per_shot: number
+  shot_count: number
+  round_count: number
+}
+
+export interface SGPerRound {
+  round_id: number
+  date: string
+  course_name?: string | null
+  off_the_tee?: { sg_pga: number; sg_personal: number; shot_count: number } | null
+  approach?: { sg_pga: number; sg_personal: number; shot_count: number } | null
+  short_game?: { sg_pga: number; sg_personal: number; shot_count: number } | null
+  putting?: { sg_pga: number; sg_personal: number; shot_count: number } | null
+  total_sg_pga: number
+  total_sg_personal: number
+}
+
+export interface SGSummary {
+  overall: Record<string, SGCategory>
+  per_round: SGPerRound[]
+  round_count: number
+  biggest_opportunity_pga?: string | null
+  biggest_opportunity_personal?: string | null
+}
+
+export interface SGTrendPoint {
+  round_id: number
+  date: string
+  course_name?: string | null
+  off_the_tee?: number | null
+  approach?: number | null
+  short_game?: number | null
+  putting?: number | null
+  total?: number | null
+  off_the_tee_personal?: number | null
+  approach_personal?: number | null
+  short_game_personal?: number | null
+  putting_personal?: number | null
+  total_personal?: number | null
+}
+
+export interface SGTrends {
+  raw: SGTrendPoint[]
+  rolling: Record<string, SGTrendPoint[]>
+  best_rounds: Record<string, SGTrendPoint>
+  worst_rounds: Record<string, SGTrendPoint>
+}
+
+export interface ParBreakdown {
+  par: number
+  count: number
+  avg_score: number
+  avg_vs_par: number
+  birdie_pct: number
+  par_pct: number
+  bogey_pct: number
+  double_plus_pct: number
+}
+
+export interface ScoringRound {
+  round_id: number
+  date: string
+  course_name: string
+  holes_played: number
+  score: number
+  score_vs_par: number
+  gir_pct?: number | null
+  fw_pct?: number | null
+  putts?: number | null
+  putts_per_hole?: number | null
+  three_putts: number
+  birdie_or_better: number
+  pars: number
+  bogeys: number
+  doubles: number
+  triple_plus: number
+}
+
+export interface ScoringStats {
+  gir_pct?: number | null
+  fairway_pct?: number | null
+  avg_putts_per_hole?: number | null
+  putts_per_gir?: number | null
+  scramble_pct?: number | null
+  three_putt_pct?: number | null
+  scoring_distribution: ScoringDistribution
+  par_breakdown: ParBreakdown[]
+  per_round: ScoringRound[]
+}
+
+export interface HandicapDifferential {
+  round_ids: number[]
+  date: string
+  course_name: string
+  score: number
+  rating: number
+  slope: number
+  differential: number
+  used: boolean
+  is_combined: boolean
+}
+
+export interface HandicapTrendPoint {
+  date: string
+  handicap_index?: number | null
+  differential: number
+  differentials_available: number
+}
+
+export interface HandicapData {
+  handicap_index?: number | null
+  differentials_used: number
+  differentials_available: number
+  low_index?: number | null
+  improvement_per_round?: number | null
+  projections: {
+    milestone: number
+    rounds_away?: number | null
+    label: string
+  }[]
+  trend: HandicapTrendPoint[]
+  differentials: HandicapDifferential[]
+}

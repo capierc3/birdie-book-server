@@ -126,6 +126,9 @@ async def import_rapsodo_csv(
     db: Session = Depends(get_db),
 ):
     """Upload and import a Rapsodo MLM2PRO CSV shot export."""
+    from app.services.backup_service import create_pre_import_backup
+    create_pre_import_backup()
+
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="File must be a .csv file")
 
@@ -151,6 +154,9 @@ class TrackmanImportRequest(BaseModel):
 @router.post("/import/trackman")
 def import_trackman(body: TrackmanImportRequest, db: Session = Depends(get_db)):
     """Import a Trackman report by URL or report ID."""
+    from app.services.backup_service import create_pre_import_backup
+    create_pre_import_backup()
+
     try:
         result = import_trackman_report(db, body.url)
     except ValueError as e:

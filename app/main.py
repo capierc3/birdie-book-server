@@ -44,6 +44,11 @@ def _seed_drills():
 
 _seed_drills()
 
+# Automatic database backups (SQLite only — runs silently)
+from app.services.backup_service import run_backup_if_needed, start_backup_scheduler
+run_backup_if_needed()
+start_backup_scheduler()
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -141,3 +146,21 @@ def recompute_scores_endpoint():
         return {"status": "ok", "rounds_checked": len(rounds), "updated": updated}
     finally:
         db.close()
+
+
+@app.get("/api/settings/backups")
+def list_backups_endpoint():
+    """List all database backups."""
+    from app.services.backup_service import list_backups
+    return list_backups()
+
+
+@app.post("/api/settings/backup")
+def create_backup_endpoint():
+    """Trigger a manual database backup."""
+    from app.services.backup_service import create_backup, prune_old_backups
+    path = create_backup("daily")
+    prune_old_backups()
+    if path:
+        return {"status": "ok", "path": path}
+    return {"status": "skipped", "reason": "Not a SQLite database"}

@@ -20,6 +20,9 @@ router = APIRouter(prefix="/api/import", tags=["import"])
 @router.post("/fit")
 async def import_fit_file(file: UploadFile = File(...), db: Session = Depends(get_db)):
     """Upload and import a Garmin FIT golf scorecard file."""
+    from app.services.backup_service import create_pre_import_backup
+    create_pre_import_backup()
+
     if not file.filename or not file.filename.lower().endswith(".fit"):
         raise HTTPException(status_code=400, detail="File must be a .fit file")
 
@@ -62,6 +65,9 @@ async def import_garmin_json(
     """
     Import Garmin JSON data export files with SSE progress streaming.
     """
+    from app.services.backup_service import create_pre_import_backup
+    create_pre_import_backup()
+
     files = {}
 
     async def _read_json(upload: Optional[UploadFile], key: str):

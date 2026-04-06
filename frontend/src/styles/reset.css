@@ -1,0 +1,29 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Global score color classes (applied dynamically by DataTable render functions) */
+.score-eagle { color: var(--eagle); font-weight: 700; }
+.score-birdie { color: var(--birdie); font-weight: 700; }
+.score-par { color: var(--par); }
+.score-bogey { color: var(--bogey); }
+.score-double { color: var(--double); font-weight: 700; }

@@ -1,0 +1,43 @@
+:root {
+  /* Backgrounds */
+  --bg: #111318;
+  --bg-sidebar: #16191f;
+  --bg-card: #1c1f26;
+  --bg-hover: #242830;
+  --bg-active: #2a2f3a;
+
+  /* Text */
+  --text: #e4e6eb;
+  --text-muted: #8b8f98;
+  --text-dim: #5c5f66;
+
+  /* Accent */
+  --accent: #4caf50;
+  --accent-hover: #66bb6a;
+  --accent-dim: rgba(76, 175, 80, 0.12);
+
+  /* Borders */
+  --border: #2a2d35;
+  --border-light: #33363e;
+
+  /* Semantic */
+  --danger: #ef5350;
+  --warning: #ffa726;
+  --info: #42a5f5;
+
+  /* Score colors */
+  --eagle: #42a5f5;
+  --birdie: #4caf50;
+  --par: #e4e6eb;
+  --bogey: #ef5350;
+  --double: #d32f2f;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --header-height: 56px;
+
+  /* Shared */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --transition: 0.2s ease;
+}

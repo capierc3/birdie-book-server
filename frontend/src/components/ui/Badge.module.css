@@ -1,0 +1,28 @@
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.blue {
+  background: rgba(66, 165, 245, 0.15);
+  color: #42a5f5;
+}
+
+.green {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+
+.yellow {
+  background: rgba(255, 167, 38, 0.15);
+  color: #ffa726;
+}
+
+.muted {
+  background: rgba(139, 143, 152, 0.15);
+  color: #8b8f98;
+}

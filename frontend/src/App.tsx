@@ -1,33 +1,17 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { AppLayout } from './components'
+import { EmptyState } from './components'
 
-function Home() {
+function Placeholder({ title }: { title: string }) {
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      color: '#1a1a2e',
-      background: '#f0f2f5',
-    }}>
-      <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>
-        Birdie Book
-      </h1>
-      <p style={{ fontSize: '1.1rem', color: '#666', marginBottom: '2rem' }}>
-        React app is working
-      </p>
-      <div style={{
-        background: '#fff',
-        borderRadius: '12px',
-        padding: '1.5rem 2rem',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-      }}>
-        <p style={{ margin: 0, color: '#888' }}>
-          Feature 18a scaffold complete. Migration screens will be built here.
-        </p>
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{title}</h1>
       </div>
+      <EmptyState
+        message="Coming in 18e"
+        description="This screen will be migrated from the legacy app."
+      />
     </div>
   )
 }
@@ -35,8 +19,20 @@ function Home() {
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="*" element={<Home />} />
+      <Route element={<AppLayout />}>
+        <Route path="/" element={<Placeholder title="Dashboard" />} />
+        <Route path="/rounds" element={<Placeholder title="Rounds" />} />
+        <Route path="/clubs" element={<Placeholder title="My Bag" />} />
+        <Route path="/strokes-gained" element={<Placeholder title="Strokes Gained" />} />
+        <Route path="/handicap" element={<Placeholder title="Handicap" />} />
+        <Route path="/scoring" element={<Placeholder title="Stats" />} />
+        <Route path="/range" element={<Placeholder title="Range" />} />
+        <Route path="/courses" element={<Placeholder title="Courses" />} />
+        <Route path="/practice" element={<Placeholder title="Practice" />} />
+        <Route path="/import" element={<Placeholder title="Import" />} />
+        <Route path="/settings" element={<Placeholder title="Settings" />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
     </Routes>
   )
 }

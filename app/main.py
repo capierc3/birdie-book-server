@@ -3,9 +3,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
-from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans
+from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills
 from app.config import settings
-from app.database import Base, engine
+from app.database import Base, engine, SessionLocal
 import app.models  # noqa: F401 — registers all models with Base.metadata
 
 app = FastAPI(
@@ -16,6 +16,33 @@ app = FastAPI(
 
 # Create tables if they don't exist (dev mode — no alembic needed)
 Base.metadata.create_all(bind=engine)
+
+# Seed default drills on first startup
+def _seed_drills():
+    from app.models.drill import Drill
+    from app.services.practice_recommendation_service import DRILL_LIBRARY
+    import json
+    db = SessionLocal()
+    try:
+        if db.query(Drill).first() is not None:
+            return  # already seeded
+        for (sg_cat, focus, club_type), drill_list in DRILL_LIBRARY.items():
+            for d in drill_list:
+                db.add(Drill(
+                    name=d["name"],
+                    description=d["description"],
+                    target=d.get("target"),
+                    sg_category=sg_cat,
+                    focus_area=focus,
+                    club_type=club_type,
+                    session_types=json.dumps(sorted(d["env"])) if d.get("env") else None,
+                    is_default=True,
+                ))
+        db.commit()
+    finally:
+        db.close()
+
+_seed_drills()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -31,6 +58,8 @@ app.include_router(import_api.router)
 app.include_router(range_sessions.router)
 app.include_router(stats.router)
 app.include_router(round_plans.router)
+app.include_router(practice_plans.router)
+app.include_router(drills.router)
 
 
 @app.get("/", response_class=HTMLResponse)

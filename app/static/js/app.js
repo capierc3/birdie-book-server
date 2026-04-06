@@ -195,6 +195,30 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Practice plan routes
+        if (hash === 'practice') {
+            navigateTo('section-practice');
+            loadPracticePlans();
+            return;
+        }
+        if (hash === 'practice/new') {
+            navigateTo('section-practice');
+            startPracticeWizard();
+            return;
+        }
+        const practiceMatch = hash.match(/^practice\/(\d+)$/);
+        if (practiceMatch) {
+            navigateTo('section-practice');
+            loadPracticeDetail(parseInt(practiceMatch[1]));
+            return;
+        }
+        const practiceNewRoundPlan = hash.match(/^practice\/new\/round-plan\/(\d+)$/);
+        if (practiceNewRoundPlan) {
+            navigateTo('section-practice');
+            startPracticeWizard(parseInt(practiceNewRoundPlan[1]));
+            return;
+        }
+
         // Range list
         if (hash === 'range') {
             loadRangeSessions();
@@ -9126,7 +9150,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (opp && data.overall[opp]) {
                 const val = data.overall[opp].sg_pga_per_round;
                 const label = SG_LABELS[opp] || opp;
-                insightEl.innerHTML = `Your biggest opportunity is <strong>${label}</strong>, costing <strong style="color:#ef4444">${Math.abs(val).toFixed(1)}</strong> strokes/round vs PGA`;
+                insightEl.innerHTML = `Your biggest opportunity is <strong>${label}</strong>, costing <strong style="color:#ef4444">${Math.abs(val).toFixed(1)}</strong> strokes/round vs PGA <a href="#practice/new" style="font-size:0.8rem; margin-left:8px; color:var(--accent);">Practice this &rarr;</a>`;
             }
 
             // Bars
@@ -13505,6 +13529,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>`;
                 }
             }
+            html += `<a href="#practice/new/round-plan/${plan.id}" class="btn btn-ghost btn-sm" style="font-size:0.68rem; width:100%; text-align:center; display:block; margin-bottom:4px; color:var(--accent);">Create Practice Plan</a>`;
             html += `<button class="btn btn-ghost btn-sm" id="btn-delete-plan" style="font-size:0.68rem; width:100%; color:var(--danger);">Delete Plan</button>`;
             html += '</div>';
 
@@ -14199,6 +14224,1561 @@ document.addEventListener('DOMContentLoaded', () => {
             status.innerHTML = `<span style="color:var(--danger);">Error: ${e.message}</span>`;
             result.style.display = 'none';
         }
+    }
+
+    // ========== Smart Practice Plans ==========
+
+    const SESSION_TYPE_LABELS = {
+        trackman_range: 'Trackman Range',
+        outdoor_range: 'Outdoor Range',
+        home_net: 'Home Net',
+        short_game_area: 'Short Game Area',
+        putting_green: 'Putting Green',
+        simulator: 'Simulator',
+    };
+
+    const SESSION_TYPE_ICONS = {
+        trackman_range: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+        outdoor_range: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/></svg>',
+        home_net: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+        short_game_area: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+        putting_green: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>',
+        simulator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
+    };
+
+    const FOCUS_LABELS = {
+        warm_up: 'Warm Up',
+        distance_control: 'Distance Control',
+        accuracy: 'Accuracy',
+        tempo: 'Tempo',
+        start_line: 'Start Line',
+        trajectory: 'Trajectory',
+        speed_control: 'Speed Control',
+        lag_putting: 'Lag Putting',
+        short_putt: 'Short Putts',
+        chipping: 'Chipping',
+        bunker: 'Bunker Play',
+    };
+
+    const FOCUS_COLORS = {
+        warm_up: '#78909c',
+        distance_control: '#42a5f5',
+        accuracy: '#66bb6a',
+        tempo: '#ab47bc',
+        start_line: '#ffa726',
+        trajectory: '#26c6da',
+        speed_control: '#ef5350',
+        lag_putting: '#8d6e63',
+        short_putt: '#5c6bc0',
+        chipping: '#9ccc65',
+        bunker: '#d4a76a',
+    };
+
+    const PREDEFINED_TAGS = {
+        'Clubs': ['driver', 'fairway_woods', 'hybrid', 'long_irons', 'mid_irons', 'short_irons', 'wedges', 'putter'],
+        'Skills': ['distance', 'accuracy', 'spread', 'tempo', 'start_line', 'trajectory', 'speed_control', 'consistency'],
+        'Context': ['swing_change', 'new_club', 'scoring_zones', 'trouble_shots'],
+    };
+
+    const TAG_DISPLAY = {
+        driver: 'Driver', fairway_woods: 'Fairway Woods', hybrid: 'Hybrid',
+        long_irons: 'Long Irons', mid_irons: 'Mid Irons', short_irons: 'Short Irons',
+        wedges: 'Wedges', putter: 'Putter',
+        distance: 'Distance', accuracy: 'Accuracy', spread: 'Spread',
+        tempo: 'Tempo', start_line: 'Start Line', trajectory: 'Trajectory',
+        speed_control: 'Speed Control', consistency: 'Consistency',
+        swing_change: 'Swing Change', new_club: 'New Club',
+        scoring_zones: 'Scoring Zones', trouble_shots: 'Trouble Shots',
+        surprise_me: 'Surprise Me',
+    };
+
+    let _practiceClubCache = [];
+
+    // Load club list for dropdowns
+    fetch('/api/clubs/').then(r => r.json()).then(clubs => {
+        _practiceClubCache = clubs.map(c => c.club_type).filter(Boolean);
+    }).catch(() => {});
+
+    let practiceWizardState = {
+        step: 1,
+        plan_type: null,
+        round_plan_id: null,
+        goal: '',
+        focus_tags: [],
+        sessions: [],
+        generated: null,
+    };
+
+    function loadPracticePlans() {
+        const container = document.getElementById('practice-content');
+        if (!container) return;
+        container.innerHTML = '<div class="loading-spinner">Loading practice plans...</div>';
+        document.getElementById('practice-page-title').textContent = 'Practice Plans';
+        document.getElementById('practice-page-subtitle').textContent = 'Smart practice recommendations based on your game data';
+
+        fetch('/api/practice/plans')
+            .then(r => r.json())
+            .then(plans => {
+                let html = '<div style="margin-bottom:16px;">';
+                html += '<a href="#practice/new" class="btn btn-primary">+ New Practice Plan</a>';
+                html += '</div>';
+
+                if (!plans.length) {
+                    html += '<div class="card" style="padding:32px; text-align:center; color:var(--text-muted);">';
+                    html += '<p style="font-size:1.1rem; margin-bottom:8px;">No practice plans yet</p>';
+                    html += '<p>Create your first plan to get smart recommendations based on your game data.</p>';
+                    html += '</div>';
+                } else {
+                    html += '<div class="practice-plans-grid">';
+                    for (const p of plans) {
+                        const typeBadge = p.plan_type === 'round_prep'
+                            ? '<span class="badge badge-blue">Round Prep</span>'
+                            : '<span class="badge badge-green">General</span>';
+                        const statusBadge = p.status === 'completed'
+                            ? '<span class="badge badge-green">Completed</span>'
+                            : p.status === 'saved'
+                            ? '<span class="badge badge-muted">Saved</span>'
+                            : '<span class="badge badge-yellow">Draft</span>';
+                        const pct = p.total_activities ? Math.round(p.completed_activities / p.total_activities * 100) : 0;
+                        const dateStr = p.created_at ? new Date(p.created_at).toLocaleDateString() : '';
+                        const courseInfo = p.round_plan_info
+                            ? `<div class="practice-card-course">${p.round_plan_info.course_name || p.round_plan_info.name}</div>`
+                            : '';
+
+                        html += `<a href="#practice/${p.id}" class="practice-plan-card card">
+                            <div class="practice-card-header">
+                                ${typeBadge} ${statusBadge}
+                                <span class="practice-card-date">${dateStr}</span>
+                            </div>
+                            <div class="practice-card-goal">${p.goal || 'Practice Plan'}</div>
+                            ${courseInfo}
+                            ${p.focus_tags && p.focus_tags.length ? '<div class="practice-card-tags">' + p.focus_tags.map(t => `<span class="tag-chip-sm">${TAG_DISPLAY[t] || t}</span>`).join('') + '</div>' : ''}
+                            <div class="practice-card-meta">
+                                <span>${p.session_count} session${p.session_count !== 1 ? 's' : ''}</span>
+                                <span>${p.total_activities} activities</span>
+                            </div>
+                            <div class="progress-bar-wrap">
+                                <div class="progress-bar-fill" style="width:${pct}%"></div>
+                            </div>
+                            <div class="practice-card-pct">${pct}% complete</div>
+                        </a>`;
+                    }
+                    html += '</div>';
+                }
+
+                container.innerHTML = html;
+            })
+            .catch(() => {
+                container.innerHTML = '<div class="card" style="padding:24px; color:var(--text-muted);">Failed to load practice plans.</div>';
+            });
+    }
+
+    function startPracticeWizard(preselectedRoundPlanId) {
+        practiceWizardState = {
+            step: 1,
+            plan_type: preselectedRoundPlanId ? 'round_prep' : null,
+            round_plan_id: preselectedRoundPlanId || null,
+            goal: '',
+            focus_tags: [],
+            sessions: [],
+            generated: null,
+        };
+        document.getElementById('practice-page-title').textContent = 'New Practice Plan';
+        document.getElementById('practice-page-subtitle').textContent = 'Set your goal and sessions, then get smart recommendations';
+        renderWizardStep();
+    }
+
+    function renderWizardStep() {
+        const container = document.getElementById('practice-content');
+        if (!container) return;
+
+        // Step indicator
+        let html = '<div class="wizard-steps">';
+        const steps = ['Goal', 'Sessions', 'Review'];
+        for (let i = 0; i < steps.length; i++) {
+            const active = practiceWizardState.step === i + 1 ? ' active' : '';
+            const done = practiceWizardState.step > i + 1 ? ' done' : '';
+            html += `<div class="wizard-step${active}${done}"><span class="wizard-step-num">${i + 1}</span><span class="wizard-step-label">${steps[i]}</span></div>`;
+            if (i < steps.length - 1) html += '<div class="wizard-step-line"></div>';
+        }
+        html += '</div>';
+
+        if (practiceWizardState.step === 1) {
+            html += renderWizardStep1();
+        } else if (practiceWizardState.step === 2) {
+            html += renderWizardStep2();
+        } else if (practiceWizardState.step === 3) {
+            html += renderWizardStep3();
+        }
+
+        container.innerHTML = html;
+        bindWizardEvents();
+    }
+
+    function renderWizardStep1() {
+        const st = practiceWizardState;
+        let html = '<div class="wizard-body">';
+        html += '<h3 style="margin-bottom:16px;">What\'s your goal?</h3>';
+
+        // Type selection cards
+        html += '<div class="practice-type-cards">';
+        html += `<div class="practice-type-card${st.plan_type === 'round_prep' ? ' selected' : ''}" data-type="round_prep">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+            <div class="practice-type-label">Prepare for a Round</div>
+            <div class="practice-type-desc">Practice specific clubs and shots for an upcoming round</div>
+        </div>`;
+        html += `<div class="practice-type-card${st.plan_type === 'general' ? ' selected' : ''}" data-type="general">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="32" height="32"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+            <div class="practice-type-label">General Improvement</div>
+            <div class="practice-type-desc">Work on your biggest weaknesses based on SG data</div>
+        </div>`;
+        html += '</div>';
+
+        // Round plan dropdown (shown when round_prep selected)
+        html += `<div id="round-plan-select-wrap" style="margin-top:16px; display:${st.plan_type === 'round_prep' ? 'block' : 'none'};">`;
+        html += '<label class="form-label">Select Round Plan</label>';
+        html += '<select id="wizard-round-plan" class="form-input"><option value="">Loading...</option></select>';
+        html += '</div>';
+
+        // Goal input
+        html += '<div style="margin-top:16px;">';
+        html += '<label class="form-label">Goal (optional)</label>';
+        html += `<input type="text" id="wizard-goal" class="form-input" placeholder="e.g., Prepare for Saturday round at Pine Knob" value="${st.goal || ''}">`;
+        html += '</div>';
+
+        // Focus tags picker
+        const isSurprise = st.focus_tags.includes('surprise_me');
+        html += '<div style="margin-top:16px;">';
+        html += '<label class="form-label">Focus Tags (optional)</label>';
+        html += '<p style="font-size:0.8rem; color:var(--text-dim); margin-bottom:8px;">Steer your plan toward specific clubs or skills. Leave empty for pure data-driven recommendations.</p>';
+
+        for (const [group, tags] of Object.entries(PREDEFINED_TAGS)) {
+            html += `<div class="tag-group"><span class="tag-group-label">${group}</span><div class="tag-picker">`;
+            for (const tag of tags) {
+                const sel = !isSurprise && st.focus_tags.includes(tag) ? ' selected' : '';
+                const label = TAG_DISPLAY[tag] || tag;
+                html += `<button class="tag-chip${sel}" data-tag="${tag}">${label}</button>`;
+            }
+            html += '</div></div>';
+        }
+
+        // Custom tag input + Surprise Me
+        html += '<div style="display:flex; gap:8px; margin-top:8px; align-items:center;">';
+        html += '<input type="text" id="wizard-custom-tag" class="form-input" style="flex:1; max-width:200px;" placeholder="Custom tag...">';
+        html += '<button class="btn btn-ghost btn-sm" id="wizard-add-custom-tag">+ Add</button>';
+        html += `<button class="tag-chip tag-chip-surprise${isSurprise ? ' selected' : ''}" data-tag="surprise_me" style="margin-left:auto;">Surprise Me</button>`;
+        html += '</div>';
+
+        // Show custom tags
+        const customTags = st.focus_tags.filter(t => t !== 'surprise_me' && !Object.values(PREDEFINED_TAGS).flat().includes(t));
+        if (customTags.length) {
+            html += '<div class="tag-picker" style="margin-top:6px;">';
+            for (const tag of customTags) {
+                html += `<button class="tag-chip selected" data-tag="${tag}">${tag} &times;</button>`;
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+
+        html += '<div class="wizard-actions">';
+        html += '<a href="#practice" class="btn btn-ghost">Cancel</a>';
+        html += '<button class="btn btn-primary" id="wizard-next-1" disabled>Next</button>';
+        html += '</div>';
+        html += '</div>';
+        return html;
+    }
+
+    function renderWizardStep2() {
+        const st = practiceWizardState;
+        let html = '<div class="wizard-body">';
+        html += '<h3 style="margin-bottom:4px;">Define Your Practice Sessions</h3>';
+        html += '<p style="color:var(--text-muted); margin-bottom:16px;">Add each session you plan to have — specify the type and how many balls or minutes.</p>';
+
+        html += '<div id="wizard-sessions-list">';
+        for (let i = 0; i < st.sessions.length; i++) {
+            html += renderSessionCard(i, st.sessions[i]);
+        }
+        html += '</div>';
+
+        html += '<button class="btn btn-ghost" id="wizard-add-session" style="margin-top:8px;">+ Add Session</button>';
+
+        html += '<div class="wizard-actions">';
+        html += '<button class="btn btn-ghost" id="wizard-back-2">Back</button>';
+        html += `<button class="btn btn-primary" id="wizard-generate" ${st.sessions.length === 0 ? 'disabled' : ''}>Generate Recommendations</button>`;
+        html += '</div>';
+        html += '</div>';
+        return html;
+    }
+
+    function renderSessionCard(index, session) {
+        const isTimeBased = ['home_net', 'putting_green', 'short_game_area'].includes(session.session_type);
+        let html = `<div class="session-builder-card card" data-session-idx="${index}">`;
+        html += '<div class="session-builder-header">';
+        html += `<span class="session-builder-num">Session ${index + 1}</span>`;
+        html += `<button class="btn btn-ghost btn-sm session-remove" data-idx="${index}" title="Remove">&times;</button>`;
+        html += '</div>';
+
+        html += '<div class="session-builder-fields">';
+        html += '<div class="form-group">';
+        html += '<label class="form-label">Type</label>';
+        html += `<select class="form-input session-type-select" data-idx="${index}">`;
+        for (const [val, label] of Object.entries(SESSION_TYPE_LABELS)) {
+            html += `<option value="${val}" ${session.session_type === val ? 'selected' : ''}>${label}</option>`;
+        }
+        html += '</select></div>';
+
+        html += '<div class="form-group">';
+        if (isTimeBased) {
+            html += '<label class="form-label">Duration (minutes)</label>';
+            html += `<input type="number" class="form-input session-duration" data-idx="${index}" value="${session.duration_minutes || ''}" min="10" max="300" placeholder="e.g., 60">`;
+        } else {
+            html += '<label class="form-label">Ball Count</label>';
+            html += `<input type="number" class="form-input session-balls" data-idx="${index}" value="${session.ball_count || ''}" min="20" max="300" placeholder="e.g., 80">`;
+        }
+        html += '</div>';
+        html += '</div></div>';
+        return html;
+    }
+
+    function renderWizardStep3() {
+        const gen = practiceWizardState.generated;
+        if (!gen) return '<div class="card" style="padding:24px;">Generating recommendations...</div>';
+
+        let html = '<div class="wizard-body">';
+
+        // Analysis Summary
+        html += renderAnalysisSummary(gen.analysis);
+
+        // Sessions
+        for (const session of gen.sessions) {
+            html += renderSessionReview(session);
+        }
+
+        html += '<div class="wizard-actions">';
+        html += '<button class="btn btn-ghost" id="wizard-back-3">Back to Sessions</button>';
+        html += '<button class="btn btn-ghost" id="wizard-regenerate">Regenerate</button>';
+        html += '<button class="btn btn-primary" id="wizard-save">Save Plan</button>';
+        html += '</div>';
+        html += '</div>';
+        return html;
+    }
+
+    function renderAnalysisSummary(analysis) {
+        if (!analysis) return '';
+        let html = '<div class="analysis-summary card">';
+        html += '<h4 style="margin-bottom:12px;">Game Analysis</h4>';
+
+        // SG by category bars
+        if (analysis.sg_by_category && analysis.sg_by_category.length) {
+            html += '<div class="sg-analysis-bars">';
+            for (const cat of analysis.sg_by_category) {
+                const val = cat.sg_per_round;
+                const maxWidth = 100;
+                const absVal = Math.min(Math.abs(val), 3);
+                const width = Math.round(absVal / 3 * maxWidth);
+                const color = val >= 0 ? 'var(--birdie)' : 'var(--bogey)';
+                const trendIcon = cat.trend === 'improving' ? ' &#9650;' : cat.trend === 'declining' ? ' &#9660;' : '';
+                const trendColor = cat.trend === 'improving' ? 'var(--birdie)' : cat.trend === 'declining' ? 'var(--bogey)' : 'var(--text-muted)';
+                html += `<div class="sg-bar-row">
+                    <span class="sg-bar-label">${cat.label}</span>
+                    <div class="sg-bar-track">
+                        <div class="sg-bar-fill" style="width:${width}%; background:${color};"></div>
+                    </div>
+                    <span class="sg-bar-value" style="color:${color}">${val >= 0 ? '+' : ''}${val.toFixed(1)}/rd</span>
+                    <span class="sg-bar-trend" style="color:${trendColor}">${trendIcon}</span>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        // Range-course gaps
+        if (analysis.range_course_gaps && analysis.range_course_gaps.length) {
+            html += '<div style="margin-top:12px;">';
+            html += '<h5 style="color:var(--text-muted); margin-bottom:8px;">Range vs Course Gaps</h5>';
+            html += '<div class="mini-table">';
+            for (const gap of analysis.range_course_gaps) {
+                const sign = gap.gap >= 0 ? '+' : '';
+                html += `<div class="mini-table-row">
+                    <span>${gap.club_name}</span>
+                    <span>Range: ${gap.range_avg.toFixed(0)}yd</span>
+                    <span>Course: ${gap.course_avg.toFixed(0)}yd</span>
+                    <span style="color:${gap.gap >= 0 ? 'var(--birdie)' : 'var(--bogey)'}">${sign}${gap.gap.toFixed(0)}yd</span>
+                    ${gap.trend === 'closing' ? '<span style="color:var(--birdie); font-size:0.75rem;" title="Gap closing">&#9660;</span>' : gap.trend === 'widening' ? '<span style="color:var(--bogey); font-size:0.75rem;" title="Gap widening">&#9650;</span>' : ''}
+                </div>`;
+            }
+            html += '</div></div>';
+        }
+
+        // Miss direction highlights
+        if (analysis.miss_highlights && analysis.miss_highlights.length) {
+            html += '<div style="margin-top:12px;">';
+            html += '<h5 style="color:var(--text-muted); margin-bottom:8px;">Miss Tendencies</h5>';
+            for (const m of analysis.miss_highlights) {
+                const lPct = m.dominant === 'left' ? m.pct : (100 - m.pct - 10);
+                const rPct = m.dominant === 'right' ? m.pct : (100 - m.pct - 10);
+                const cPct = 100 - lPct - rPct;
+                html += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <span style="width:80px; font-size:0.85rem; font-weight:500;">${m.club}</span>
+                    <div style="flex:1; display:flex; height:12px; border-radius:6px; overflow:hidden;">
+                        <div style="width:${lPct}%; background:var(--bogey);" title="Left ${lPct}%"></div>
+                        <div style="width:${cPct}%; background:var(--birdie);" title="Center"></div>
+                        <div style="width:${rPct}%; background:var(--warning);" title="Right ${rPct}%"></div>
+                    </div>
+                    <span style="font-size:0.8rem; color:var(--bogey);">${m.pct}% ${m.dominant}</span>
+                </div>`;
+            }
+            html += '</div>';
+        }
+
+        // Worst approach proximity bucket
+        if (analysis.worst_proximity_bucket) {
+            const wp = analysis.worst_proximity_bucket;
+            html += '<div style="margin-top:12px;">';
+            html += '<h5 style="color:var(--text-muted); margin-bottom:8px;">Weakest Approach Band</h5>';
+            html += `<div style="font-size:0.85rem; padding:8px 10px; background:var(--bg-hover); border-radius:6px;">
+                <strong>${wp.bucket}</strong>: ${wp.gir_pct}% GIR${wp.avg_proximity_yards ? `, avg ${wp.avg_proximity_yards}yd from green` : ''} (${wp.shot_count} shots, SG ${wp.sg_per_shot >= 0 ? '+' : ''}${wp.sg_per_shot.toFixed(2)}/shot)
+                ${wp.primary_club ? `<span style="color:var(--text-muted);"> — ${wp.primary_club}</span>` : ''}
+            </div>`;
+            html += '</div>';
+        }
+
+        // Scoring patterns
+        if (analysis.scoring_patterns && analysis.scoring_patterns.total_holes) {
+            const sp = analysis.scoring_patterns;
+            html += '<div style="margin-top:12px;">';
+            html += '<h5 style="color:var(--text-muted); margin-bottom:8px;">Scoring Leaks</h5>';
+            html += '<div style="display:flex; gap:12px; flex-wrap:wrap;">';
+            const leaks = [
+                {label: '3-Putt', val: sp.three_putt_rate + '%', bad: sp.three_putt_rate > 10},
+                {label: 'Scramble', val: sp.scramble_pct + '%', bad: sp.scramble_pct < 40},
+                {label: 'Penalties/Rd', val: sp.penalties_per_round.toFixed(1), bad: sp.penalties_per_round > 1},
+            ];
+            for (const leak of leaks) {
+                const color = leak.bad ? 'var(--bogey)' : 'var(--text-muted)';
+                html += `<div style="font-size:0.8rem;"><span style="color:var(--text-dim);">${leak.label}:</span> <strong style="color:${color};">${leak.val}</strong></div>`;
+            }
+            html += '</div></div>';
+        }
+
+        // Player context (from post-round notes)
+        if (analysis.player_context && analysis.player_context.has_notes) {
+            const pc = analysis.player_context;
+            html += '<div style="margin-top:12px;">';
+            html += '<h5 style="color:var(--text-muted); margin-bottom:8px;">From Your Notes</h5>';
+            if (pc.recent_struggles && pc.recent_struggles.length) {
+                html += `<div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;">Recent struggles: <em>"${pc.recent_struggles[0].substring(0, 80)}${pc.recent_struggles[0].length > 80 ? '...' : ''}"</em></div>`;
+            }
+            if (pc.mentioned_clubs && pc.mentioned_clubs.length) {
+                html += `<div style="font-size:0.8rem; color:var(--text-muted);">Clubs mentioned: ${pc.mentioned_clubs.join(', ')}</div>`;
+            }
+            html += '</div>';
+        }
+
+        // Course needs
+        if (analysis.course_needs) {
+            const cn = analysis.course_needs;
+            html += '<div style="margin-top:12px;">';
+            html += `<h5 style="color:var(--text-muted); margin-bottom:8px;">Course: ${cn.course_name}</h5>`;
+            if (cn.distance_bands && cn.distance_bands.length) {
+                html += '<div class="mini-table">';
+                for (const band of cn.distance_bands) {
+                    html += `<div class="mini-table-row">
+                        <span>${band.range}</span>
+                        <span>${band.count} shot${band.count !== 1 ? 's' : ''}</span>
+                        <span>${band.primary_club || ''}</span>
+                    </div>`;
+                }
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function renderSessionReview(session) {
+        const label = SESSION_TYPE_LABELS[session.session_type] || session.session_type;
+        const icon = SESSION_TYPE_ICONS[session.session_type] || '';
+        const amount = session.ball_count
+            ? `${session.ball_count} balls`
+            : session.duration_minutes
+            ? `${session.duration_minutes} min`
+            : '';
+
+        let html = `<div class="session-review-card card">`;
+        html += `<div class="session-review-header" data-session-order="${session.session_order}">`;
+        html += `<div class="session-review-title">${icon} <span>Session ${session.session_order}: ${label}</span> <span class="session-review-amount">${amount}</span></div>`;
+        html += '</div>';
+
+        html += '<div class="session-review-activities">';
+        for (let i = 0; i < session.activities.length; i++) {
+            html += renderActivityRow(session.activities[i], false, true, session.session_order - 1, i);
+        }
+        html += `<div style="padding:4px 0;"><button class="btn-link activity-add-btn" data-session-idx="${session.session_order - 1}">+ Add Activity</button></div>`;
+        html += '</div></div>';
+        return html;
+    }
+
+    function renderActivityRow(act, showCheckbox, editable, sessionIdx, actIdx) {
+        const focusLabel = FOCUS_LABELS[act.focus_area] || act.focus_area;
+        const focusColor = FOCUS_COLORS[act.focus_area] || 'var(--text-muted)';
+        const amount = act.ball_count
+            ? `${act.ball_count} balls`
+            : act.duration_minutes
+            ? `${act.duration_minutes} min`
+            : '';
+        const checkbox = showCheckbox
+            ? `<label class="activity-check"><input type="checkbox" ${act.completed ? 'checked' : ''} data-activity-id="${act.id}"><span class="checkmark"></span></label>`
+            : '';
+        const completedClass = act.completed ? ' completed' : '';
+        const editAttr = editable ? ` data-session-idx="${sessionIdx}" data-act-idx="${actIdx}"` : '';
+
+        let html = `<div class="activity-row${completedClass}"${editAttr}>`;
+        html += checkbox;
+        html += `<span class="activity-club">${act.club || 'General'}</span>`;
+        html += `<span class="activity-amount">${amount}</span>`;
+        html += `<span class="focus-badge" style="background:${focusColor}20; color:${focusColor}; border:1px solid ${focusColor}40;">${focusLabel}</span>`;
+        if (act.target_metric) {
+            html += `<span class="activity-target">${act.target_metric}</span>`;
+        }
+        if (editable && act.focus_area !== 'warm_up') {
+            html += `<button class="btn-icon activity-edit-btn" data-session-idx="${sessionIdx}" data-act-idx="${actIdx}" title="Edit">&#9998;</button>`;
+            html += `<button class="btn-icon activity-remove-btn" data-session-idx="${sessionIdx}" data-act-idx="${actIdx}" title="Remove">&times;</button>`;
+        }
+        html += '</div>';
+
+        if (act.rationale) {
+            html += `<div class="activity-rationale">${act.rationale}</div>`;
+        }
+
+        // Drill display
+        const drillText = act.notes || (act.drill_name ? `**${act.drill_name}**: ${act.drill_description || ''}` : '');
+        if (drillText) {
+            const drillHtml = drillText.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            html += `<div class="activity-drill">${drillHtml}`;
+            if (editable) {
+                html += ` <button class="btn-link drill-change-btn" data-session-idx="${sessionIdx}" data-act-idx="${actIdx}">change drill</button>`;
+            }
+            html += '</div>';
+        } else if (editable && act.focus_area !== 'warm_up') {
+            html += `<div class="activity-drill-empty"><button class="btn-link drill-add-btn" data-session-idx="${sessionIdx}" data-act-idx="${actIdx}">+ add drill</button></div>`;
+        }
+
+        return html;
+    }
+
+    function bindWizardEvents() {
+        const st = practiceWizardState;
+
+        // Step 1: Type selection
+        document.querySelectorAll('.practice-type-card').forEach(card => {
+            card.addEventListener('click', () => {
+                document.querySelectorAll('.practice-type-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                st.plan_type = card.dataset.type;
+                const rpWrap = document.getElementById('round-plan-select-wrap');
+                if (rpWrap) rpWrap.style.display = st.plan_type === 'round_prep' ? 'block' : 'none';
+                updateWizardNextButton();
+                if (st.plan_type === 'round_prep') loadAvailableRoundPlans();
+            });
+        });
+
+        // Goal input
+        const goalInput = document.getElementById('wizard-goal');
+        if (goalInput) {
+            goalInput.addEventListener('input', () => { st.goal = goalInput.value; });
+        }
+
+        // Tag chip toggles
+        document.querySelectorAll('.tag-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const tag = chip.dataset.tag;
+                if (tag === 'surprise_me') {
+                    // Toggle surprise — clears other tags
+                    if (st.focus_tags.includes('surprise_me')) {
+                        st.focus_tags = [];
+                    } else {
+                        st.focus_tags = ['surprise_me'];
+                    }
+                } else {
+                    // Remove surprise_me if selecting a normal tag
+                    st.focus_tags = st.focus_tags.filter(t => t !== 'surprise_me');
+                    const idx = st.focus_tags.indexOf(tag);
+                    if (idx >= 0) {
+                        st.focus_tags.splice(idx, 1);
+                    } else {
+                        st.focus_tags.push(tag);
+                    }
+                }
+                renderWizardStep();
+            });
+        });
+
+        // Custom tag add
+        const customInput = document.getElementById('wizard-custom-tag');
+        const addCustomBtn = document.getElementById('wizard-add-custom-tag');
+        if (addCustomBtn && customInput) {
+            const addCustom = () => {
+                const val = customInput.value.trim().toLowerCase().replace(/\s+/g, '_');
+                if (val && !st.focus_tags.includes(val)) {
+                    st.focus_tags = st.focus_tags.filter(t => t !== 'surprise_me');
+                    st.focus_tags.push(val);
+                    renderWizardStep();
+                }
+            };
+            addCustomBtn.addEventListener('click', addCustom);
+            customInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } });
+        }
+
+        // Round plan dropdown change
+        const rpSelect = document.getElementById('wizard-round-plan');
+        if (rpSelect) {
+            rpSelect.addEventListener('change', () => {
+                st.round_plan_id = rpSelect.value ? parseInt(rpSelect.value) : null;
+                updateWizardNextButton();
+            });
+            if (st.plan_type === 'round_prep') loadAvailableRoundPlans();
+        }
+
+        // Next button step 1
+        const next1 = document.getElementById('wizard-next-1');
+        if (next1) {
+            next1.addEventListener('click', () => {
+                st.step = 2;
+                if (st.sessions.length === 0) {
+                    st.sessions.push({ session_type: 'trackman_range', ball_count: 80, duration_minutes: null });
+                }
+                renderWizardStep();
+            });
+            updateWizardNextButton();
+        }
+
+        // Step 2: Session management
+        const addBtn = document.getElementById('wizard-add-session');
+        if (addBtn) {
+            addBtn.addEventListener('click', () => {
+                st.sessions.push({ session_type: 'outdoor_range', ball_count: 60, duration_minutes: null });
+                renderWizardStep();
+            });
+        }
+
+        document.querySelectorAll('.session-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                st.sessions.splice(parseInt(btn.dataset.idx), 1);
+                renderWizardStep();
+            });
+        });
+
+        document.querySelectorAll('.session-type-select').forEach(sel => {
+            sel.addEventListener('change', () => {
+                const idx = parseInt(sel.dataset.idx);
+                st.sessions[idx].session_type = sel.value;
+                const isTimeBased = ['home_net', 'putting_green', 'short_game_area'].includes(sel.value);
+                if (isTimeBased) {
+                    st.sessions[idx].ball_count = null;
+                    st.sessions[idx].duration_minutes = st.sessions[idx].duration_minutes || 60;
+                } else {
+                    st.sessions[idx].duration_minutes = null;
+                    st.sessions[idx].ball_count = st.sessions[idx].ball_count || 80;
+                }
+                renderWizardStep();
+            });
+        });
+
+        document.querySelectorAll('.session-balls').forEach(input => {
+            input.addEventListener('input', () => {
+                st.sessions[parseInt(input.dataset.idx)].ball_count = parseInt(input.value) || null;
+            });
+        });
+
+        document.querySelectorAll('.session-duration').forEach(input => {
+            input.addEventListener('input', () => {
+                st.sessions[parseInt(input.dataset.idx)].duration_minutes = parseInt(input.value) || null;
+            });
+        });
+
+        // Back button step 2
+        const back2 = document.getElementById('wizard-back-2');
+        if (back2) back2.addEventListener('click', () => { st.step = 1; renderWizardStep(); });
+
+        // Generate button
+        const genBtn = document.getElementById('wizard-generate');
+        if (genBtn) {
+            genBtn.addEventListener('click', () => {
+                genBtn.disabled = true;
+                genBtn.textContent = 'Generating...';
+                const body = {
+                    plan_type: st.plan_type,
+                    round_plan_id: st.round_plan_id,
+                    goal: st.goal,
+                    focus_tags: st.focus_tags.length ? st.focus_tags : null,
+                    sessions: st.sessions.map(s => ({
+                        session_type: s.session_type,
+                        ball_count: s.ball_count,
+                        duration_minutes: s.duration_minutes,
+                    })),
+                };
+                fetch('/api/practice/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                })
+                .then(r => {
+                    if (!r.ok) return r.text().then(t => { throw new Error(`Server error ${r.status}: ${t}`); });
+                    return r.json();
+                })
+                .then(data => {
+                    if (!data.sessions) throw new Error('Invalid response: ' + JSON.stringify(data).substring(0, 200));
+                    st.generated = data;
+                    st.step = 3;
+                    renderWizardStep();
+                })
+                .catch(err => {
+                    genBtn.disabled = false;
+                    genBtn.textContent = 'Generate Recommendations';
+                    alert('Failed to generate recommendations: ' + err.message);
+                    console.error(err);
+                });
+            });
+        }
+
+        // Step 3: Back / Regenerate / Save
+        const back3 = document.getElementById('wizard-back-3');
+        if (back3) back3.addEventListener('click', () => { st.step = 2; renderWizardStep(); });
+
+        const regenBtn = document.getElementById('wizard-regenerate');
+        if (regenBtn) {
+            regenBtn.addEventListener('click', () => {
+                st.step = 2;
+                st.generated = null;
+                renderWizardStep();
+                // Auto-trigger generate
+                setTimeout(() => {
+                    const gb = document.getElementById('wizard-generate');
+                    if (gb) gb.click();
+                }, 100);
+            });
+        }
+
+        const saveBtn = document.getElementById('wizard-save');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+                const gen = st.generated;
+                const body = {
+                    plan_type: st.plan_type,
+                    round_plan_id: st.round_plan_id,
+                    goal: st.goal,
+                    focus_tags: st.focus_tags.length ? st.focus_tags : null,
+                    analysis_snapshot: JSON.stringify(gen.analysis),
+                    sessions: gen.sessions.map(s => ({
+                        session_order: s.session_order,
+                        session_type: s.session_type,
+                        ball_count: s.ball_count,
+                        duration_minutes: s.duration_minutes,
+                        activities: s.activities.map(a => ({
+                            activity_order: a.activity_order,
+                            club: a.club,
+                            club_id: a.club_id,
+                            drill_id: a.drill_id || null,
+                            ball_count: a.ball_count,
+                            duration_minutes: a.duration_minutes,
+                            focus_area: a.focus_area,
+                            sg_category: a.sg_category,
+                            rationale: a.rationale,
+                            target_metric: a.target_metric,
+                            notes: a.notes || null,
+                        })),
+                    })),
+                };
+                fetch('/api/practice/plans', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                })
+                .then(r => r.json())
+                .then(data => {
+                    window.location.hash = `practice/${data.id}`;
+                })
+                .catch(err => {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Plan';
+                    alert('Failed to save. Check console.');
+                    console.error(err);
+                });
+            });
+        }
+
+        // Step 3: Activity editing events
+        if (st.step === 3 && st.generated) {
+            // Edit activity
+            document.querySelectorAll('.activity-edit-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const sIdx = parseInt(btn.dataset.sessionIdx);
+                    const aIdx = parseInt(btn.dataset.actIdx);
+                    const act = st.generated.sessions[sIdx].activities[aIdx];
+                    openActivityEditor(act, sIdx, aIdx);
+                });
+            });
+
+            // Remove activity
+            document.querySelectorAll('.activity-remove-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const sIdx = parseInt(btn.dataset.sessionIdx);
+                    const aIdx = parseInt(btn.dataset.actIdx);
+                    st.generated.sessions[sIdx].activities.splice(aIdx, 1);
+                    // Re-number
+                    st.generated.sessions[sIdx].activities.forEach((a, i) => { a.activity_order = i + 1; });
+                    renderWizardStep();
+                });
+            });
+
+            // Change/add drill
+            document.querySelectorAll('.drill-change-btn, .drill-add-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const sIdx = parseInt(btn.dataset.sessionIdx);
+                    const aIdx = parseInt(btn.dataset.actIdx);
+                    const act = st.generated.sessions[sIdx].activities[aIdx];
+                    const sessionType = st.generated.sessions[sIdx].session_type;
+                    openDrillBrowser(act, sIdx, aIdx, sessionType);
+                });
+            });
+
+            // Add activity
+            document.querySelectorAll('.activity-add-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const sIdx = parseInt(btn.dataset.sessionIdx);
+                    const session = st.generated.sessions[sIdx];
+                    const newOrder = session.activities.length + 1;
+                    session.activities.push({
+                        activity_order: newOrder,
+                        club: null, club_id: null, drill_id: null,
+                        ball_count: 10, duration_minutes: null,
+                        focus_area: 'distance_control', sg_category: 'approach',
+                        rationale: 'Custom activity', target_metric: null, notes: null,
+                    });
+                    renderWizardStep();
+                });
+            });
+        }
+    }
+
+    // ── Activity editor modal ────────────────────────────────────────
+    function openActivityEditor(act, sIdx, aIdx) {
+        const st = practiceWizardState;
+        let html = '<div class="modal-overlay" id="activity-editor-overlay">';
+        html += '<div class="modal-content" style="max-width:400px;">';
+        html += '<h4 style="margin-bottom:12px;">Edit Activity</h4>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Club</label>';
+        html += '<select class="form-input" id="edit-act-club">';
+        html += `<option value="">-- None --</option>`;
+        for (const c of _practiceClubCache) {
+            const sel = c === act.club ? ' selected' : '';
+            html += `<option value="${c}"${sel}>${c}</option>`;
+        }
+        if (act.club && !_practiceClubCache.includes(act.club)) {
+            html += `<option value="${act.club}" selected>${act.club}</option>`;
+        }
+        html += '</select>';
+        html += '</div>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Ball Count</label>';
+        html += `<input type="number" class="form-input" id="edit-act-balls" value="${act.ball_count || ''}" min="1">`;
+        html += '</div>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Focus Area</label>';
+        html += '<select class="form-input" id="edit-act-focus">';
+        for (const [val, label] of Object.entries(FOCUS_LABELS)) {
+            html += `<option value="${val}" ${act.focus_area === val ? 'selected' : ''}>${label}</option>`;
+        }
+        html += '</select></div>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Target Metric</label>';
+        html += `<input type="text" class="form-input" id="edit-act-target" value="${act.target_metric || ''}" placeholder="e.g., carry 165-175yd">`;
+        html += '</div>';
+
+        html += '<div style="display:flex; gap:8px; margin-top:16px;">';
+        html += '<button class="btn btn-primary" id="edit-act-save">Save</button>';
+        html += '<button class="btn btn-ghost" id="edit-act-cancel">Cancel</button>';
+        html += '</div></div></div>';
+
+        document.body.insertAdjacentHTML('beforeend', html);
+
+        document.getElementById('edit-act-save').addEventListener('click', () => {
+            act.club = document.getElementById('edit-act-club').value || null;
+            // Try to match club_id from cache
+            act.club_id = null;
+            act.ball_count = parseInt(document.getElementById('edit-act-balls').value) || null;
+            act.focus_area = document.getElementById('edit-act-focus').value;
+            act.target_metric = document.getElementById('edit-act-target').value || null;
+            document.getElementById('activity-editor-overlay').remove();
+            renderWizardStep();
+        });
+        document.getElementById('edit-act-cancel').addEventListener('click', () => {
+            document.getElementById('activity-editor-overlay').remove();
+        });
+        document.getElementById('activity-editor-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'activity-editor-overlay') e.target.remove();
+        });
+    }
+
+    // ── Drill browser modal ──────────────────────────────────────────
+    function openDrillBrowser(act, sIdx, aIdx, sessionType) {
+        const st = practiceWizardState;
+        let html = '<div class="modal-overlay" id="drill-browser-overlay">';
+        html += '<div class="modal-content drill-browser-modal">';
+        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">';
+        html += '<h4>Choose a Drill</h4>';
+        html += '<button class="btn-icon" id="drill-browser-close">&times;</button>';
+        html += '</div>';
+
+        // Filters
+        html += '<div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">';
+        html += '<input type="text" class="form-input" id="drill-search" placeholder="Search drills..." style="flex:1; min-width:150px;">';
+        html += '<select class="form-input" id="drill-filter-category" style="width:auto;">';
+        html += '<option value="">All Categories</option>';
+        html += '<option value="off_the_tee">Off the Tee</option>';
+        html += '<option value="approach">Approach</option>';
+        html += '<option value="short_game">Short Game</option>';
+        html += '<option value="putting">Putting</option>';
+        html += '</select>';
+        html += '</div>';
+
+        html += '<div id="drill-browser-list" style="max-height:400px; overflow-y:auto;">Loading...</div>';
+
+        // Create custom drill
+        html += '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">';
+        html += '<button class="btn btn-ghost btn-sm" id="drill-create-toggle">+ Create Custom Drill</button>';
+        html += '<div id="drill-create-form" style="display:none; margin-top:8px;">';
+        html += '<input type="text" class="form-input" id="drill-new-name" placeholder="Drill name" style="margin-bottom:6px;">';
+        html += '<textarea class="form-input" id="drill-new-desc" placeholder="Description..." rows="2" style="margin-bottom:6px;"></textarea>';
+        html += '<button class="btn btn-primary btn-sm" id="drill-create-save">Save Drill</button>';
+        html += '</div></div>';
+
+        html += '</div></div>';
+        document.body.insertAdjacentHTML('beforeend', html);
+
+        // If act has sg_category, pre-filter
+        const catSelect = document.getElementById('drill-filter-category');
+        if (act.sg_category) catSelect.value = act.sg_category;
+
+        function loadDrills() {
+            const search = document.getElementById('drill-search').value;
+            const category = catSelect.value;
+            let url = `/api/drills?session_type=${sessionType}`;
+            if (category) url += `&sg_category=${category}`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
+
+            fetch(url).then(r => r.json()).then(drills => {
+                const listEl = document.getElementById('drill-browser-list');
+                if (!drills.length) {
+                    listEl.innerHTML = '<div style="color:var(--text-muted); padding:16px; text-align:center;">No drills found</div>';
+                    return;
+                }
+                listEl.innerHTML = drills.map(d => {
+                    const selected = act.drill_id === d.id ? ' drill-card-selected' : '';
+                    const defaultBadge = d.is_default ? '' : ' <span class="badge badge-blue" style="font-size:0.65rem;">Custom</span>';
+                    return `<div class="drill-card${selected}" data-drill-id="${d.id}">
+                        <div class="drill-card-name">${d.name}${defaultBadge}</div>
+                        <div class="drill-card-desc">${d.description.substring(0, 120)}${d.description.length > 120 ? '...' : ''}</div>
+                        ${d.target ? `<div class="drill-card-target">${d.target}</div>` : ''}
+                    </div>`;
+                }).join('');
+
+                // Drill click → select
+                listEl.querySelectorAll('.drill-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        const drillId = parseInt(card.dataset.drillId);
+                        const drill = drills.find(d => d.id === drillId);
+                        if (drill) {
+                            act.drill_id = drill.id;
+                            act.drill_name = drill.name;
+                            act.drill_description = drill.description;
+                            act.notes = `**${drill.name}**: ${drill.description}`;
+                            if (drill.target && !act.target_metric) act.target_metric = drill.target;
+                        }
+                        document.getElementById('drill-browser-overlay').remove();
+                        renderWizardStep();
+                    });
+                });
+            });
+        }
+
+        loadDrills();
+
+        // Filter events
+        let searchTimer;
+        document.getElementById('drill-search').addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(loadDrills, 300);
+        });
+        catSelect.addEventListener('change', loadDrills);
+
+        // Close
+        document.getElementById('drill-browser-close').addEventListener('click', () => {
+            document.getElementById('drill-browser-overlay').remove();
+        });
+        document.getElementById('drill-browser-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'drill-browser-overlay') e.target.remove();
+        });
+
+        // Create custom drill toggle
+        document.getElementById('drill-create-toggle').addEventListener('click', () => {
+            document.getElementById('drill-create-form').style.display = 'block';
+        });
+        document.getElementById('drill-create-save').addEventListener('click', () => {
+            const name = document.getElementById('drill-new-name').value.trim();
+            const desc = document.getElementById('drill-new-desc').value.trim();
+            if (!name || !desc) return;
+            fetch('/api/drills', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name, description: desc,
+                    sg_category: act.sg_category,
+                    focus_area: act.focus_area,
+                    session_types: [sessionType],
+                }),
+            }).then(r => r.json()).then(drill => {
+                act.drill_id = drill.id;
+                act.drill_name = drill.name;
+                act.drill_description = drill.description;
+                act.notes = `**${drill.name}**: ${drill.description}`;
+                document.getElementById('drill-browser-overlay').remove();
+                renderWizardStep();
+            });
+        });
+    }
+
+    function updateWizardNextButton() {
+        const st = practiceWizardState;
+        const btn = document.getElementById('wizard-next-1');
+        if (!btn) return;
+        const valid = st.plan_type === 'general' || (st.plan_type === 'round_prep' && st.round_plan_id);
+        btn.disabled = !valid;
+    }
+
+    function loadAvailableRoundPlans() {
+        const select = document.getElementById('wizard-round-plan');
+        if (!select) return;
+        fetch('/api/practice/round-plans-available')
+            .then(r => r.json())
+            .then(plans => {
+                let html = '<option value="">-- Select a round plan --</option>';
+                for (const p of plans) {
+                    const label = p.course_name ? `${p.name} (${p.course_name})` : p.name;
+                    const sel = practiceWizardState.round_plan_id === p.id ? ' selected' : '';
+                    html += `<option value="${p.id}"${sel}>${label}</option>`;
+                }
+                select.innerHTML = html;
+                updateWizardNextButton();
+            });
+    }
+
+    function loadPracticeDetail(planId) {
+        const container = document.getElementById('practice-content');
+        if (!container) return;
+        container.innerHTML = '<div class="loading-spinner">Loading...</div>';
+
+        fetch(`/api/practice/plans/${planId}`)
+            .then(r => r.json())
+            .then(plan => {
+                document.getElementById('practice-page-title').textContent = plan.goal || 'Practice Plan';
+                const typeBadge = plan.plan_type === 'round_prep'
+                    ? '<span class="badge badge-blue">Round Prep</span>'
+                    : '<span class="badge badge-green">General</span>';
+                const statusBadge = plan.status === 'completed'
+                    ? '<span class="badge badge-green">Completed</span>'
+                    : '<span class="badge badge-muted">In Progress</span>';
+                const tagChips = plan.focus_tags && plan.focus_tags.length
+                    ? ' ' + plan.focus_tags.map(t => `<span class="tag-chip-sm">${TAG_DISPLAY[t] || t}</span>`).join(' ')
+                    : '';
+                document.getElementById('practice-page-subtitle').innerHTML = `${typeBadge} ${statusBadge}${tagChips}`;
+
+                let html = '';
+
+                // Top actions
+                html += '<div style="margin-bottom:16px; display:flex; gap:8px; align-items:center;">';
+                html += '<a href="#practice" class="btn btn-ghost">&larr; All Plans</a>';
+                html += `<button class="btn btn-ghost btn-sm" id="practice-delete-btn" data-plan-id="${plan.id}" style="margin-left:auto; color:var(--bogey);">Delete</button>`;
+                html += '</div>';
+
+                // Progress bar
+                let totalActs = 0, completedActs = 0;
+                for (const s of plan.sessions) {
+                    for (const a of s.activities) {
+                        totalActs++;
+                        if (a.completed) completedActs++;
+                    }
+                }
+                const pct = totalActs ? Math.round(completedActs / totalActs * 100) : 0;
+                html += `<div class="card" style="padding:12px 16px; margin-bottom:16px;">`;
+                html += `<div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span>Progress</span><span>${completedActs}/${totalActs} activities (${pct}%)</span></div>`;
+                html += `<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>`;
+                html += '</div>';
+
+                // Review section placeholder (loaded async for completed plans)
+                if (plan.status === 'completed') {
+                    html += '<div id="practice-review-section"></div>';
+                }
+
+                // Analysis summary if available
+                if (plan.analysis) {
+                    html += renderAnalysisSummary(plan.analysis);
+                }
+
+                // Round plan link
+                if (plan.round_plan_info) {
+                    html += `<div class="card" style="padding:12px 16px; margin-bottom:16px;">`;
+                    html += `<div style="color:var(--text-muted); font-size:0.85rem;">Linked Round Plan</div>`;
+                    html += `<div>${plan.round_plan_info.name} — ${plan.round_plan_info.course_name || ''}</div>`;
+                    html += '</div>';
+                }
+
+                // Range session link
+                html += `<div class="card" style="padding:12px 16px; margin-bottom:16px;">`;
+                html += `<div style="color:var(--text-muted); font-size:0.85rem;">Linked Range Session</div>`;
+                if (plan.range_session_id) {
+                    html += `<div style="display:flex; align-items:center; gap:8px;">`;
+                    html += `<a href="#range/${plan.range_session_id}" style="color:var(--accent);">View Session</a>`;
+                    html += `<button class="btn-link" id="unlink-range-btn" style="color:var(--danger);">Unlink</button>`;
+                    html += '</div>';
+                } else {
+                    html += `<div style="display:flex; align-items:center; gap:8px;">`;
+                    html += `<select class="form-input" id="range-session-select" style="flex:1;"><option value="">-- Select a range session --</option></select>`;
+                    html += `<button class="btn btn-ghost btn-sm" id="link-range-btn">Link</button>`;
+                    html += '</div>';
+                }
+                html += '</div>';
+
+                // Session cards with checkboxes + editing
+                for (let sIdx = 0; sIdx < plan.sessions.length; sIdx++) {
+                    const session = plan.sessions[sIdx];
+                    const label = SESSION_TYPE_LABELS[session.session_type] || session.session_type;
+                    const icon = SESSION_TYPE_ICONS[session.session_type] || '';
+                    const amount = session.ball_count
+                        ? `${session.ball_count} balls`
+                        : session.duration_minutes
+                        ? `${session.duration_minutes} min`
+                        : '';
+
+                    let sDone = 0, sTotal = session.activities.length;
+                    session.activities.forEach(a => { if (a.completed) sDone++; });
+
+                    html += `<div class="session-review-card card">`;
+                    html += `<div class="session-review-header">`;
+                    html += `<div class="session-review-title">${icon} <span>Session ${session.session_order}: ${label}</span> <span class="session-review-amount">${amount}</span></div>`;
+                    html += `<span class="session-review-progress">${sDone}/${sTotal}</span>`;
+                    html += '</div>';
+
+                    html += '<div class="session-review-activities">';
+                    for (let aIdx = 0; aIdx < session.activities.length; aIdx++) {
+                        html += renderActivityRow(session.activities[aIdx], true, true, sIdx, aIdx);
+                    }
+                    html += `<div style="padding:4px 0;"><button class="btn-link detail-add-activity" data-session-id="${session.id}" data-plan-id="${planId}">+ Add Activity</button></div>`;
+                    html += '</div></div>';
+                }
+
+                container.innerHTML = html;
+
+                // Bind checkbox events
+                container.querySelectorAll('.activity-check input[type="checkbox"]').forEach(cb => {
+                    cb.addEventListener('change', () => {
+                        const actId = cb.dataset.activityId;
+                        fetch(`/api/practice/plans/${planId}/activities/${actId}`, { method: 'PATCH' })
+                            .then(r => r.json())
+                            .then(() => loadPracticeDetail(planId));
+                    });
+                });
+
+                // Edit activity buttons (saved plan — uses API to persist)
+                container.querySelectorAll('.activity-edit-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const sIdx = parseInt(btn.dataset.sessionIdx);
+                        const aIdx = parseInt(btn.dataset.actIdx);
+                        const act = plan.sessions[sIdx].activities[aIdx];
+                        openDetailActivityEditor(planId, act);
+                    });
+                });
+
+                // Remove activity buttons
+                container.querySelectorAll('.activity-remove-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const sIdx = parseInt(btn.dataset.sessionIdx);
+                        const aIdx = parseInt(btn.dataset.actIdx);
+                        const act = plan.sessions[sIdx].activities[aIdx];
+                        if (confirm('Remove this activity?')) {
+                            fetch(`/api/practice/plans/${planId}/activities/${act.id}`, { method: 'DELETE' })
+                                .then(() => loadPracticeDetail(planId));
+                        }
+                    });
+                });
+
+                // Drill change/add buttons
+                container.querySelectorAll('.drill-change-btn, .drill-add-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const sIdx = parseInt(btn.dataset.sessionIdx);
+                        const aIdx = parseInt(btn.dataset.actIdx);
+                        const act = plan.sessions[sIdx].activities[aIdx];
+                        const sessionType = plan.sessions[sIdx].session_type;
+                        openDetailDrillBrowser(planId, act, sessionType);
+                    });
+                });
+
+                // Add activity buttons
+                container.querySelectorAll('.detail-add-activity').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const sessionId = btn.dataset.sessionId;
+                        fetch(`/api/practice/plans/${planId}/sessions/${sessionId}/activities`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ focus_area: 'distance_control', ball_count: 10 }),
+                        })
+                        .then(r => r.json())
+                        .then(() => loadPracticeDetail(planId));
+                    });
+                });
+
+                // Range session linking
+                const rangeSelect = document.getElementById('range-session-select');
+                if (rangeSelect) {
+                    fetch('/api/range/').then(r => r.json()).then(sessions => {
+                        for (const s of sessions) {
+                            const d = new Date(s.session_date).toLocaleDateString();
+                            rangeSelect.innerHTML += `<option value="${s.id}">${d} — ${s.title || s.source} (${s.shot_count} shots)</option>`;
+                        }
+                    });
+                }
+                const linkBtn = document.getElementById('link-range-btn');
+                if (linkBtn) {
+                    linkBtn.addEventListener('click', () => {
+                        const rsId = parseInt(document.getElementById('range-session-select')?.value);
+                        if (!rsId) return;
+                        fetch(`/api/practice/plans/${planId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ range_session_id: rsId }),
+                        }).then(() => loadPracticeDetail(planId));
+                    });
+                }
+                const unlinkBtn = document.getElementById('unlink-range-btn');
+                if (unlinkBtn) {
+                    unlinkBtn.addEventListener('click', () => {
+                        fetch(`/api/practice/plans/${planId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ range_session_id: 0 }),
+                        }).then(() => loadPracticeDetail(planId));
+                    });
+                }
+
+                // Load review section for completed plans
+                if (plan.status === 'completed') {
+                    const reviewEl = document.getElementById('practice-review-section');
+                    if (reviewEl) {
+                        fetch(`/api/practice/plans/${planId}/review`)
+                            .then(r => r.json())
+                            .then(review => {
+                                let rh = '<div class="card review-card" style="padding:16px; margin-bottom:16px; border-left:3px solid var(--accent);">';
+                                rh += '<h4 style="margin-bottom:12px;">Session Review</h4>';
+
+                                // Linked range session data (primary review content)
+                                if (review.deltas.range_session) {
+                                    const rs = review.deltas.range_session;
+                                    rh += '<div style="margin-bottom:10px;">';
+                                    rh += `<h5 style="color:var(--text-muted); margin-bottom:6px;">Range Session: ${rs.title || ''} (${rs.shot_count} shots)</h5>`;
+                                    const clubNames = Object.keys(rs.clubs).sort();
+                                    if (clubNames.length) {
+                                        rh += '<div class="mini-table">';
+                                        rh += '<div class="mini-table-row" style="font-weight:600; color:var(--text-dim); font-size:0.75rem;"><span>Club</span><span>Shots</span><span>Avg Carry</span><span>Std Dev</span><span>Avg Lateral</span><span>Ball Speed</span></div>';
+                                        for (const cn of clubNames) {
+                                            const c = rs.clubs[cn];
+                                            rh += `<div class="mini-table-row">
+                                                <span style="font-weight:500;">${cn}</span>
+                                                <span>${c.shot_count}</span>
+                                                <span>${c.avg_carry ? c.avg_carry + 'yd' : '--'}</span>
+                                                <span>${c.std_carry ? c.std_carry + 'yd' : '--'}</span>
+                                                <span>${c.avg_lateral != null ? c.avg_lateral + 'yd' : '--'}</span>
+                                                <span>${c.avg_ball_speed ? c.avg_ball_speed + 'mph' : '--'}</span>
+                                            </div>`;
+                                        }
+                                        rh += '</div>';
+                                    }
+                                    rh += '</div>';
+                                }
+
+                                // Scoring deltas (only 3-putt — directly practice-relevant)
+                                if (review.deltas.scoring) {
+                                    const sc = review.deltas.scoring;
+                                    if (sc.three_putt_before != null && sc.three_putt_after != null) {
+                                        rh += '<div style="margin-bottom:10px;">';
+                                        const delta = sc.three_putt_after - sc.three_putt_before;
+                                        const color = delta < 0 ? 'var(--birdie)' : delta > 0 ? 'var(--bogey)' : 'var(--text-muted)';
+                                        rh += `<div style="font-size:0.85rem;"><span style="color:var(--text-dim);">3-Putt Rate:</span> ${sc.three_putt_before}% <span style="color:${color};">&rarr; ${sc.three_putt_after}%</span></div>`;
+                                        rh += '</div>';
+                                    }
+                                }
+
+                                // Miss direction deltas
+                                if (review.deltas.miss_direction && review.deltas.miss_direction.length) {
+                                    rh += '<div style="margin-bottom:10px;">';
+                                    rh += '<h5 style="color:var(--text-muted); margin-bottom:6px;">Miss Direction</h5>';
+                                    for (const md of review.deltas.miss_direction) {
+                                        const delta = (md.after_pct || 0) - md.before_pct;
+                                        const color = delta < 0 ? 'var(--birdie)' : delta > 0 ? 'var(--bogey)' : 'var(--text-muted)';
+                                        rh += `<div style="font-size:0.85rem;">${md.club}: ${md.before_pct}% ${md.before_side} <span style="color:${color};">&rarr; ${md.after_pct || '?'}% ${md.after_dominant || ''}</span></div>`;
+                                    }
+                                    rh += '</div>';
+                                }
+
+                                // Gap deltas
+                                if (review.deltas.gaps && review.deltas.gaps.length) {
+                                    rh += '<div style="margin-bottom:10px;">';
+                                    rh += '<h5 style="color:var(--text-muted); margin-bottom:6px;">Range vs Course Gaps</h5>';
+                                    for (const g of review.deltas.gaps) {
+                                        const color = g.trend === 'closing' ? 'var(--birdie)' : g.trend === 'widening' ? 'var(--bogey)' : 'var(--text-muted)';
+                                        const arrow = g.trend === 'closing' ? '&#9660;' : g.trend === 'widening' ? '&#9650;' : '&ndash;';
+                                        rh += `<div style="font-size:0.85rem;">${g.club}: ${Math.abs(g.before_gap)}yd gap <span style="color:${color};">&rarr; ${Math.abs(g.after_gap)}yd ${arrow}</span></div>`;
+                                    }
+                                    rh += '</div>';
+                                }
+
+                                const hasAnyData = review.deltas.range_session || review.deltas.scoring || review.deltas.miss_direction?.length || review.deltas.gaps?.length;
+                                if (!hasAnyData) {
+                                    rh += '<div style="color:var(--text-muted); font-size:0.85rem;">Link a range session and play more rounds to see your progress here.</div>';
+                                }
+
+                                rh += '</div>';
+                                reviewEl.innerHTML = rh;
+                            })
+                            .catch(() => {});
+                    }
+                }
+
+                // Delete plan button
+                const delBtn = document.getElementById('practice-delete-btn');
+                if (delBtn) {
+                    delBtn.addEventListener('click', () => {
+                        if (confirm('Delete this practice plan?')) {
+                            fetch(`/api/practice/plans/${planId}`, { method: 'DELETE' })
+                                .then(() => { window.location.hash = 'practice'; });
+                        }
+                    });
+                }
+            })
+            .catch(() => {
+                container.innerHTML = '<div class="card" style="padding:24px; color:var(--text-muted);">Failed to load practice plan.</div>';
+            });
+    }
+
+    // ── Detail view activity editor (saves to API) ─────────────────
+    function openDetailActivityEditor(planId, act) {
+        let html = '<div class="modal-overlay" id="activity-editor-overlay">';
+        html += '<div class="modal-content" style="max-width:400px;">';
+        html += '<h4 style="margin-bottom:12px;">Edit Activity</h4>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Club</label>';
+        html += '<select class="form-input" id="edit-act-club">';
+        html += '<option value="">-- None --</option>';
+        for (const c of _practiceClubCache) {
+            html += `<option value="${c}" ${c === act.club ? 'selected' : ''}>${c}</option>`;
+        }
+        if (act.club && !_practiceClubCache.includes(act.club)) {
+            html += `<option value="${act.club}" selected>${act.club}</option>`;
+        }
+        html += '</select></div>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Ball Count</label>';
+        html += `<input type="number" class="form-input" id="edit-act-balls" value="${act.ball_count || ''}" min="1">`;
+        html += '</div>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Focus Area</label>';
+        html += '<select class="form-input" id="edit-act-focus">';
+        for (const [val, label] of Object.entries(FOCUS_LABELS)) {
+            html += `<option value="${val}" ${act.focus_area === val ? 'selected' : ''}>${label}</option>`;
+        }
+        html += '</select></div>';
+
+        html += '<div class="form-group" style="margin-bottom:10px;">';
+        html += '<label class="form-label">Target Metric</label>';
+        html += `<input type="text" class="form-input" id="edit-act-target" value="${act.target_metric || ''}">`;
+        html += '</div>';
+
+        html += '<div style="display:flex; gap:8px; margin-top:16px;">';
+        html += '<button class="btn btn-primary" id="edit-act-save">Save</button>';
+        html += '<button class="btn btn-ghost" id="edit-act-cancel">Cancel</button>';
+        html += '</div></div></div>';
+
+        document.body.insertAdjacentHTML('beforeend', html);
+
+        document.getElementById('edit-act-save').addEventListener('click', () => {
+            const body = {
+                club: document.getElementById('edit-act-club').value || null,
+                ball_count: parseInt(document.getElementById('edit-act-balls').value) || null,
+                focus_area: document.getElementById('edit-act-focus').value,
+                target_metric: document.getElementById('edit-act-target').value || null,
+            };
+            fetch(`/api/practice/plans/${planId}/activities/${act.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            })
+            .then(() => {
+                document.getElementById('activity-editor-overlay').remove();
+                loadPracticeDetail(planId);
+            });
+        });
+        document.getElementById('edit-act-cancel').addEventListener('click', () => {
+            document.getElementById('activity-editor-overlay').remove();
+        });
+        document.getElementById('activity-editor-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'activity-editor-overlay') e.target.remove();
+        });
+    }
+
+    function openDetailDrillBrowser(planId, act, sessionType) {
+        let html = '<div class="modal-overlay" id="drill-browser-overlay">';
+        html += '<div class="modal-content drill-browser-modal">';
+        html += '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">';
+        html += '<h4>Choose a Drill</h4>';
+        html += '<button class="btn-icon" id="drill-browser-close">&times;</button>';
+        html += '</div>';
+
+        html += '<div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">';
+        html += '<input type="text" class="form-input" id="drill-search" placeholder="Search drills..." style="flex:1; min-width:150px;">';
+        html += '<select class="form-input" id="drill-filter-category" style="width:auto;">';
+        html += '<option value="">All Categories</option>';
+        html += '<option value="off_the_tee">Off the Tee</option>';
+        html += '<option value="approach">Approach</option>';
+        html += '<option value="short_game">Short Game</option>';
+        html += '<option value="putting">Putting</option>';
+        html += '</select></div>';
+
+        html += '<div id="drill-browser-list" style="max-height:400px; overflow-y:auto;">Loading...</div>';
+
+        html += '<div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">';
+        html += '<button class="btn btn-ghost btn-sm" id="drill-create-toggle">+ Create Custom Drill</button>';
+        html += '<div id="drill-create-form" style="display:none; margin-top:8px;">';
+        html += '<input type="text" class="form-input" id="drill-new-name" placeholder="Drill name" style="margin-bottom:6px;">';
+        html += '<textarea class="form-input" id="drill-new-desc" placeholder="Description..." rows="2" style="margin-bottom:6px;"></textarea>';
+        html += '<button class="btn btn-primary btn-sm" id="drill-create-save">Save Drill</button>';
+        html += '</div></div>';
+
+        html += '</div></div>';
+        document.body.insertAdjacentHTML('beforeend', html);
+
+        const catSelect = document.getElementById('drill-filter-category');
+        if (act.sg_category) catSelect.value = act.sg_category;
+
+        function loadDrills() {
+            const search = document.getElementById('drill-search').value;
+            const category = catSelect.value;
+            let url = `/api/drills?session_type=${sessionType}`;
+            if (category) url += `&sg_category=${category}`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
+
+            fetch(url).then(r => r.json()).then(drills => {
+                const listEl = document.getElementById('drill-browser-list');
+                if (!drills.length) {
+                    listEl.innerHTML = '<div style="color:var(--text-muted); padding:16px; text-align:center;">No drills found</div>';
+                    return;
+                }
+                listEl.innerHTML = drills.map(d => {
+                    const selected = act.drill_id === d.id ? ' drill-card-selected' : '';
+                    const customBadge = d.is_default ? '' : ' <span class="badge badge-blue" style="font-size:0.65rem;">Custom</span>';
+                    return `<div class="drill-card${selected}" data-drill-id="${d.id}">
+                        <div class="drill-card-name">${d.name}${customBadge}</div>
+                        <div class="drill-card-desc">${d.description.substring(0, 120)}${d.description.length > 120 ? '...' : ''}</div>
+                        ${d.target ? `<div class="drill-card-target">${d.target}</div>` : ''}
+                    </div>`;
+                }).join('');
+
+                listEl.querySelectorAll('.drill-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        const drillId = parseInt(card.dataset.drillId);
+                        const drill = drills.find(d => d.id === drillId);
+                        if (drill) {
+                            fetch(`/api/practice/plans/${planId}/activities/${act.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    drill_id: drill.id,
+                                    notes: `**${drill.name}**: ${drill.description}`,
+                                }),
+                            })
+                            .then(() => {
+                                document.getElementById('drill-browser-overlay').remove();
+                                loadPracticeDetail(planId);
+                            });
+                        }
+                    });
+                });
+            });
+        }
+
+        loadDrills();
+
+        let searchTimer;
+        document.getElementById('drill-search').addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(loadDrills, 300);
+        });
+        catSelect.addEventListener('change', loadDrills);
+
+        document.getElementById('drill-browser-close').addEventListener('click', () => {
+            document.getElementById('drill-browser-overlay').remove();
+        });
+        document.getElementById('drill-browser-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'drill-browser-overlay') e.target.remove();
+        });
+
+        document.getElementById('drill-create-toggle').addEventListener('click', () => {
+            document.getElementById('drill-create-form').style.display = 'block';
+        });
+        document.getElementById('drill-create-save').addEventListener('click', () => {
+            const name = document.getElementById('drill-new-name').value.trim();
+            const desc = document.getElementById('drill-new-desc').value.trim();
+            if (!name || !desc) return;
+            fetch('/api/drills', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name, description: desc,
+                    sg_category: act.sg_category,
+                    focus_area: act.focus_area,
+                    session_types: [sessionType],
+                }),
+            }).then(r => r.json()).then(drill => {
+                fetch(`/api/practice/plans/${planId}/activities/${act.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        drill_id: drill.id,
+                        notes: `**${drill.name}**: ${drill.description}`,
+                    }),
+                }).then(() => {
+                    document.getElementById('drill-browser-overlay').remove();
+                    loadPracticeDetail(planId);
+                });
+            });
+        });
     }
 
     // ========== Initial Load ==========

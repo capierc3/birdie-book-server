@@ -1,24 +1,15 @@
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: birdie
-      POSTGRES_PASSWORD: birdie
-      POSTGRES_DB: birdie_book
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
   app:
     build: .
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://birdie:birdie@db:5432/birdie_book
+      DATABASE_URL: sqlite:///data/birdie_book.db
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
-    depends_on:
-      - db
+    volumes:
+      - appdata:/app/data
+      - hole_images:/app/images/holes
 
 volumes:
-  pgdata:
+  appdata:
+  hole_images:

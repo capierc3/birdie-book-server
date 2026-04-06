@@ -80,10 +80,7 @@
 - Aggregate miss direction stats: left %, right %, center %
 - Filter by on-course vs range to compare
 
-### 3c. Approach Proximity to Pin `[ ]`
-- Average proximity to pin by distance bucket (50-75, 75-100, 100-125, 125-150, 150-175, 175-200, 200+)
-- Per-club approach proximity
-- Track improvement over time
+### 3c. ~~Approach Proximity to Pin~~ → Absorbed into 5a `[ ]`
 
 ### 3d. On-Course vs Range Dispersion Comparison `[ ]`
 - Side-by-side dispersion patterns: same club, course vs range
@@ -102,21 +99,26 @@
 
 **Goal:** Synthesize SG data, miss patterns, and club stats into specific, actionable advice.
 
-### 5a. "Focus Areas" Engine `[ ]`
+### 5a. "Focus Areas" Engine `[x]`
 - Analyze SG category data + per-club breakdowns
-- Generate top 3 practice recommendations, e.g.:
-  - "Focus on approaches from 150-175 yards (SG: -0.4/shot, worst bucket)"
-  - "Putting from 10-20ft is your biggest SG leak in short game"
-  - "Driver accuracy: 65% miss left — work on alignment"
+- Generate top 3+ practice recommendations with real numbers and rationales
+- **Smart drill selection** using decision tree: miss direction → alignment drills, low smash → contact drills, wide dispersion → consistency drills
+- **5 analysis functions**: miss direction (L/R/CENTER + Trackman root cause), approach proximity by distance bucket, scoring patterns (3-putt, scramble, bogey causes), player context (keyword extraction from post-round notes), range swing analysis (Trackman launch/impact data)
+- **Focus tags system**: club tags, skill tags, situational tags (swing_change, scoring_zones), surprise-me randomization
+- **41 drills in DB** (seeded defaults + user-created custom drills via drill browser)
+- **Activity editing**: inline edit club/balls/focus, add/remove activities, drill browser with search/filter
+- **Include 3c (Approach Proximity to Pin)** — avg proximity by distance bucket, per-club, weakest band highlighted in Game Analysis
 
-### 5b. Range ↔ Course Gap Analysis `[ ]`
+### 5b. Range ↔ Course Gap Analysis `[x]`
 - Flag clubs where range performance significantly differs from on-course
 - "Your 7-iron carries 165 on Trackman but averages 158 on course — 7 yard gap"
-- Track whether the gap is closing over time
+- Gap trending: compare recent 5 rounds vs recent 3 range sessions → closing/widening/stable arrows
+- Gap deltas in session review (before/after comparison)
 
-### 5c. Progress Tracking Against Recommendations `[ ]`
-- After generating a recommendation, track the relevant metric over subsequent rounds
-- "Since focusing on lag putting, your 3-putt rate dropped from 12% to 7%"
+### 5c. Progress Tracking Against Recommendations `[x]`
+- Session review on completed plans: before/after comparison of SG categories, scoring patterns, miss direction, gaps
+- Analysis snapshot saved at generation time, compared against fresh data after practice
+- Link practice plans to range sessions for session-specific tracking
 
 ---
 
@@ -244,11 +246,11 @@
 - Smart panel positioning (left/right of toolbar based on screen position)
 - Strategy insights panel with club recommendations, miss tendencies, scoring data
 
-### 10d. Tee Box Management `[~]`
+### 10d. Tee Box Management `[x]`
 - Default tee preference in Settings (localStorage) `[x]`
 - View/select tees via Hole Info dropdown `[x]`
-- Add/edit/delete tee boxes manually in Hole Info panel `[ ]`
-- Per-tee: total yardage, rating, slope editing `[ ]`
+- Add/edit/delete tee boxes manually in Hole Info panel `[x]`
+- Per-tee: total yardage, par, rating, slope editing `[x]`
 
 ### 10e. Pre-Round Strategy View `[x]`
 - Strategy tools panel: Dispersion Cone, Distance Arc, Carry Check, Club Recommendation
@@ -595,42 +597,48 @@
 
 **Goal:** Add pre-round planning and in-context note taking to the hole workspace. Let the player prepare a game plan, set goals, write strategy notes per hole, and capture post-round reflections — all within the same screen they use to review and edit course data.
 
-### 17a. Per-Hole Strategy Notes `[ ]`
+### 17a. Per-Hole Strategy Notes `[x]`
 - Add `notes` text field to CourseHole model (DB migration)
-- Textarea in the Edit Hole panel for personal strategy notes per hole
+- Editable in the Planning panel with edit/save toggle
 - Notes persist per course/tee/hole — not tied to a specific round
-- Examples: "Aim left of bunker", "7 iron to front of green", "Don't go for it in two"
-- Notes visible in the Hole Overview panel when viewing the hole
+- Displayed as "Course Note" in the Planning panel context
 
-### 17b. Round Planning Mode `[ ]`
-- New "Plan" mode alongside Historic and Round modes in the scorecard
-- Set goal scores per hole (already built in scorecard Goal row)
-- Plan which club to use off the tee per hole (new field)
-- Pre-round notes: overall strategy, focus areas, conditions
-- Tie into strategy tools: use dispersion/carry/club rec to validate the plan
-- Save plans to localStorage or DB per course
-- Risk/reward analysis based on historical outcomes (absorbed from 14d)
-- Per-hole insights: "Laying up to 100y has produced better scores than going for it"
-- Suggested play based on your data (best club off tee, target areas)
+### 17b. Round Planning Mode `[x]`
+- Dedicated Planning floating panel (toolbar button) — keeps existing panels unchanged
+- RoundPlan / RoundPlanHole / RoundPlanShot models in DB with full CRUD API (`/api/plans`)
+- Plan selector + create new plan flow
+- Per-hole strategy notes (plan-specific, auto-save on blur)
+- Goal scores auto-sync to scorecard Goal row on shot changes
+- Data-driven insights per hole: best tee club, fairway impact on scoring, club-score correlation, scoring distribution
+- Smart club recommendations by shot type (tee/approach/short game/putt)
+- Club filtering: Driver only off tee, Unknown excluded everywhere
+- Link plan to actual played round / unlink / delete plan
 
-### 17c. Shot Planning Sub-Pane `[ ]`
-- Plan a sequence of shots for a hole (club selections + aim points)
-- Visualize planned shots on the map using strategy tools (dispersion cones along planned route)
-- Compare planned shots vs actual shots from past rounds
-- "What if" analysis: "If I hit driver here, where does my approach land?"
-- Feeds into mobile on-course mode (11c) for pre-round strategy
+### 17c. Shot Planning `[x]`
+- Plan shot sequence per hole: select club from dropdown → "Place Shot" → aim on map
+- Live dispersion cone follows cursor while aiming (inner ±1σ, outer ±2σ, club-colored)
+- Distance + probability label at cursor during aiming
+- Per-shot probability + cumulative plan probability chain
+- Ball position auto-advances after each shot (distance from tee, distance to green)
+- Green boundary detection: auto-switches to Putting mode when ball is on green
+- Putt count entry (number input, no map placement needed)
+- Shot delete with auto-renumber
+- Cancel aiming via Escape key
+- "What if" achieved via try/delete/retry workflow with live cone feedback
 
-### 17d. Round Journal Integration `[ ]`
-- Post-round reflection notes per hole (what worked, what didn't)
-- Link journal entries to specific rounds (extends existing Round notes model)
-- Per-hole tags: "Great drive", "Missed green left", "3-putt" (quick tagging)
-- View journal entries in the Hole Overview when reviewing a past round
+### 17d. Round Journal Integration — *moved to Backlog*
 
-### 17e. Game Plan Export `[ ]`
-- Export the game plan as a printable summary (PDF or formatted page)
-- Hole-by-hole: yardage, par, goal, planned club, strategy notes
-- Include key stats: miss tendencies, carry distances, hazard warnings
-- Shareable link or PDF for pre-round review on phone
+### 17e. Game Plan Export — *moved to Backlog*
+
+### 17f. Context-Aware Strategy Insights `[x]` *(bonus — not in original plan)*
+- Strategy Insights panel now responds to ball position (Place Ball or planned shot)
+- Four contexts: From the Tee, Approach Shot, Short Game, On the Green
+- Tee: club off tee, approach club, scoring avg, FW%, GIR%, miss tendency, dispersion
+- Approach: recommended club + alternative, miss tendency, distance/lateral dispersion, approach SG
+- Short Game: wedge recommendation, short game SG
+- Green: putting SG
+- Hazard distances computed from current ball position
+- Auto-refreshes on Place Ball, ball reset, and planned shot changes
 
 ---
 
@@ -671,3 +679,41 @@
 - *Best tackled after 20+ rounds at a course provide enough data for meaningful patterns*
 
 ### ~~Course Strategy Insights (from 14d)~~ → Absorbed into Feature 17b/17c
+
+### Planned vs Actual Shot Comparison (from 17c)
+- Overlay planned shot route vs actual shots from a linked round
+- Side-by-side: planned aim points vs actual landing spots
+- Delta analysis: how far off was each shot from the plan?
+- *Requires linked round with shot GPS data — build after more plans are played*
+
+### Round Journal Integration (from 17d)
+- Post-round reflection notes per hole (what worked, what didn't)
+- Link journal entries to specific rounds (extends existing Round notes model)
+- Per-hole tags: "Great drive", "Missed green left", "3-putt" (quick tagging)
+- View journal entries in the Hole Overview when reviewing a past round
+- *Needs data/UX research — defer until planning workflow is battle-tested*
+
+### Data Export (from 17e + 13d)
+- Export game plans as printable summary (PDF or formatted page)
+- Hole-by-hole: yardage, par, goal, planned club, strategy notes, key stats
+- Broader scope: export rounds, stats, club data as CSV/JSON/PDF
+- Shareable round summaries and game plans
+- *Plan all export formats together as one cohesive feature*
+
+---
+
+## Architecture Notes
+
+### Database: SQLite (current) → PostgreSQL (if multi-user)
+
+**Current:** SQLite is the default for both dev and deployed. Single-file, zero-config, sufficient for single-user with thousands of rounds.
+
+**If multi-user is adopted**, migrate to PostgreSQL:
+- Update `DATABASE_URL` in `.env` to `postgresql://...`
+- Add `db` service back to `docker-compose.yml` (postgres:16-alpine)
+- Add `alembic upgrade head` back to Dockerfile CMD
+- `psycopg2-binary` is already in requirements.txt
+- `app/database.py` already handles both SQLite and PostgreSQL (connection args, foreign key pragmas)
+- Run Alembic migrations to create schema in PostgreSQL
+- Test: concurrent writes, connection pooling, JSON field queries
+- Consider: user authentication, row-level security, connection limits

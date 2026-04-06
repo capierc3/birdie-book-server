@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://birdie:birdie@localhost:5432/birdie_book"
+    database_url: str = "sqlite:///birdie_book.db"
     google_maps_api_key: str = ""
     golf_course_api_key: str = ""
     host: str = "0.0.0.0"

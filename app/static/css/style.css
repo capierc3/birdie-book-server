@@ -2427,3 +2427,573 @@ tr[data-shot-id] {
 .editor-nav-buttons .btn {
     flex: 1;
 }
+
+/* ========== Smart Practice Plans ========== */
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.badge-blue { background: rgba(66, 165, 245, 0.15); color: #42a5f5; }
+.badge-green { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
+.badge-yellow { background: rgba(255, 167, 38, 0.15); color: #ffa726; }
+.badge-muted { background: rgba(139, 143, 152, 0.15); color: #8b8f98; }
+
+/* Form elements */
+.form-label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+.form-input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 0.9rem;
+    transition: border-color var(--transition);
+}
+.form-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.form-group {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Loading spinner */
+.loading-spinner {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 32px;
+}
+
+/* Progress bar */
+.progress-bar-wrap {
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* Practice plans grid */
+.practice-plans-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+.practice-plan-card {
+    display: block;
+    text-decoration: none;
+    color: var(--text);
+    padding: 16px;
+    transition: border-color var(--transition), background var(--transition);
+    cursor: pointer;
+}
+.practice-plan-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+}
+.practice-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.practice-card-date {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.practice-card-goal {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.practice-card-course {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.practice-card-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+.practice-card-pct {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Wizard steps indicator */
+.wizard-steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin-bottom: 24px;
+    padding: 16px 0;
+}
+.wizard-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-dim);
+}
+.wizard-step.active { color: var(--accent); }
+.wizard-step.done { color: var(--accent); }
+.wizard-step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    border: 2px solid var(--text-dim);
+    transition: all var(--transition);
+}
+.wizard-step.active .wizard-step-num {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
+.wizard-step.done .wizard-step-num {
+    border-color: var(--accent);
+    background: transparent;
+    color: var(--accent);
+}
+.wizard-step-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.wizard-step-line {
+    width: 40px;
+    height: 2px;
+    background: var(--border);
+    margin: 0 8px;
+}
+
+.wizard-body {
+    max-width: 700px;
+}
+.wizard-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+/* Practice type selection cards */
+.practice-type-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.practice-type-card {
+    padding: 20px;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    text-align: center;
+    transition: all var(--transition);
+}
+.practice-type-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+}
+.practice-type-card.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+.practice-type-card svg {
+    display: block;
+    margin: 0 auto 8px;
+    color: var(--text-muted);
+}
+.practice-type-card.selected svg { color: var(--accent); }
+.practice-type-label {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.practice-type-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+/* Session builder cards */
+.session-builder-card {
+    padding: 12px 16px;
+    margin-bottom: 8px;
+}
+.session-builder-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+.session-builder-num {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.session-builder-fields {
+    display: flex;
+    gap: 12px;
+}
+
+/* Session review cards */
+.session-review-card {
+    padding: 0;
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+.session-review-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--bg-hover);
+    border-bottom: 1px solid var(--border);
+}
+.session-review-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.session-review-title svg { color: var(--text-muted); }
+.session-review-amount {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+.session-review-progress {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+.session-review-activities {
+    padding: 8px 16px;
+}
+
+/* Activity rows */
+.activity-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-row.completed { opacity: 0.5; }
+.activity-club {
+    font-weight: 600;
+    min-width: 90px;
+}
+.activity-amount {
+    color: var(--text-muted);
+    min-width: 60px;
+    font-size: 0.85rem;
+}
+.activity-target {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+.activity-rationale {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    padding: 2px 0 4px 0;
+    line-height: 1.4;
+}
+.activity-drill {
+    font-size: 0.8rem;
+    color: var(--text);
+    padding: 4px 10px 8px;
+    margin-bottom: 2px;
+    background: var(--bg-hover);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--accent);
+    line-height: 1.4;
+}
+.activity-drill strong {
+    color: var(--accent);
+}
+
+/* Focus badges */
+.focus-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* Activity checkboxes */
+.activity-check {
+    position: relative;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+.activity-check input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.activity-check .checkmark {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-light);
+    border-radius: 4px;
+    transition: all var(--transition);
+}
+.activity-check input:checked + .checkmark {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.activity-check input:checked + .checkmark::after {
+    content: '';
+    display: block;
+    width: 4px;
+    height: 8px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin: 1px auto;
+}
+
+/* Analysis summary card */
+.analysis-summary {
+    padding: 16px;
+    margin-bottom: 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+}
+
+/* SG analysis bars */
+.sg-analysis-bars { margin-bottom: 8px; }
+.sg-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+}
+.sg-bar-label {
+    width: 90px;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+.sg-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.sg-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+.sg-bar-value {
+    width: 70px;
+    text-align: right;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+.sg-bar-trend {
+    width: 16px;
+    text-align: center;
+    font-size: 0.7rem;
+}
+
+/* Mini table for gaps / course needs */
+.mini-table { }
+.mini-table-row {
+    display: flex;
+    gap: 12px;
+    padding: 4px 0;
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--border);
+}
+.mini-table-row:last-child { border-bottom: none; }
+.mini-table-row span { flex: 1; }
+.mini-table-row span:first-child { font-weight: 500; }
+
+/* Tag picker */
+.tag-group {
+    margin-bottom: 8px;
+}
+.tag-group-label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.tag-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.tag-chip {
+    padding: 4px 12px;
+    border-radius: 14px;
+    font-size: 0.8rem;
+    border: 1px solid var(--border-light);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+.tag-chip:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+.tag-chip.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+}
+.tag-chip-surprise {
+    border-color: var(--warning);
+    color: var(--warning);
+}
+.tag-chip-surprise:hover {
+    border-color: var(--warning);
+    background: rgba(255, 167, 38, 0.1);
+}
+.tag-chip-surprise.selected {
+    border-color: var(--warning);
+    background: rgba(255, 167, 38, 0.15);
+    color: var(--warning);
+}
+
+/* Small tag chips for cards/detail */
+.tag-chip-sm {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    background: var(--accent-dim);
+    color: var(--accent);
+    margin-right: 4px;
+}
+.practice-card-tags {
+    margin-bottom: 6px;
+}
+
+/* Activity editing */
+.btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all var(--transition);
+}
+.btn-icon:hover { color: var(--text); background: var(--bg-hover); }
+.activity-edit-btn { margin-left: auto; }
+.activity-remove-btn { color: var(--danger); }
+.activity-remove-btn:hover { color: var(--danger); background: rgba(239, 83, 80, 0.1); }
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.78rem;
+    padding: 0;
+    text-decoration: underline;
+}
+.btn-link:hover { color: var(--accent-hover); }
+.activity-drill-empty { padding: 2px 0 6px; }
+
+/* Modal overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+.modal-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+/* Drill browser */
+.drill-browser-modal {
+    max-width: 600px;
+}
+.drill-card {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+.drill-card:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+}
+.drill-card-selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+.drill-card-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 2px;
+}
+.drill-card-desc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+.drill-card-target {
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-top: 4px;
+    font-style: italic;
+}

@@ -5,6 +5,8 @@ from app.models.player import Player
 from app.models.range_session import RangeSession, RangeShot
 from app.models.trackman_shot import TrackmanShot
 from app.models.round_plan import RoundPlan, RoundPlanHole, RoundPlanShot
+from app.models.practice_plan import PracticePlan, PracticeSession, PracticeActivity
+from app.models.drill import Drill
 
 __all__ = [
     "GolfClub", "Course", "CourseTee", "CourseHole", "CourseHazard", "OSMHole",
@@ -14,4 +16,6 @@ __all__ = [
     "RangeSession", "RangeShot",
     "TrackmanShot",
     "RoundPlan", "RoundPlanHole", "RoundPlanShot",
+    "PracticePlan", "PracticeSession", "PracticeActivity",
+    "Drill",
 ]

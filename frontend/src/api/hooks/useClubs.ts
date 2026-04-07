@@ -2,11 +2,16 @@ import { useQuery } from '@tanstack/react-query'
 import { get } from '../client'
 import type { Club, ClubDetail } from '../types'
 
-export function useClubs(windowDays?: number) {
-  const params = windowDays ? `?window_days=${windowDays}` : ''
+export function useClubs(windowType?: string, windowValue?: number) {
+  const params = new URLSearchParams()
+  if (windowType && windowValue != null) {
+    params.set('window_type', windowType)
+    params.set('window_value', String(windowValue))
+  }
+  const qs = params.toString()
   return useQuery({
-    queryKey: ['clubs', { windowDays }],
-    queryFn: () => get<Club[]>(`/clubs/${params}`),
+    queryKey: ['clubs', { windowType, windowValue }],
+    queryFn: () => get<Club[]>(`/clubs/${qs ? `?${qs}` : ''}`),
   })
 }
 

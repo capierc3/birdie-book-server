@@ -651,73 +651,59 @@
 
 **Why now:** The vanilla JS frontend has grown past the point where it's lightweight. Complex screens like the Hole Workspace with floating panels, Chart.js dashboards, and Leaflet map interactions are increasingly difficult to maintain and extend without a component model, proper state management, or a build pipeline. Migrating to React unlocks the ecosystem needed for mobile, offline, and the next generation of features.
 
-### 18a. Project Scaffold & Build Pipeline `[ ]`
-- Initialize `frontend/` directory with Vite + React + TypeScript
-- Configure Vite to build the SPA into FastAPI's static file directory
-- Update `main.py` to serve the React SPA (catch-all route for client-side routing) with API routes taking priority
-- Set up path aliases, ESLint, Prettier
-- Development workflow: `npm run dev` proxies API calls to FastAPI backend
-- Production workflow: `npm run build` → FastAPI serves the built bundle
-- **Key libraries to install:**
-  - `react-router-dom` — client-side routing
-  - `@tanstack/react-query` — server state management, caching, offline persistence
-  - `react-leaflet` + `leaflet` — map components (replaces raw Leaflet JS)
-  - `recharts` or `nivo` — chart components (replaces Chart.js)
-  - `idb` — IndexedDB wrapper for offline data
-  - Workbox (via `vite-plugin-pwa`) — service worker generation
-- Verify: React app renders at `/`, FastAPI API still accessible at `/api/*`
+### 18a. Project Scaffold & Build Pipeline `[x]`
+- `frontend/` directory with Vite 8 + React 19 + TypeScript 6
+- Vite config: `base: '/app/'`, dev proxy forwards `/api` to FastAPI at `:8000`
+- `main.py` updated: conditional CORS middleware (`CORS_ORIGINS` env var), SPA catch-all at `/app/{path}` serving `frontend/dist/index.html`, static assets at `/app/assets/`
+- Coexistence: legacy Jinja2 app at `/`, React SPA at `/app/`, API at `/api/*` — all work simultaneously
+- Multi-stage Dockerfile: Node 20 builds frontend, Python 3.12-slim serves everything
+- Libraries installed: react-router-dom, @tanstack/react-query, react-leaflet, leaflet, recharts, idb, lucide-react
+- Note: `vite-plugin-pwa` incompatible with Vite 8 — service worker deferred, PWA manifest handled manually
 
-### 18b. Shared Component Library `[ ]`
-- Build reusable components that mirror the existing UI patterns:
-  - `StatCard` — the dashboard stat display cards
-  - `DataTable` — sortable, filterable table (rounds, shots, clubs)
-  - `FloatingPanel` — draggable/resizable panel system (replaces current JS implementation)
-  - `Chart` wrappers — line, bar, scatter, radar using Recharts
-  - `MapView` — React-Leaflet wrapper with the project's common map setup
-  - `Sidebar` / `MobileNav` — responsive navigation (sidebar on desktop, hamburger/bottom nav on mobile)
-  - Form components — inputs, selects, sliders, tag pickers
-- Design tokens / theme file for consistent spacing, colors, typography
-- Responsive breakpoints: desktop (>1024px), tablet (768-1024px), mobile (<768px)
+### 18b. Shared Component Library `[x]`
+- **Design tokens**: `styles/tokens.css` (dark theme CSS custom properties — colors, spacing, radii), `styles/reset.css` (global reset + score color classes)
+- **Layout shell**: `AppLayout` (sidebar + main + mobile header + overlay), `Sidebar` (NavLink navigation with lucide icons, "Legacy App" escape hatch), `MobileHeader` (hamburger menu, hidden on desktop)
+- **13 UI components** (CSS Modules, TypeScript props):
+  - `Button` (primary/secondary/ghost, sm size, forwardRef), `Badge` (blue/green/yellow/muted)
+  - `StatCard` (label, value, unit, sub-text), `Card` + `CardHeader` (container with title + action)
+  - `Input`, `Select`, `FormGroup` (form primitives with forwardRef)
+  - `DataTable<T>` (generic, sortable columns, clickable rows, empty state)
+  - `Modal` (portal, overlay close, Escape key, body scroll lock)
+  - `EmptyState`, `StatusMessage`, `ProgressBar`, `OfflineIndicator`
+- **Utilities**: `cn()` class joiner, `scoreColors.ts` (score-vs-par → CSS class)
+- Responsive breakpoints: 768px (mobile), 480px (small)
 
-### 18c. Data Layer & API Client `[ ]`
-- TypeScript API client with typed request/response for all existing endpoints
-- TanStack Query hooks for every API domain:
-  - `useRounds()`, `useRound(id)`, `useRoundHoles(id)`, etc.
-  - `useCourses()`, `useCourse(id)`, `useCourseHoles(id)`, etc.
-  - `useClubs()`, `useClubStats()`, etc.
-  - `useSGSummary()`, `useSGTrends()`, etc.
-  - `usePracticePlans()`, `useRoundPlans()`, etc.
-- Query cache configuration:
-  - `staleTime` tuned per domain (stats can be stale longer than active round data)
-  - `gcTime` (garbage collection) keeps data available for offline
-- Mutation hooks with optimistic updates for write operations
-- Error boundary and retry logic
+### 18c. Data Layer & API Client `[x]`
+- `api/types.ts`: TypeScript interfaces for rounds, courses, clubs, stats domains (~300 lines)
+- `api/client.ts`: typed fetch wrapper (`get`, `post`, `put`, `patch`, `del`) with `ApiError` class
+- **TanStack Query hooks** (scoped to 18e screens — range, plans, practice, import deferred to 18f):
+  - `useRounds(limit)`, `useRound(id)` — 5min staleTime default
+  - `useCourses()`, `useCourse(id)`, `useCourseStats(id)`, `useGolfClubs()` — detail 2min stale
+  - `useClubs(windowDays)`, `useClubDetail(id)`
+  - `useSGSummary()`, `useSGTrends()`, `useScoring()`, `useHandicap()` — 10min staleTime
+- Barrel export at `api/index.ts` for clean imports
 
-### 18d. Offline & PWA Foundation `[ ]`
-- **PWA manifest** (`manifest.json`): app name, icons, theme color, `display: standalone`
-- **Service worker** via `vite-plugin-pwa` + Workbox:
-  - Pre-cache app shell (HTML, JS, CSS, fonts)
-  - Runtime cache for API responses (stale-while-revalidate for reads)
-  - Cache-first for static assets (map tiles can be cached per course)
-- **TanStack Query persistence**: `persistQueryClient` plugin backed by IndexedDB
-  - On app open, hydrate query cache from IndexedDB → UI renders instantly with cached data
-  - Background refetch updates the cache when online
-- **Offline write queue**:
-  - When offline, mutations serialize to IndexedDB via `idb`
-  - Sync manager replays queued writes when `navigator.onLine` fires or on app open
-  - Simple last-write-wins conflict resolution (single-user app)
-  - Visual indicator: "X changes pending sync" badge
-- **Cache priming**: "Preparing for round at [course]..." pre-fetches and caches all hole data, hazards, stats, and club distances for a specific course
-- **Online/offline status** indicator in the UI
+### 18d. Offline & PWA Foundation `[x]`
+- **PWA manifest**: `manifest.json` with app name, standalone display, theme colors, placeholder icons (192x192, 512x512)
+- **Meta tags**: theme-color, apple-mobile-web-app-capable, apple-touch-icon in `index.html`
+- **TanStack Query persistence**: `PersistQueryClientProvider` + custom IndexedDB persister via `idb`, 24-hour max cache age, `gcTime` matched to persist age
+- **Offline write queue**: `lib/offlineQueue.ts` — `queueMutation()`, `replayMutations()`, `getPendingCount()`, `clearQueue()` backed by IndexedDB store `offline-mutations`
+- **Hooks**: `useOnlineStatus()` (reactive online/offline), `useOfflineSync()` (auto-replays mutations on reconnect, tracks pending count + syncing state)
+- **OfflineIndicator component**: fixed bottom bar, "Offline — N changes pending" / "Syncing..." with animated icon, auto-hides when online
+- Note: service worker deferred (vite-plugin-pwa incompatible with Vite 8) — query persistence provides offline read capability without it
 
-### 18e. Screen Migration — Phase 1: Core Screens `[ ]`
-- **Dashboard**: stat cards, scoring breakdowns, recent rounds, charts
-- **Rounds list**: sortable/filterable table with round summaries
-- **Round detail**: round stats, hole-by-hole breakdown, shot data
-- **Clubs**: club list, club stats, distance cards
-- **Strokes Gained**: SG summary, category breakdowns, trend charts
-- Each screen migrated one at a time; old Jinja2 template removed after React version is verified
-- Routing: React Router handles all navigation, hash-based routes migrate to path-based
+### 18e. Screen Migration — Phase 1: Core Screens `[x]`
+- **Dashboard** (`features/dashboard/`): 3 top stat cards (Total Rounds, Courses, Handicap), 18-hole + 9-hole scoring breakdowns (count, best, avg vs par, std dev), SG summary card (4 category bars + biggest opportunity), key stats card (GIR%, FW%, Putts/Hole, Scramble%, 3-Putt%), recent rounds list (top 5 with score badge)
+- **Rounds list** (`features/rounds/RoundsPage.tsx`): sortable DataTable (date, course, score, vs par, holes, shots, format), hole count filter (All/18/9), inline exclude toggle (PATCH), inline format dropdown, row click → detail
+- **Round detail** (`features/rounds/RoundDetailPage.tsx`): header with score badge + metadata badges, 7 stat cards, full scorecard component (front 9 / back 9 with color-coded cells for eagle/birdie/bogey/double, putts, FW ✓/←/→, GIR ●/○), SG breakdown bars, round highlights (best/worst holes, birdies, putting, fairway accuracy)
+- **Strokes Gained** (`features/strokes-gained/`): PGA/Personal baseline toggle, 4 category stat cards, Recharts LineChart trend (4 category lines), per-round table with colored SG values
+- **Scoring/Stats** (`features/scoring/`): 6 stat cards, scoring distribution bars (Birdie+/Par/Bogey/Double/Triple+), par breakdown (3/4/5 with percentages), per-round table
+- **Handicap** (`features/handicap/`): 4 summary cards, Recharts trend chart (reversed Y-axis, index + differential lines), projections (improvement rate + milestones), differentials table
+- **Clubs/My Bag** (`features/clubs/`): data source selector (Course/Range/Combined), box plot visualization (whiskers min/max, box P10-P90, median line, avg dot), distance table with source badges (G/R/T/M)
+- **Shared utilities**: `utils/format.ts` (formatVsPar, formatSG, formatPct, formatDate, stdDev, vsParColor, sgColor, formatGameFormat), `utils/chartTheme.ts` (Recharts dark theme, SG colors/labels), `styles/pages.module.css` (shared layout classes)
+- All 7 screens use path-based routing via React Router (/, /rounds, /rounds/:id, /strokes-gained, /scoring, /handicap, /clubs)
+- Remaining screens (Range, Courses, Practice, Import, Settings) show placeholder with "Coming soon" message
+- Old Jinja2 code preserved — no deletions
 
 ### 18f. Screen Migration — Phase 2: Complex Screens `[ ]`
 - **Hole Workspace** (Feature 16): floating panel system, map with shots/plans, scorecard, hole overview
@@ -728,7 +714,7 @@
   - `react-leaflet-draw` for polygon/polyline editing (tee boxes, greens, fairways, hazards)
 - **Practice Plans**: plan wizard, activity editor, drill browser, session review
 - **Data Import**: Garmin/Trackman/Rapsodo upload flows
-- **Settings / Handicap / other minor screens**
+- **Settings / other minor screens**
 
 ### 18g. Screen Migration — Phase 3: Mobile Layouts `[ ]`
 - Responsive layouts for all migrated screens:

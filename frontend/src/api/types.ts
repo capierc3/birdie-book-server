@@ -429,6 +429,22 @@ export interface SGTrends {
   worst_rounds: Record<string, SGTrendPoint>
 }
 
+export interface SGClubBreakdown {
+  club_name: string
+  category: string
+  sg_pga_per_shot: number
+  sg_pga_total: number
+  sg_personal_per_shot?: number | null
+  sg_personal_total?: number | null
+  shot_count: number
+}
+
+export interface SGByClubResponse {
+  clubs: SGClubBreakdown[]
+  worst_club?: SGClubBreakdown | null
+  best_club?: SGClubBreakdown | null
+}
+
 export interface ParBreakdown {
   par: number
   count: number

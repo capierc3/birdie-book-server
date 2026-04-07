@@ -1,0 +1,61 @@
+.scorecard {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scorecard th,
+.scorecard td {
+  padding: 6px 8px;
+  text-align: center;
+  border: 1px solid var(--border);
+  min-width: 36px;
+}
+
+.scorecard th {
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+
+.rowLabel {
+  text-align: left !important;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  width: 60px;
+}
+
+.holeNum {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.holeNum:hover {
+  color: var(--accent);
+}
+
+.totalCol {
+  font-weight: 700;
+  background: var(--bg-sidebar);
+}
+
+.eagle { background: rgba(66, 165, 245, 0.25); color: var(--eagle); font-weight: 700; }
+.birdie { background: rgba(76, 175, 80, 0.15); color: var(--birdie); font-weight: 700; }
+.bogey { background: rgba(239, 83, 80, 0.1); color: var(--bogey); }
+.double { background: rgba(211, 47, 47, 0.15); color: var(--double); font-weight: 700; }
+
+.fwHit { color: var(--accent); }
+.fwMiss { color: var(--warning); }
+.girHit { color: var(--accent); }
+.girMiss { color: var(--danger); }
+.dim { color: var(--text-dim); }
+
+.wrap {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}

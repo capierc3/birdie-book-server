@@ -16,6 +16,7 @@ interface DataTableProps<T> {
   data: T[]
   keyExtractor: (row: T) => string | number
   onRowClick?: (row: T) => void
+  rowStyle?: (row: T) => React.CSSProperties | undefined
   emptyMessage?: string
   sortKey?: string
   sortDirection?: 'asc' | 'desc'
@@ -27,6 +28,7 @@ export function DataTable<T>({
   data,
   keyExtractor,
   onRowClick,
+  rowStyle,
   emptyMessage = 'No data',
   sortKey,
   sortDirection,
@@ -76,6 +78,7 @@ export function DataTable<T>({
             <tr
               key={keyExtractor(row)}
               className={cn(styles.row, onRowClick && styles.clickable)}
+              style={rowStyle?.(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
             >
               {columns.map((col) => (

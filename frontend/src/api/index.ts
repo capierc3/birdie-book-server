@@ -5,7 +5,7 @@ export { get, post, put, patch, del, ApiError } from './client'
 export { useRounds, useRound } from './hooks/useRounds'
 export { useCourses, useCourse, useCourseStats, useGolfClubs } from './hooks/useCourses'
 export { useClubs, useClubDetail } from './hooks/useClubs'
-export { useSGSummary, useSGTrends, useScoring, useHandicap } from './hooks/useStats'
+export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
 
 // Types
 export type {
@@ -33,6 +33,8 @@ export type {
   SGPerRound,
   SGTrends,
   SGTrendPoint,
+  SGClubBreakdown,
+  SGByClubResponse,
   ScoringStats,
   ScoringDistribution,
   ScoringRound,

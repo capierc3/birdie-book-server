@@ -1,6 +1,14 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './components'
 import { EmptyState } from './components'
+import { DashboardPage } from './features/dashboard/DashboardPage'
+import { RoundsPage } from './features/rounds/RoundsPage'
+import { RoundDetailPage } from './features/rounds/RoundDetailPage'
+import { StrokesGainedPage } from './features/strokes-gained/StrokesGainedPage'
+import { ScoringPage } from './features/scoring/ScoringPage'
+import { HandicapPage } from './features/handicap/HandicapPage'
+import { ClubsPage } from './features/clubs/ClubsPage'
+import { ClubDetailPage } from './features/clubs/ClubDetailPage'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -9,8 +17,8 @@ function Placeholder({ title }: { title: string }) {
         <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{title}</h1>
       </div>
       <EmptyState
-        message="Coming in 18e"
-        description="This screen will be migrated from the legacy app."
+        message="Coming soon"
+        description="This screen will be migrated in a future update."
       />
     </div>
   )
@@ -20,12 +28,14 @@ function App() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/" element={<Placeholder title="Dashboard" />} />
-        <Route path="/rounds" element={<Placeholder title="Rounds" />} />
-        <Route path="/clubs" element={<Placeholder title="My Bag" />} />
-        <Route path="/strokes-gained" element={<Placeholder title="Strokes Gained" />} />
-        <Route path="/handicap" element={<Placeholder title="Handicap" />} />
-        <Route path="/scoring" element={<Placeholder title="Stats" />} />
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/rounds" element={<RoundsPage />} />
+        <Route path="/rounds/:id" element={<RoundDetailPage />} />
+        <Route path="/strokes-gained" element={<StrokesGainedPage />} />
+        <Route path="/scoring" element={<ScoringPage />} />
+        <Route path="/handicap" element={<HandicapPage />} />
+        <Route path="/clubs" element={<ClubsPage />} />
+        <Route path="/clubs/:id" element={<ClubDetailPage />} />
         <Route path="/range" element={<Placeholder title="Range" />} />
         <Route path="/courses" element={<Placeholder title="Courses" />} />
         <Route path="/practice" element={<Placeholder title="Practice" />} />

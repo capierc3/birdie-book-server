@@ -12,6 +12,7 @@ import { ClubDetailPage } from './features/clubs/ClubDetailPage'
 import { RangePage } from './features/range/RangePage'
 import { RangeDetailPage } from './features/range/RangeDetailPage'
 import { CoursesPage } from './features/courses/CoursesPage'
+import { ClubDetailPage as GolfClubDetailPage } from './features/courses/ClubDetailPage'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -43,6 +44,7 @@ function App() {
         <Route path="/range/sessions" element={<RangePage />} />
         <Route path="/range/:id" element={<RangeDetailPage />} />
         <Route path="/courses" element={<CoursesPage />} />
+        <Route path="/courses/club/:id" element={<GolfClubDetailPage />} />
         <Route path="/practice" element={<Placeholder title="Practice" />} />
         <Route path="/import" element={<Placeholder title="Import" />} />
         <Route path="/settings" element={<Placeholder title="Settings" />} />

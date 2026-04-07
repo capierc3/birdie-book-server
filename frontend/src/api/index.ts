@@ -1,5 +1,5 @@
 // Client
-export { get, post, put, patch, del, ApiError } from './client'
+export { get, post, put, patch, del, postForm, ApiError } from './client'
 
 // Hooks
 export { useRounds, useRound } from './hooks/useRounds'
@@ -7,6 +7,28 @@ export { useCourses, useCourse, useCourseStats, useGolfClubs, useSearchCreateCou
 export { useClubs, useClubDetail } from './hooks/useClubs'
 export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
 export { useRangeSessions, useRangeShots, useDeleteRangeSession } from './hooks/useRange'
+export {
+  useClubPhotos,
+  useCourseMergePreview,
+  useUpdateTee,
+  useDeleteTee,
+  useReassignTeeRounds,
+  useMergeCourse,
+  useSyncClubCourses,
+  useOsmSearch,
+  useOsmLinkClub,
+  useOsmLinkCourse,
+  useSetPhotoFromPlaces,
+  useSetPhotoUpload,
+  useUpdateRoundTee,
+} from './hooks/useGolfClubDetail'
+export type {
+  TeeUpdateBody,
+  MergePreview,
+  MergeConflict,
+  OsmSearchResult,
+  TeeDeleteConflict,
+} from './hooks/useGolfClubDetail'
 
 // Types
 export type {

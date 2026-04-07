@@ -2,12 +2,14 @@
   "date": "2026-04-07",
   "services": {
     "golf_course_api": {
-      "calls": 0,
-      "last_call": null
+      "calls": 4,
+      "last_call": "2026-04-07T19:31:40.482167",
+      "last_endpoint": "search: Brookshire Inn & Golf Club"
     },
     "google_places": {
-      "calls": 0,
-      "last_call": null
+      "calls": 3,
+      "last_call": "2026-04-07T19:31:37.342674",
+      "last_endpoint": "searchText"
     },
     "google_maps_static": {
       "calls": 0,

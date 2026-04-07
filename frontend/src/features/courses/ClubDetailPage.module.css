@@ -1,0 +1,324 @@
+/* Hero Banner */
+.hero {
+  position: relative;
+  min-height: 200px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 24px;
+  background-color: var(--bg-card);
+  background-size: cover;
+  background-position: center;
+}
+
+.heroOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.3) 100%);
+}
+
+.heroContent {
+  position: relative;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 200px;
+}
+
+.heroBack {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+}
+
+.heroActions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+.heroTitle {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.heroSubtitle {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 4px;
+}
+
+/* Course Cards */
+.courseCard {
+  margin-bottom: 16px;
+}
+
+.courseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.courseName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.courseName:hover {
+  text-decoration: underline;
+}
+
+.courseMeta {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.courseActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.teeActions {
+  display: flex;
+  gap: 4px;
+}
+
+/* Rounds section */
+.roundScore {
+  font-weight: 700;
+}
+
+.teeSelect {
+  padding: 2px 4px;
+  font-size: 0.8rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* Club Actions */
+.actionsCard {
+  margin-top: 24px;
+}
+
+/* OSM Section */
+.osmSection {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.osmToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  cursor: pointer;
+  user-select: none;
+}
+
+.osmToggle:hover {
+  background: var(--bg-hover);
+}
+
+.osmToggleTitle {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.osmBody {
+  padding: 16px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+}
+
+.osmSearchRow {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.osmSearchRow input {
+  flex: 1;
+}
+
+.osmResults {
+  margin-top: 8px;
+}
+
+.osmResultItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+
+.osmResultItem:hover {
+  background: var(--bg-hover);
+}
+
+.osmResultName {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.osmResultSub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.osmCourseRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.osmCourseRow:last-child {
+  border-bottom: none;
+}
+
+.osmStatus {
+  font-size: 0.8rem;
+  font-weight: 600;
+  width: 24px;
+  text-align: center;
+}
+
+.osmCourseName {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.osmCourseData {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Photo Picker */
+.photoTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.photoTab {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+  transition: var(--transition);
+}
+
+.photoTab:hover {
+  color: var(--text);
+}
+
+.photoTabActive {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.photoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.photoThumb {
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: var(--transition);
+  width: 100%;
+}
+
+.photoThumb:hover {
+  border-color: var(--accent);
+}
+
+.photoThumbSelected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.uploadZone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.uploadZone:hover {
+  border-color: var(--accent);
+}
+
+.uploadPreview {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: var(--radius);
+  margin: 12px auto;
+  display: block;
+}
+
+/* Merge modal */
+.conflictField {
+  margin-bottom: 16px;
+}
+
+.conflictLabel {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.conflictOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conflictOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.conflictOption:hover {
+  background: var(--bg-hover);
+}
+
+.mergeInfo {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}

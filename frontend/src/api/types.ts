@@ -506,6 +506,91 @@ export interface HandicapTrendPoint {
   differentials_available: number
 }
 
+// ============================================================
+// Range Sessions
+// ============================================================
+
+export interface RangeSessionSummary {
+  id: number
+  source: string
+  session_date: string
+  title?: string | null
+  shot_count: number
+}
+
+export interface RangeShotResponse {
+  id: string
+  raw_id: number
+  session_id?: number | null
+  shot_number: number
+  club_type_raw: string
+  club_name?: string | null
+  club_color?: string | null
+  club_brand?: string | null
+  club_model?: string | null
+  carry_yards?: number | null
+  total_yards?: number | null
+  ball_speed_mph?: number | null
+  launch_angle_deg?: number | null
+  launch_direction_deg?: number | null
+  apex_yards?: number | null
+  side_carry_yards?: number | null
+  club_speed_mph?: number | null
+  smash_factor?: number | null
+  descent_angle_deg?: number | null
+  attack_angle_deg?: number | null
+  club_path_deg?: number | null
+  spin_rate_rpm?: number | null
+  spin_axis_deg?: number | null
+  // Trackman-specific
+  face_angle_deg?: number | null
+  face_to_path_deg?: number | null
+  dynamic_loft_deg?: number | null
+  spin_loft_deg?: number | null
+  swing_plane_deg?: number | null
+  swing_direction_deg?: number | null
+  dynamic_lie_deg?: number | null
+  impact_offset_in?: number | null
+  impact_height_in?: number | null
+  low_point_distance_in?: number | null
+  curve_yards?: number | null
+  hang_time_sec?: number | null
+  side_total_yards?: number | null
+  smash_index?: number | null
+  ball_speed_diff_mph?: number | null
+  trajectory_json?: string | null
+  source: string
+}
+
+export interface RangeClubGroupStats {
+  club_type_raw: string
+  club_name?: string | null
+  avg_carry?: number | null
+  avg_total?: number | null
+  avg_ball_speed?: number | null
+  avg_club_speed?: number | null
+  avg_launch_angle?: number | null
+  avg_spin_rate?: number | null
+  shot_count: number
+}
+
+export interface RangeSessionDetail {
+  id: number
+  source: string
+  session_date: string
+  title?: string | null
+  notes?: string | null
+  shot_count: number
+  club_groups: RangeClubGroupStats[]
+  shots: RangeShotResponse[]
+}
+
+export interface RangeShotsResponse {
+  sessions: RangeSessionSummary[]
+  shots: RangeShotResponse[]
+  clubs: string[]
+}
+
 export interface HandicapData {
   handicap_index?: number | null
   differentials_used: number

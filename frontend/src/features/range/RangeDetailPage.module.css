@@ -1,0 +1,332 @@
+/* ── Club toggles ── */
+.clubToggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.clubToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.clubToggle:hover {
+  border-color: var(--text-muted);
+}
+
+.clubToggleActive {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.clubDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── View toggle (Total/Carry) ── */
+.viewToggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.viewBtn {
+  padding: 4px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.viewBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.viewBtnActive {
+  background: var(--accent);
+  color: #111;
+}
+
+/* ── Legend ── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legendNote {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Club shot sections ── */
+.clubSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.clubSectionHeader:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.clubSectionName {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.clubSectionCount {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.clubSectionChevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.editColsBtn {
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.editColsBtn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Add column dropdown ── */
+.addColDropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  max-height: 240px;
+  overflow-y: auto;
+  min-width: 160px;
+}
+
+.addColItem {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+
+.addColItem:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Shot row highlighting ── */
+.shotRow {
+  transition: background 0.1s;
+}
+
+.shotRow:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.shotHighlighted {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border-left: 3px solid var(--accent);
+}
+
+.shotCompare {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-left: 3px solid #f59e0b;
+}
+
+.shotDimmed {
+  opacity: 0.4;
+}
+
+/* ── Shot detail panel (floating) ── */
+.shotPanel {
+  position: fixed;
+  right: 24px;
+  top: 80px;
+  width: 360px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+}
+
+.shotPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  z-index: 1;
+}
+
+.shotPanelTitle {
+  font-weight: 600;
+  font-size: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shotPanelActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.shotPanelBody {
+  padding: 12px 16px;
+}
+
+.shotPanelSection {
+  margin-bottom: 14px;
+}
+
+.shotPanelSectionTitle {
+  font-weight: 600;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.panelFieldRow {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.panelFieldLabel {
+  padding: 3px 8px 3px 0;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.panelFieldPrimary {
+  padding: 3px 8px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.panelFieldUnit {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.72rem;
+  margin-left: 3px;
+}
+
+.panelFieldCompare {
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.panelFieldDelta {
+  padding: 3px 4px;
+  font-size: 0.72rem;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── Delta styling ── */
+.deltaPos {
+  color: #22c55e;
+}
+
+.deltaNeg {
+  color: #ef4444;
+}
+
+/* ── Compare stats table ── */
+.compareTh {
+  padding: 8px 10px;
+  text-align: center;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+/* ── Controls bar ── */
+.controlsBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+/* ── Club section spacing ── */
+.clubSectionWrap {
+  margin-bottom: 12px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .shotPanel {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    top: auto;
+    bottom: 0;
+    max-height: 50vh;
+    border-radius: 10px 10px 0 0;
+  }
+}

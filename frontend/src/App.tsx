@@ -9,6 +9,8 @@ import { ScoringPage } from './features/scoring/ScoringPage'
 import { HandicapPage } from './features/handicap/HandicapPage'
 import { ClubsPage } from './features/clubs/ClubsPage'
 import { ClubDetailPage } from './features/clubs/ClubDetailPage'
+import { RangePage } from './features/range/RangePage'
+import { RangeDetailPage } from './features/range/RangeDetailPage'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -36,7 +38,9 @@ function App() {
         <Route path="/handicap" element={<HandicapPage />} />
         <Route path="/clubs" element={<ClubsPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
-        <Route path="/range" element={<Placeholder title="Range" />} />
+        <Route path="/range" element={<RangeDetailPage />} />
+        <Route path="/range/sessions" element={<RangePage />} />
+        <Route path="/range/:id" element={<RangeDetailPage />} />
         <Route path="/courses" element={<Placeholder title="Courses" />} />
         <Route path="/practice" element={<Placeholder title="Practice" />} />
         <Route path="/import" element={<Placeholder title="Import" />} />

@@ -6,6 +6,7 @@ export { useRounds, useRound } from './hooks/useRounds'
 export { useCourses, useCourse, useCourseStats, useGolfClubs } from './hooks/useCourses'
 export { useClubs, useClubDetail } from './hooks/useClubs'
 export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
+export { useRangeSessions, useRangeShots, useDeleteRangeSession } from './hooks/useRange'
 
 // Types
 export type {
@@ -42,4 +43,9 @@ export type {
   HandicapData,
   HandicapDifferential,
   HandicapTrendPoint,
+  RangeSessionSummary,
+  RangeShotResponse,
+  RangeClubGroupStats,
+  RangeSessionDetail,
+  RangeShotsResponse,
 } from './types'

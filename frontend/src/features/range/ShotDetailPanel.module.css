@@ -1,0 +1,92 @@
+.body {
+  padding: 12px 16px;
+}
+
+.section {
+  margin-bottom: 14px;
+}
+
+.sectionTitle {
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+}
+
+.fieldItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.82rem;
+}
+
+.fieldLabel {
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.fieldValue {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fieldUnit {
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: 0.7rem;
+  margin-left: 2px;
+}
+
+/* ── Compare header (legend) ── */
+.compareHeader {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+/* ── Compare mode: inline values ── */
+.compareVals {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-variant-numeric: tabular-nums;
+}
+
+.primaryVal {
+  color: var(--compare-primary);
+  font-weight: 500;
+}
+
+.secondaryVal {
+  color: var(--compare-secondary);
+  font-weight: 500;
+}
+
+.deltaVal {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.deltaPos {
+  color: #22c55e;
+}
+
+.deltaNeg {
+  color: #ef4444;
+}

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Select, EmptyState } from '../../components'
+import { Button, Select, EmptyState, FloatingPanel } from '../../components'
 import { useRangeShots } from '../../api'
 import type { RangeShotResponse } from '../../api'
 import { formatDateTime } from '../../utils/format'
@@ -111,6 +111,22 @@ export function RangeDetailPage() {
 
   const primaryShot = primaryShotId ? allShots.get(primaryShotId) ?? null : null
   const compareShot = compareShotId ? allShots.get(compareShotId) ?? null : null
+
+  // Merge sessions from both data sources for date lookups
+  const allSessions = useMemo(() => {
+    const map = new Map<number, string>()
+    if (data) for (const s of data.sessions) map.set(s.id, s.session_date)
+    if (compareData) for (const s of compareData.sessions) map.set(s.id, s.session_date)
+    return map
+  }, [data, compareData])
+
+  const primarySessionDate = primaryShot?.session_id != null
+    ? allSessions.get(primaryShot.session_id) ?? null
+    : null
+
+  const compareSessionDate = compareShot?.session_id != null
+    ? allSessions.get(compareShot.session_id) ?? null
+    : null
 
   // Toggle handlers
   const handleToggleClub = useCallback((club: string) => {
@@ -302,14 +318,40 @@ export function RangeDetailPage() {
 
       {/* Floating shot detail panel */}
       {primaryShot && (
-        <ShotDetailPanel
-          primaryShot={primaryShot}
-          compareShot={compareShot}
-          compareMode={compareMode}
+        <FloatingPanel
+          title={
+            compareShot
+              ? 'Comparing Shots'
+              : `Shot ${primaryShot.shot_number} \u2014 ${primaryShot.club_name ?? primaryShot.club_type_raw}`
+          }
+          actions={
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleToggleCompare}
+                title={compareMode ? 'Exit compare' : 'Compare shots'}
+                style={compareMode ? { color: 'var(--accent)' } : undefined}
+              >
+                &#8644;
+              </Button>
+              {compareShot && (
+                <Button variant="ghost" size="sm" onClick={handleSwapShots} title="Swap shots">
+                  &#8645;
+                </Button>
+              )}
+            </>
+          }
           onClose={handleClosePanel}
-          onToggleCompare={handleToggleCompare}
-          onSwap={handleSwapShots}
-        />
+          width={420}
+        >
+          <ShotDetailPanel
+            primaryShot={primaryShot}
+            compareShot={compareShot}
+            sessionDate={primarySessionDate}
+            compareSessionDate={compareSessionDate}
+          />
+        </FloatingPanel>
       )}
     </div>
   )

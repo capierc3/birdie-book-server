@@ -1,16 +1,12 @@
-import { Fragment } from 'react'
-import { Button } from '../../components'
 import type { RangeShotResponse } from '../../api'
-import { formatNum } from '../../utils/format'
-import styles from './RangeDetailPage.module.css'
+import { formatNum, formatDateTime } from '../../utils/format'
+import styles from './ShotDetailPanel.module.css'
 
 interface Props {
   primaryShot: RangeShotResponse
   compareShot: RangeShotResponse | null
-  compareMode: boolean
-  onClose: () => void
-  onToggleCompare: () => void
-  onSwap: () => void
+  sessionDate?: string | null
+  compareSessionDate?: string | null
 }
 
 interface FieldDef {
@@ -52,14 +48,6 @@ const PANEL_SECTIONS: { title: string; fields: FieldDef[] }[] = [
     ],
   },
   {
-    title: 'Impact',
-    fields: [
-      { label: 'Offset', key: 'impact_offset_in', unit: 'in' },
-      { label: 'Height', key: 'impact_height_in', unit: 'in' },
-      { label: 'Low Point', key: 'low_point_distance_in', unit: 'in' },
-    ],
-  },
-  {
     title: 'Spin',
     fields: [
       { label: 'Rate', key: 'spin_rate_rpm', unit: 'rpm', decimals: 0 },
@@ -68,7 +56,24 @@ const PANEL_SECTIONS: { title: string; fields: FieldDef[] }[] = [
       { label: 'Launch Dir', key: 'launch_direction_deg', unit: '\u00b0' },
     ],
   },
+  {
+    title: 'Impact',
+    fields: [
+      { label: 'Offset', key: 'impact_offset_in', unit: 'in' },
+      { label: 'Height', key: 'impact_height_in', unit: 'in' },
+      { label: 'Low Point', key: 'low_point_distance_in', unit: 'in' },
+    ],
+  },
 ]
+
+function formatSource(source: string): string {
+  const map: Record<string, string> = {
+    trackman: 'Trackman',
+    rapsodo_mlm2pro: 'MLM2PRO',
+    garmin: 'Garmin',
+  }
+  return map[source] ?? source
+}
 
 function getVal(shot: RangeShotResponse, key: string): number | null {
   return (shot as unknown as Record<string, unknown>)[key] as number | null ?? null
@@ -89,85 +94,100 @@ function fmtDelta(a: number | null, b: number | null, decimals = 1): { text: str
   }
 }
 
-export function ShotDetailPanel({
-  primaryShot, compareShot, compareMode, onClose, onToggleCompare, onSwap,
-}: Props) {
-  const primaryLabel = `#${primaryShot.shot_number} ${primaryShot.club_name ?? primaryShot.club_type_raw}`
-  const compareLabel = compareShot
-    ? `#${compareShot.shot_number} ${compareShot.club_name ?? compareShot.club_type_raw}`
-    : null
+export function ShotDetailPanel({ primaryShot, compareShot, sessionDate, compareSessionDate }: Props) {
+  const isCompare = !!compareShot
 
   return (
-    <div className={styles.shotPanel}>
-      <div className={styles.shotPanelHeader}>
-        <div className={styles.shotPanelTitle}>
-          <span style={{ color: primaryShot.club_color ?? 'var(--accent)' }}>{primaryLabel}</span>
-          {compareShot && (
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}> vs {compareLabel}</span>
-          )}
+    <div className={styles.body}>
+      {/* Compare legend */}
+      {isCompare && (
+        <div className={styles.compareHeader}>
+          <span className={styles.primaryVal}>
+            Shot {primaryShot.shot_number} &mdash; {primaryShot.club_name ?? primaryShot.club_type_raw}
+          </span>
+          <span className={styles.secondaryVal}>
+            Shot {compareShot.shot_number} &mdash; {compareShot.club_name ?? compareShot.club_type_raw}
+          </span>
         </div>
-        <div className={styles.shotPanelActions}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggleCompare}
-            title={compareMode ? 'Exit compare' : 'Compare shots'}
-            style={compareMode ? { color: 'var(--accent)' } : undefined}
-          >
-            &#8644;
-          </Button>
-          {compareShot && (
-            <Button variant="ghost" size="sm" onClick={onSwap} title="Swap shots">
-              &#8645;
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={onClose} title="Close">
-            &#10005;
-          </Button>
-        </div>
-      </div>
-      <div className={styles.shotPanelBody}>
-        {PANEL_SECTIONS.map((section) => (
-          <div key={section.title} className={styles.shotPanelSection}>
-            <div className={styles.shotPanelSectionTitle}>{section.title}</div>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                {section.fields.map((field) => {
-                  const pVal = getVal(primaryShot, field.key)
-                  const cVal = compareShot ? getVal(compareShot, field.key) : null
-                  const d = field.decimals ?? 1
-                  const delta = compareShot ? fmtDelta(pVal, cVal, d) : null
+      )}
 
-                  // Skip field if no data for either shot
-                  if (pVal == null && cVal == null) return null
-
-                  return (
-                    <tr key={field.key} className={styles.panelFieldRow}>
-                      <td className={styles.panelFieldLabel}>{field.label}</td>
-                      <td className={styles.panelFieldPrimary}>
-                        {fmtVal(pVal, d)}
-                        {field.unit && pVal != null && (
-                          <span className={styles.panelFieldUnit}>{field.unit}</span>
-                        )}
-                      </td>
-                      {compareShot && (
-                        <Fragment>
-                          <td className={styles.panelFieldCompare}>
-                            {fmtVal(cVal, d)}
-                          </td>
-                          <td className={styles.panelFieldDelta}>
-                            {delta && <span className={delta.className}>{delta.text}</span>}
-                          </td>
-                        </Fragment>
-                      )}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+      {/* Source section */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>Source</div>
+        <div className={styles.fieldGrid}>
+          <div className={styles.fieldItem}>
+            <span className={styles.fieldLabel}>Device</span>
+            <span className={styles.fieldValue}>
+              {isCompare ? (
+                <span className={styles.compareVals}>
+                  <span className={styles.primaryVal}>{formatSource(primaryShot.source)}</span>
+                  <span className={styles.secondaryVal}>{formatSource(compareShot.source)}</span>
+                </span>
+              ) : (
+                formatSource(primaryShot.source)
+              )}
+            </span>
           </div>
-        ))}
+          <div className={styles.fieldItem}>
+            <span className={styles.fieldLabel}>Session</span>
+            <span className={styles.fieldValue}>
+              {isCompare ? (
+                <span className={styles.compareVals}>
+                  <span className={styles.primaryVal}>
+                    {sessionDate ? formatDateTime(sessionDate) : '\u2014'}
+                  </span>
+                  <span className={styles.secondaryVal}>
+                    {compareSessionDate ? formatDateTime(compareSessionDate) : '\u2014'}
+                  </span>
+                </span>
+              ) : (
+                sessionDate ? formatDateTime(sessionDate) : '\u2014'
+              )}
+            </span>
+          </div>
+        </div>
       </div>
+
+      {/* Data sections */}
+      {PANEL_SECTIONS.map((section) => (
+        <div key={section.title} className={styles.section}>
+          <div className={styles.sectionTitle}>{section.title}</div>
+          <div className={styles.fieldGrid}>
+            {section.fields.map((field) => {
+              const pVal = getVal(primaryShot, field.key)
+              const cVal = isCompare ? getVal(compareShot, field.key) : null
+              const d = field.decimals ?? 1
+              const delta = isCompare ? fmtDelta(pVal, cVal, d) : null
+
+              if (pVal == null && cVal == null) return null
+
+              return (
+                <div key={field.key} className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>{field.label}</span>
+                  {!isCompare ? (
+                    <span className={styles.fieldValue}>
+                      {fmtVal(pVal, d)}
+                      {field.unit && pVal != null && (
+                        <span className={styles.fieldUnit}>{field.unit}</span>
+                      )}
+                    </span>
+                  ) : (
+                    <span className={styles.compareVals}>
+                      <span className={styles.primaryVal}>{fmtVal(pVal, d)}</span>
+                      <span className={styles.secondaryVal}>{fmtVal(cVal, d)}</span>
+                      {delta && (
+                        <span className={`${styles.deltaVal} ${delta.className}`}>
+                          {delta.text}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

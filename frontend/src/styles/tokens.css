@@ -20,6 +20,10 @@
   --border: #2a2d35;
   --border-light: #33363e;
 
+  /* Compare */
+  --compare-primary: #38bdf8;
+  --compare-secondary: #fbbf24;
+
   /* Semantic */
   --danger: #ef5350;
   --warning: #ffa726;

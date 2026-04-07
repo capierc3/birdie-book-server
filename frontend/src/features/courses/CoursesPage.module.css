@@ -1,0 +1,92 @@
+.clubCard {
+  cursor: pointer;
+  transition: border-color 0.15s;
+  margin-bottom: 16px;
+}
+
+.clubCard:hover {
+  border-color: var(--accent);
+}
+
+.clubAddress {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  padding: 0 16px 8px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.addPanel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.searchRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.searchRow input {
+  flex: 1;
+}
+
+.searchResult {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.resultRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.resultPhoto {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.resultInfo {
+  flex: 1;
+}
+
+.resultName {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.resultSub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.resultLink {
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.resultLink:hover {
+  text-decoration: underline;
+}
+
+.searchError {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin-top: 8px;
+}

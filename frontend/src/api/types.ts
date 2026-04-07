@@ -239,6 +239,16 @@ export interface GolfClubSummary {
   }[]
 }
 
+export interface SearchCreateResult {
+  status: string
+  golf_club_id?: number
+  course_id?: number
+  club_name?: string
+  address?: string
+  photo_url?: string
+  courses?: { id: number; name: string; holes: number }[]
+}
+
 // ============================================================
 // Clubs (Equipment)
 // ============================================================

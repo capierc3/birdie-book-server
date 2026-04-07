@@ -3,7 +3,7 @@ export { get, post, put, patch, del, ApiError } from './client'
 
 // Hooks
 export { useRounds, useRound } from './hooks/useRounds'
-export { useCourses, useCourse, useCourseStats, useGolfClubs } from './hooks/useCourses'
+export { useCourses, useCourse, useCourseStats, useGolfClubs, useSearchCreateCourse } from './hooks/useCourses'
 export { useClubs, useClubDetail } from './hooks/useClubs'
 export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
 export { useRangeSessions, useRangeShots, useDeleteRangeSession } from './hooks/useRange'
@@ -24,6 +24,7 @@ export type {
   CourseRoundStats,
   CourseSGCategory,
   GolfClubSummary,
+  SearchCreateResult,
   Club,
   ClubFullStats,
   ClubDistanceStats,

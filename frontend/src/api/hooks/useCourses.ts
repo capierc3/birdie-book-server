@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
-import { get } from '../client'
-import type { Course, CourseDetail, CourseStats, GolfClubSummary } from '../types'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { get, post } from '../client'
+import type { Course, CourseDetail, CourseStats, GolfClubSummary, SearchCreateResult } from '../types'
 
 export function useCourses() {
   return useQuery({
@@ -31,5 +31,16 @@ export function useGolfClubs() {
   return useQuery({
     queryKey: ['golf-clubs'],
     queryFn: () => get<GolfClubSummary[]>('/courses/clubs'),
+  })
+}
+
+export function useSearchCreateCourse() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => post<SearchCreateResult>('/courses/search-create', { name }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['golf-clubs'] })
+      qc.invalidateQueries({ queryKey: ['courses'] })
+    },
   })
 }

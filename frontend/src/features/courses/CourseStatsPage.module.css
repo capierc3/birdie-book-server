@@ -1,0 +1,257 @@
+/* Header */
+.backLinks {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.backLink {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: var(--accent);
+}
+
+/* SG Breakdown */
+.sgToggle {
+  display: flex;
+  gap: 0;
+}
+
+.sgToggleBtn {
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.sgToggleBtn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.sgToggleBtn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.sgToggleBtnActive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.sgRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.sgLabel {
+  width: 90px;
+  font-size: 0.82rem;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.sgBarWrap {
+  flex: 1;
+  height: 20px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.sgBar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  transition: width 0.3s ease;
+}
+
+.sgBarPositive {
+  left: 50%;
+}
+
+.sgBarNegative {
+  right: 50%;
+}
+
+.sgCenter {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.sgValue {
+  width: 50px;
+  text-align: right;
+  font-size: 0.82rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.sgFooter {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 8px;
+  text-align: center;
+}
+
+/* Handicap */
+.hcpSummary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.hcpBox {
+  flex: 1;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  text-align: center;
+}
+
+.hcpBoxLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.hcpBoxValue {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.hcpTable {
+  width: 100%;
+  font-size: 0.82rem;
+}
+
+.hcpTable td {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.hcpTable td:last-child {
+  text-align: right;
+  font-weight: 600;
+}
+
+/* Scoring Distribution */
+.distRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.distLabel {
+  width: 70px;
+  font-size: 0.82rem;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.distBarWrap {
+  flex: 1;
+  height: 18px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.distBar {
+  height: 100%;
+  border-radius: var(--radius-sm);
+  transition: width 0.3s ease;
+}
+
+.distCount {
+  width: 30px;
+  text-align: right;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.distPct {
+  width: 45px;
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Hole table colors */
+.holeGreen {
+  color: var(--birdie);
+}
+
+.holeBlue {
+  color: var(--info);
+}
+
+.holeOrange {
+  color: var(--warning);
+}
+
+.holeRed {
+  color: var(--danger);
+}
+
+/* Sort toggles */
+.sortToggle {
+  display: flex;
+  gap: 0;
+}
+
+.sortBtn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.sortBtn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.sortBtn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.sortBtnActive {
+  background: var(--bg-active);
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+/* Action buttons row */
+.actionRow {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}

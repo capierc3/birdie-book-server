@@ -1,0 +1,73 @@
+.table {
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  width: 100%;
+  white-space: nowrap;
+}
+
+.label {
+  padding: 3px 8px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--bg-card);
+  z-index: 1;
+}
+
+.cell {
+  padding: 3px 6px;
+  text-align: center;
+  min-width: 26px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.total {
+  padding: 3px 6px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text);
+  border: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.activeCell {
+  background: rgba(var(--accent-rgb, 76, 175, 80), 0.15);
+  font-weight: 700;
+}
+
+.headerRow .cell { cursor: pointer; font-weight: 600; color: var(--text-muted); }
+.headerRow .cell:hover { background: var(--bg-hover); }
+
+.yardRow { color: var(--text-dim); }
+.parRow .cell { color: var(--text-muted); }
+.hcpRow .cell { color: var(--text-dim); font-size: 0.65rem; }
+
+.goalCell { cursor: pointer; }
+.goalCell:hover { background: var(--bg-hover); }
+
+.goalInput {
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  font-size: 0.72rem;
+  padding: 0;
+  border: none;
+  background: rgba(var(--accent-rgb, 76, 175, 80), 0.15);
+  color: var(--text);
+  outline: none;
+}
+
+.scoreRow .cell { cursor: pointer; font-weight: 600; }
+.scoreRow .cell:hover { background: var(--bg-hover); }
+
+.avgRow .cell { color: var(--text-dim); font-size: 0.68rem; }
+
+/* Score colors */
+.eagle { color: #FFD700; font-weight: 700; }
+.birdie { color: #f44336; font-weight: 700; }
+.par { color: var(--accent); }
+.bogey { color: #42a5f5; }
+.double { color: #7b1fa2; }

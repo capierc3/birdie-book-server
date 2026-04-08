@@ -330,7 +330,7 @@ export function CourseStatsPage() {
 
       {/* Action Buttons */}
       <div className={cs.actionRow}>
-        <Button variant="ghost" disabled title="Course editor coming soon">
+        <Button variant="ghost" onClick={() => navigate(`/courses/${stats.course_id}/map`)}>
           View Holes Map
         </Button>
         <Button variant="secondary" onClick={() => navigate(`/courses/club/${stats.club_id}`)}>

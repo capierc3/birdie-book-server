@@ -1,0 +1,257 @@
+/* ── Shared panel styles for course map floating panels ── */
+
+.section {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.section:last-child {
+  border-bottom: none;
+}
+
+.sectionLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ── Hole navigation grid ── */
+.holeNavGrid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.holeNavBtn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.holeNavBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.holeNavBtn::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.holeNavActive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.holeNavComplete::after {
+  background: #4CAF50;
+}
+.holeNavPartial::after {
+  background: #ff9800;
+}
+.holeNavEmpty::after {
+  background: #f44336;
+}
+
+/* ── Form fields ── */
+.fieldRow {
+  display: flex;
+  gap: 8px;
+}
+
+.fieldLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.fieldInput {
+  width: 100%;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  outline: none;
+}
+.fieldInput:focus {
+  border-color: var(--accent);
+}
+
+/* ── Data source ── */
+.dataSource {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+
+/* ── Completeness tags ── */
+.completeness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tagPresent,
+.tagMissing {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.tagPresent {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4CAF50;
+}
+.tagMissing {
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+}
+
+/* ── Tool grid (drawing tools) ── */
+.toolGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.toolBtn {
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.toolBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.toolBtnActive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ── Object list items ── */
+.objectItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.colorDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ── */
+.ghostBtn {
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ghostBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.actionBtn {
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.deleteBtn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--danger, #f44336);
+  font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.deleteBtn:hover {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+.emptyText {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Stats grid (overview panel) ── */
+.statsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ── Tee management ── */
+.teeItem {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.teeItem:last-child {
+  border-bottom: none;
+}
+
+.teeFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.teeFieldLabel {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}

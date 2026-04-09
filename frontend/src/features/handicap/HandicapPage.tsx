@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom'
-import { StatCard, DataTable, Card, CardHeader, EmptyState } from '../../components'
+import { StatCard, DataTable, Card, CardHeader, EmptyState, MobileCardList } from '../../components'
 import type { Column } from '../../components'
 import { useHandicap } from '../../api'
 import type { HandicapDifferential } from '../../api'
 import { formatNum, formatDate } from '../../utils/format'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { HandicapTrendChart } from './HandicapTrendChart'
 import { HandicapProjections } from './HandicapProjections'
 import styles from '../../styles/pages.module.css'
@@ -12,6 +13,7 @@ const USED_ROW_STYLE: React.CSSProperties = { background: 'rgba(34, 197, 94, 0.0
 
 export function HandicapPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { data, isLoading } = useHandicap()
 
   if (isLoading) return <div className={styles.loading}>Loading...</div>
@@ -70,16 +72,43 @@ export function HandicapPage() {
       <div className={styles.section}>
         <Card>
           <CardHeader title="Scoring Differentials" />
-          <DataTable
-            columns={columns}
-            data={[...data.differentials].reverse()}
-            keyExtractor={(r) => `${r.round_ids.join('-')}-${r.date}`}
-            onRowClick={(r) => {
-              if (r.round_ids.length === 1) navigate(`/rounds/${r.round_ids[0]}`)
-            }}
-            rowStyle={(r) => r.used ? USED_ROW_STYLE : undefined}
-            emptyMessage="No differentials yet. Need at least 3 rounds."
-          />
+          {isMobile ? (
+            <MobileCardList
+              data={[...data.differentials].reverse()}
+              keyExtractor={(r) => `${r.round_ids.join('-')}-${r.date}`}
+              onCardClick={(r) => {
+                if (r.round_ids.length === 1) navigate(`/rounds/${r.round_ids[0]}`)
+              }}
+              emptyMessage="No differentials yet. Need at least 3 rounds."
+              renderCard={(r) => (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                      {r.is_combined ? `${r.course_name} (9+9)` : r.course_name}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {formatDate(r.date)} · Score: {r.score}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>{formatNum(r.differential, 1)}</div>
+                    {r.used && <div style={{ color: '#22c55e', fontSize: '0.72rem', fontWeight: 600 }}>Used</div>}
+                  </div>
+                </div>
+              )}
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={[...data.differentials].reverse()}
+              keyExtractor={(r) => `${r.round_ids.join('-')}-${r.date}`}
+              onRowClick={(r) => {
+                if (r.round_ids.length === 1) navigate(`/rounds/${r.round_ids[0]}`)
+              }}
+              rowStyle={(r) => r.used ? USED_ROW_STYLE : undefined}
+              emptyMessage="No differentials yet. Need at least 3 rounds."
+            />
+          )}
         </Card>
       </div>
     </div>

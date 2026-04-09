@@ -25,6 +25,10 @@ export const SG_LABELS: Record<string, string> = {
 
 export const SG_CATEGORIES = ['off_the_tee', 'approach', 'short_game', 'putting'] as const
 
+export function chartHeight(isMobile: boolean): number {
+  return isMobile ? 220 : 300
+}
+
 export const SCORE_DIST_COLORS = {
   birdie_or_better: '#22c55e',
   par: '#3b82f6',

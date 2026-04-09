@@ -52,3 +52,10 @@
   padding: 5px 12px;
   font-size: 0.8rem;
 }
+
+@media (max-width: 768px) {
+  .sm {
+    min-height: var(--touch-target);
+    padding: 10px 16px;
+  }
+}

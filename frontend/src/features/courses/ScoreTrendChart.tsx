@@ -7,6 +7,7 @@ import {
 import { Card, CardHeader } from '../../components'
 import type { CourseRoundStats } from '../../api'
 import { CHART_COLORS } from '../../utils/chartTheme'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 interface Props {
   rounds: CourseRoundStats[]
@@ -28,6 +29,7 @@ function formatEpochFull(epoch: number): string {
 }
 
 export function ScoreTrendChart({ rounds }: Props) {
+  const isMobile = useIsMobile()
   const navigate = useNavigate()
 
   const sorted = useMemo(
@@ -73,7 +75,7 @@ export function ScoreTrendChart({ rounds }: Props) {
         </span>
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
         <ComposedChart data={chartData} margin={{ left: 10, right: 10 }} onClick={handleClick}>
           <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" />
           <XAxis

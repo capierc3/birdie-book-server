@@ -7,6 +7,7 @@ import { Card, CardHeader, Select } from '../../components'
 import type { HandicapData } from '../../api'
 import { CHART_COLORS } from '../../utils/chartTheme'
 import { formatDateShort, formatNum } from '../../utils/format'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 interface Props {
   data: HandicapData
@@ -28,6 +29,7 @@ function formatEpochFull(epoch: number): string {
 }
 
 export function HandicapTrendChart({ data }: Props) {
+  const isMobile = useIsMobile()
   const [axisMode, setAxisMode] = useState<AxisMode>('rounds')
   const [rangeValue, setRangeValue] = useState<RangeValue>('all')
 
@@ -165,7 +167,7 @@ export function HandicapTrendChart({ data }: Props) {
         )}
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
         <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
           <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" />
           <XAxis

@@ -32,3 +32,13 @@
   color: var(--text-dim);
   margin-top: 4px;
 }
+
+@media (max-width: 768px) {
+  .card {
+    padding: 14px;
+  }
+
+  .value {
+    font-size: 1.4rem;
+  }
+}

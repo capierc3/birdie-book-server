@@ -71,6 +71,14 @@
   .statsRow {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .chartContainer {
+    padding: 12px;
+  }
+
+  .filterBar {
+    gap: 8px;
+  }
 }
 
 @media (max-width: 480px) {

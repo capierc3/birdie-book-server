@@ -17,3 +17,13 @@
   font-weight: 600;
   color: var(--text);
 }
+
+@media (max-width: 768px) {
+  .card {
+    padding: 16px;
+  }
+
+  .header {
+    margin-bottom: 14px;
+  }
+}

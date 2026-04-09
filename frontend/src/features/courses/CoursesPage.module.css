@@ -90,3 +90,19 @@
   font-size: 0.85rem;
   margin-top: 8px;
 }
+
+@media (max-width: 768px) {
+  .headerRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .searchRow {
+    flex-direction: column;
+  }
+
+  .resultRow {
+    flex-wrap: wrap;
+  }
+}

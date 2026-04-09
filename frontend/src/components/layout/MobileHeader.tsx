@@ -1,16 +1,10 @@
-import { Menu } from 'lucide-react'
+import { CircleDot } from 'lucide-react'
 import styles from './MobileHeader.module.css'
 
-interface MobileHeaderProps {
-  onMenuToggle: () => void
-}
-
-export function MobileHeader({ onMenuToggle }: MobileHeaderProps) {
+export function MobileHeader() {
   return (
     <header className={styles.header}>
-      <button className={styles.menuBtn} onClick={onMenuToggle}>
-        <Menu size={24} />
-      </button>
+      <CircleDot size={22} className={styles.brandIcon} />
       <span className={styles.brand}>Birdie Book</span>
     </header>
   )

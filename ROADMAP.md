@@ -705,26 +705,26 @@
 - Remaining screens (Range, Courses, Practice, Import, Settings) show placeholder with "Coming soon" message
 - Old Jinja2 code preserved — no deletions
 
-### 18f. Screen Migration — Phase 2: Complex Screens `[ ]`
-- **Hole Workspace** (Feature 16): floating panel system, map with shots/plans, scorecard, hole overview
-  - This is the most complex migration — the floating panel system, Leaflet map overlays (shot lines, dispersion cones, hazards, green boundaries), and cross-panel state coordination
-  - React-Leaflet custom components for: shot markers, shot lines, dispersion cones, ball placement, green/fairway/hazard polygons
-  - Panel state management: which panels are open, positions, sizes, active hole/round context
-- **Course Editor**: course list, course detail, hole editing with map drawing tools
-  - `react-leaflet-draw` for polygon/polyline editing (tee boxes, greens, fairways, hazards)
-- **Practice Plans**: plan wizard, activity editor, drill browser, session review
-- **Data Import**: Garmin/Trackman/Rapsodo upload flows
-- **Settings / other minor screens**
+### 18f. Screen Migration — Phase 2: Complex Screens `[x]`
+- **Course Editor** (`features/course-map/`): full-screen Leaflet map with floating toolbar, hole-by-hole navigation, draggable floating panels (overview, scorecard, shots, insights, draw tools, edit hole), `react-leaflet-draw` for polygon/polyline editing (tee boxes, greens, fairways, hazards), back button overlay, mobile toolbar repositioning
+- **Courses** (`features/courses/`): golf club grouping with nested course DataTables, course search/create with OSM lookup, course stats page with hole-by-hole stats, score trend chart, SG breakdown, differentials table
+- **Range Sessions** (`features/range/`): sortable sessions table (date, source, shots, title), session detail with club group stats, delete with confirmation, Rapsodo/Trackman source labels
+- **Practice Plans** (`features/practice/`): plan list with card grid (goal, status, progress bar, focus tags), 3-step creation wizard, plan detail page with session/activity breakdown, activity editor (inline edit, add/remove, drill picker), plan review with before/after deltas, `usePractice` hook with full CRUD
+- **Data Import** (`features/import/`): tab-based interface (Garmin JSON, FIT File, Trackman URL, Rapsodo CSV), DropZone component for file uploads, per-source import flows
+- **Settings** (`features/settings/`): default tee preference (localStorage), clear all data with double confirmation, rebuild personal baseline action
+- All screens use path-based routing, TanStack Query hooks, and shared page layout classes
 
-### 18g. Screen Migration — Phase 3: Mobile Layouts `[ ]`
-- Responsive layouts for all migrated screens:
-  - Dashboard: stacked cards, swipeable chart sections
-  - Rounds/Clubs: full-width cards instead of tables
-  - Hole Workspace: panels become bottom sheets or swipeable tabs instead of floating windows
-  - Maps: full-screen with overlay controls
-- Touch-optimized interactions: larger tap targets, swipe gestures, pull-to-refresh
-- Bottom navigation bar on mobile viewports
-- This phase makes the *existing* desktop features usable on a phone — Features 11/12 add the *new* mobile-specific workflows on top
+### 18g. Screen Migration — Phase 3: Mobile Layouts `[x]`
+- **Bottom navigation bar**: 5-tab fixed bottom nav (Home, Rounds, Stats, Bag, More) replacing hamburger menu on mobile (≤768px), "More" tab opens slide-up panel with remaining 7 routes (Strokes Gained, Handicap, Range, Courses, Practice, Import, Settings)
+- **Mobile header**: simplified to centered brand title bar (no hamburger button)
+- **New components**: `useIsMobile()` / `useIsNarrow()` hooks (`hooks/useMediaQuery.ts`), `BottomNav` + `MoreMenu` layout components, `MobileCardList<T>` generic card list component
+- **Table-to-card conversions**: DataTable replaced with MobileCardList on mobile for Rounds, Scoring stats-by-round, Handicap differentials, SG per-round breakdown, Range sessions — each with custom card layout showing key data
+- **Responsive CSS across all shared components**: Card (16px padding), StatCard (14px padding, smaller value text), Button `.sm` (44px touch target), FormControls (44px min-height, 16px font to prevent iOS zoom), DataTable (tighter padding), FloatingPanel (bottom sheet at viewport bottom), pages.module.css (chart container padding, filter bar gap)
+- **Chart height optimization**: all Recharts charts (HandicapTrend, ScoreOverTime, ScoringTrend, SGTrend, CourseScoreTrend) use responsive height (220-240px mobile vs 300-350px desktop) via `useIsMobile()`
+- **Per-screen responsive fixes**: Settings (full-width selects), Import (horizontally scrollable tabs), Courses (stacked header/search), Practice (single-column grid), ClubsPage (stacked filter selects), RoundScorecard (compact cells with touch-friendly scrolling), CourseMap (44px toolbar icons, hidden bottom nav for full-screen immersive)
+- **Touch optimization**: 44px minimum touch targets on buttons/selects/nav items, iOS safe area padding (`env(safe-area-inset-bottom)`) on BottomNav, `-webkit-overflow-scrolling: touch` on scroll containers
+- **Z-index stack**: FloatingPanel(200) > MoreMenu(195) > Overlay(190) > BottomNav(180) > MobileHeader(150)
+- Design tokens added: `--bottom-nav-height: 64px`, `--touch-target: 44px`, `--z-bottom-nav: 180`
 
 ### 18h. GPS Rangefinder Integration `[ ]`
 - `navigator.geolocation.watchPosition()` for live GPS tracking

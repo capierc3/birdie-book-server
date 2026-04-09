@@ -7,6 +7,7 @@ import { Card, CardHeader, Select } from '../../components'
 import type { SGTrends } from '../../api'
 import { SG_CATEGORIES, SG_COLORS, SG_LABELS, CHART_COLORS } from '../../utils/chartTheme'
 import { formatDateShort } from '../../utils/format'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 interface Props {
   data: SGTrends
@@ -32,6 +33,7 @@ function formatEpochFull(epoch: number): string {
 }
 
 export function SGTrendChart({ data, baseline }: Props) {
+  const isMobile = useIsMobile()
   const [axisMode, setAxisMode] = useState<AxisMode>('rounds')
   const [rangeValue, setRangeValue] = useState<RangeValue>('all')
 
@@ -218,7 +220,7 @@ export function SGTrendChart({ data, baseline }: Props) {
         </span>
       </div>
 
-      <ResponsiveContainer width="100%" height={350}>
+      <ResponsiveContainer width="100%" height={isMobile ? 240 : 350}>
         <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
           <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" />
           <XAxis

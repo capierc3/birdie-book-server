@@ -69,3 +69,15 @@
 .clickable {
   cursor: pointer;
 }
+
+@media (max-width: 768px) {
+  .th {
+    padding: 8px 10px;
+    font-size: 0.7rem;
+  }
+
+  .td {
+    padding: 8px 10px;
+    font-size: 0.82rem;
+  }
+}

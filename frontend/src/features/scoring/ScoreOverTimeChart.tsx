@@ -6,6 +6,7 @@ import {
 import { Card, CardHeader, Select } from '../../components'
 import type { ScoringRound } from '../../api'
 import { CHART_COLORS } from '../../utils/chartTheme'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 interface Props {
   rounds: ScoringRound[]
@@ -32,6 +33,7 @@ const AVG_COLOR = '#3b82f6'
 const RAW_COLOR = '#94a3b8'
 
 export function ScoreOverTimeChart({ rounds }: Props) {
+  const isMobile = useIsMobile()
   const [axisMode, setAxisMode] = useState<AxisMode>('rounds')
   const [rangeValue, setRangeValue] = useState<RangeValue>('all')
 
@@ -157,7 +159,7 @@ export function ScoreOverTimeChart({ rounds }: Props) {
         </span>
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
         <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
           <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" />
           <XAxis

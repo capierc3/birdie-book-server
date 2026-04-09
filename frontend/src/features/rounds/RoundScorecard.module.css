@@ -58,4 +58,23 @@
 .wrap {
   overflow-x: auto;
   margin-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .scorecard th,
+  .scorecard td {
+    padding: 4px 5px;
+    min-width: 28px;
+    font-size: 0.75rem;
+  }
+
+  .scorecard th {
+    font-size: 0.65rem;
+  }
+
+  .rowLabel {
+    width: 40px;
+    font-size: 0.7rem;
+  }
 }

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Card, CardHeader, Select, Button, EmptyState } from '../../components'
 import { useClubs } from '../../api'
 import type { Club } from '../../api'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { ClubDistanceTable } from './ClubDistanceTable'
 import { ClubBoxPlot } from './ClubBoxPlot'
 import { ClubEditModal } from './ClubEditModal'
@@ -61,6 +62,7 @@ function parseWindow(compareWindow: string): { windowType: string; windowValue: 
 
 export function ClubsPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [dataSource, setDataSource] = useState<DataSource>('combined')
   const [compareWindow, setCompareWindow] = useState('')
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -101,7 +103,7 @@ export function ClubsPage() {
 
       <Card>
         <CardHeader title="Club Distances" action={
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: isMobile ? 8 : 16, alignItems: 'center', flexDirection: isMobile ? 'column' as const : 'row' as const }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Data:</label>
               <Select

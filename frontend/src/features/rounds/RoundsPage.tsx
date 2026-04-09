@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardHeader, DataTable, Select } from '../../components'
+import { Card, CardHeader, DataTable, Select, MobileCardList } from '../../components'
 import type { Column } from '../../components'
 import { useRounds } from '../../api'
 import type { RoundSummary } from '../../api'
 import { patch } from '../../api'
 import { formatDate, formatVsPar, vsParColor, formatGameFormat } from '../../utils/format'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import styles from '../../styles/pages.module.css'
 
 type SortDir = 'asc' | 'desc'
@@ -23,6 +24,7 @@ const FORMAT_COLORS: Record<string, string> = {
 
 export function RoundsPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { data: rounds = [], refetch } = useRounds()
 
   const [holesFilter, setHolesFilter] = useState<'all' | '18' | '9'>('all')
@@ -185,17 +187,53 @@ export function RoundsPage() {
       </div>
 
       <Card>
-        <DataTable
-          columns={columns}
-          data={filtered}
-          keyExtractor={(r) => r.id}
-          onRowClick={(r) => navigate(`/rounds/${r.id}`)}
-          rowStyle={(r) => r.exclude_from_stats ? { opacity: 0.5 } : undefined}
-          sortKey={sortKey}
-          sortDirection={sortDir}
-          onSort={handleSort}
-          emptyMessage="No rounds found"
-        />
+        {isMobile ? (
+          <MobileCardList
+            data={filtered}
+            keyExtractor={(r) => r.id}
+            onCardClick={(r) => navigate(`/rounds/${r.id}`)}
+            emptyMessage="No rounds found"
+            renderCard={(r) => (
+              <div style={{ opacity: r.exclude_from_stats ? 0.5 : 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                    {r.course_name ?? 'Unknown Course'}
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontWeight: 700, fontSize: '1.1rem' }}>{r.total_strokes ?? '--'}</span>
+                    {r.score_vs_par != null && (
+                      <span className={vsParColor(r.score_vs_par)} style={{ fontWeight: 600, marginLeft: 6 }}>
+                        {formatVsPar(r.score_vs_par)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <span>{formatDate(r.date)}</span>
+                  <span>{r.holes_completed ?? '--'}h</span>
+                  {r.shots_tracked != null && <span>{r.shots_tracked} shots</span>}
+                  {r.game_format && r.game_format !== 'STROKE_PLAY' && (
+                    <span style={{ color: FORMAT_COLORS[r.game_format] ?? '#888' }}>
+                      {formatGameFormat(r.game_format)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={filtered}
+            keyExtractor={(r) => r.id}
+            onRowClick={(r) => navigate(`/rounds/${r.id}`)}
+            rowStyle={(r) => r.exclude_from_stats ? { opacity: 0.5 } : undefined}
+            sortKey={sortKey}
+            sortDirection={sortDir}
+            onSort={handleSort}
+            emptyMessage="No rounds found"
+          />
+        )}
       </Card>
     </div>
   )

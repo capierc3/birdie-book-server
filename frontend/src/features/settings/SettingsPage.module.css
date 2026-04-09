@@ -39,6 +39,12 @@
   width: 240px;
 }
 
+@media (max-width: 768px) {
+  .teeSelect {
+    width: 100%;
+  }
+}
+
 .divider {
   margin-top: 24px;
   padding-top: 16px;

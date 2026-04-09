@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { StatCard, Card, CardHeader, DataTable, EmptyState } from '../../components'
+import { StatCard, Card, CardHeader, DataTable, EmptyState, MobileCardList } from '../../components'
 import type { Column } from '../../components'
 import { useScoring } from '../../api'
 import type { ScoringRound } from '../../api'
 import { formatPct, formatNum, formatDate, formatVsPar, vsParColor } from '../../utils/format'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { ScoringDistribution } from './ScoringDistribution'
 import { ParBreakdown } from './ParBreakdown'
 import { ScoreOverTimeChart } from './ScoreOverTimeChart'
@@ -13,6 +14,7 @@ import styles from '../../styles/pages.module.css'
 
 export function ScoringPage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { data, isLoading } = useScoring()
 
   // Sort per-round data newest-first
@@ -72,13 +74,39 @@ export function ScoringPage() {
       {/* Per-Round table wrapped in Card, sorted newest-first */}
       <Card>
         <CardHeader title="Stats by Round" />
-        <DataTable
-          columns={columns}
-          data={sortedRounds}
-          keyExtractor={(r) => r.round_id}
-          onRowClick={(r) => navigate(`/rounds/${r.round_id}`)}
-          emptyMessage="No round data"
-        />
+        {isMobile ? (
+          <MobileCardList
+            data={sortedRounds}
+            keyExtractor={(r) => r.round_id}
+            onCardClick={(r) => navigate(`/rounds/${r.round_id}`)}
+            emptyMessage="No round data"
+            renderCard={(r) => (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{r.course_name}</div>
+                  <span className={vsParColor(r.score_vs_par)} style={{ fontWeight: 700, fontSize: '1rem' }}>
+                    {r.score} ({formatVsPar(r.score_vs_par)})
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 12 }}>
+                  <span>{formatDate(r.date)}</span>
+                  <span>{r.holes_played}h</span>
+                  <span>GIR {formatPct(r.gir_pct, 0)}</span>
+                  <span>FW {formatPct(r.fw_pct, 0)}</span>
+                  <span>{r.putts ?? '--'} putts</span>
+                </div>
+              </div>
+            )}
+          />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={sortedRounds}
+            keyExtractor={(r) => r.round_id}
+            onRowClick={(r) => navigate(`/rounds/${r.round_id}`)}
+            emptyMessage="No round data"
+          />
+        )}
       </Card>
     </div>
   )

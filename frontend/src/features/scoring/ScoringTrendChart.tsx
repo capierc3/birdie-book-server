@@ -6,6 +6,7 @@ import {
 import { Card, CardHeader, Select } from '../../components'
 import type { ScoringRound } from '../../api'
 import { SCORE_DIST_COLORS, CHART_COLORS } from '../../utils/chartTheme'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 
 interface Props {
   rounds: ScoringRound[]
@@ -52,6 +53,7 @@ function perRoundDistribution(rounds: ScoringRound[]) {
 }
 
 export function ScoringTrendChart({ rounds }: Props) {
+  const isMobile = useIsMobile()
   const [axisMode, setAxisMode] = useState<AxisMode>('rounds')
   const [rangeValue, setRangeValue] = useState<RangeValue>('all')
 
@@ -163,7 +165,7 @@ export function ScoringTrendChart({ rounds }: Props) {
         ))}
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={isMobile ? 220 : 300}>
         <AreaChart data={chartData} margin={{ left: 10, right: 10 }}>
           <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="3 3" />
           <XAxis

@@ -17,6 +17,8 @@
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
   gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab {
@@ -85,6 +87,18 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 28px;
+}
+
+@media (max-width: 768px) {
+  .tab {
+    padding: 10px 14px;
+    min-width: max-content;
+    flex-shrink: 0;
+  }
+
+  .content {
+    padding: 16px;
+  }
 }
 
 .contentHeader {

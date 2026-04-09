@@ -39,6 +39,9 @@
   /* Layout */
   --sidebar-width: 240px;
   --header-height: 56px;
+  --bottom-nav-height: 64px;
+  --touch-target: 44px;
+  --z-bottom-nav: 180;
 
   /* Shared */
   --radius: 8px;

@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, DataTable, Button, EmptyState } from '../../components'
+import { Card, DataTable, Button, EmptyState, MobileCardList } from '../../components'
 import type { Column } from '../../components'
 import { useRangeSessions, useDeleteRangeSession } from '../../api'
 import type { RangeSessionSummary } from '../../api'
 import { formatDate, formatDateTime } from '../../utils/format'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import styles from '../../styles/pages.module.css'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -16,6 +17,7 @@ type SortDir = 'asc' | 'desc'
 
 export function RangePage() {
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const { data: sessions = [], isLoading } = useRangeSessions()
   const deleteMutation = useDeleteRangeSession()
 
@@ -110,16 +112,40 @@ export function RangePage() {
         />
       ) : (
         <Card>
-          <DataTable
-            columns={columns}
-            data={sorted}
-            keyExtractor={(r) => r.id}
-            onRowClick={(r) => navigate(`/range/${r.id}`)}
-            sortKey={sortKey}
-            sortDirection={sortDir}
-            onSort={handleSort}
-            emptyMessage="No range sessions"
-          />
+          {isMobile ? (
+            <MobileCardList
+              data={sorted}
+              keyExtractor={(r) => r.id}
+              onCardClick={(r) => navigate(`/range/${r.id}`)}
+              emptyMessage="No range sessions"
+              renderCard={(r) => (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                      {r.title || formatDate(r.session_date)}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {r.title ? formatDateTime(r.session_date) : ''} · {SOURCE_LABELS[r.source] ?? r.source}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                    {r.shot_count} shots
+                  </div>
+                </div>
+              )}
+            />
+          ) : (
+            <DataTable
+              columns={columns}
+              data={sorted}
+              keyExtractor={(r) => r.id}
+              onRowClick={(r) => navigate(`/range/${r.id}`)}
+              sortKey={sortKey}
+              sortDirection={sortDir}
+              onSort={handleSort}
+              emptyMessage="No range sessions"
+            />
+          )}
         </Card>
       )}
     </div>

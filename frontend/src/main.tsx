@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { createIdbPersister, PERSIST_MAX_AGE } from './lib/queryPersist'
+import { ToastProvider } from './components'
 import App from './App'
 import './styles/tokens.css'
 import './styles/reset.css'
@@ -27,7 +28,9 @@ createRoot(document.getElementById('root')!).render(
       persistOptions={{ persister, maxAge: PERSIST_MAX_AGE }}
     >
       <BrowserRouter basename="/app">
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </BrowserRouter>
     </PersistQueryClientProvider>
   </StrictMode>,

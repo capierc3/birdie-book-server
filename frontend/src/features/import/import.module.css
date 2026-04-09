@@ -1,0 +1,160 @@
+.sectionTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.sectionDesc {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.progressWrap {
+  margin-top: 16px;
+}
+
+.progressLabel {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* File list for Garmin JSON */
+.fileList {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.fileItem.matched {
+  color: var(--accent);
+}
+
+.fileItem.unrecognized {
+  color: var(--warning);
+  border-color: rgba(255, 167, 38, 0.3);
+}
+
+.fileIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.fileName {
+  flex: 1;
+}
+
+.fileField {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+/* FIT Preview */
+.preview {
+  margin-top: 20px;
+  padding: 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.previewGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 24px;
+  margin-bottom: 20px;
+}
+
+.previewLabel {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.previewValue {
+  font-size: 0.95rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Scorecard */
+.scorecard {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scorecardRow {
+  display: grid;
+  gap: 2px;
+}
+
+.nine {
+  grid-template-columns: repeat(10, 1fr);
+}
+
+.scorecardCell {
+  text-align: center;
+  padding: 6px 2px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+}
+
+.holeNum {
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.scoreCell {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.totalLabel {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+}
+
+.totalScore {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Trackman URL input */
+.urlRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.urlInput {
+  flex: 1;
+}

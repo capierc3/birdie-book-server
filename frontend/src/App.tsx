@@ -15,6 +15,8 @@ import { CoursesPage } from './features/courses/CoursesPage'
 import { ClubDetailPage as GolfClubDetailPage } from './features/courses/ClubDetailPage'
 import { CourseStatsPage } from './features/courses/CourseStatsPage'
 import { CourseMapPage } from './features/course-map/CourseMapPage'
+import { ImportPage } from './features/import/ImportPage'
+import { SettingsPage } from './features/settings/SettingsPage'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -50,8 +52,8 @@ function App() {
         <Route path="/courses/:id" element={<CourseStatsPage />} />
         <Route path="/courses/:id/map" element={<CourseMapPage />} />
         <Route path="/practice" element={<Placeholder title="Practice" />} />
-        <Route path="/import" element={<Placeholder title="Import" />} />
-        <Route path="/settings" element={<Placeholder title="Settings" />} />
+        <Route path="/import" element={<ImportPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

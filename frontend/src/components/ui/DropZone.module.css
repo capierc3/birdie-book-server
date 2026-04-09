@@ -1,0 +1,48 @@
+.zone {
+  border: 2px dashed var(--border-light);
+  border-radius: var(--radius);
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.zone:hover,
+.zone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.zone.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.icon {
+  width: 40px;
+  height: 40px;
+  color: var(--text-dim);
+  margin: 0 auto 12px;
+  transition: color var(--transition);
+}
+
+.zone:hover .icon,
+.zone.dragover .icon {
+  color: var(--accent);
+}
+
+.label {
+  font-size: 0.95rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.sublabel {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.hidden {
+  display: none;
+}

@@ -1,0 +1,66 @@
+.page {
+  max-width: 640px;
+}
+
+.header {
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.subtitle {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.section {
+  margin-bottom: 20px;
+}
+
+.fieldLabel {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.fieldHelp {
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  margin-top: 4px;
+}
+
+.teeSelect {
+  width: 240px;
+}
+
+.divider {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.actionDesc {
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.dangerBtn {
+  background: var(--danger) !important;
+  color: #fff !important;
+}
+
+.dangerBtn:hover:not(:disabled) {
+  background: #c62828 !important;
+}
+
+.statusMsg {
+  margin-top: 12px;
+}

@@ -1,0 +1,77 @@
+.title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+  margin-top: 24px;
+}
+
+.muted {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.reviewCard {
+  margin-bottom: 16px;
+  border-left: 3px solid var(--accent);
+}
+
+.table {
+  font-size: 0.8rem;
+}
+
+.tableRow {
+  display: grid;
+  grid-template-columns: 1fr repeat(5, 80px);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+
+.tableRow:last-child {
+  border-bottom: none;
+}
+
+.tableHeader {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* For tables with fewer columns, adjust with auto */
+.tableRow:has(> :nth-child(4):last-child) {
+  grid-template-columns: 1fr repeat(3, 90px);
+}
+
+.tableRow:has(> :nth-child(3):last-child) {
+  grid-template-columns: 1fr repeat(2, 120px);
+}
+
+.deltaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 0.9rem;
+}
+
+.deltaLabel {
+  color: var(--text-muted);
+}
+
+.deltaValues {
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .tableRow {
+    grid-template-columns: 1fr repeat(3, 60px);
+    font-size: 0.75rem;
+  }
+}

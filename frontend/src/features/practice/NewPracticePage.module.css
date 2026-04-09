@@ -1,0 +1,374 @@
+/* Wizard step indicator */
+.steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 32px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.stepNum {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.stepLabel {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.step.active .stepNum {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.step.active .stepLabel {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.step.done .stepNum {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.step.done .stepLabel {
+  color: var(--text);
+}
+
+.stepLine {
+  width: 40px;
+  height: 2px;
+  background: var(--border);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+
+.step.done + .stepLine,
+.stepLine.done {
+  background: var(--accent);
+}
+
+/* Wizard body */
+.body {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+  justify-content: flex-end;
+}
+
+/* Type selection cards */
+.typeCards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.typeCard {
+  padding: 20px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  text-align: center;
+}
+
+.typeCard:hover {
+  border-color: var(--accent);
+}
+
+.typeCard.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.typeCardTitle {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.typeCardDesc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Tag selection */
+.tagSection {
+  margin-bottom: 16px;
+}
+
+.tagSectionLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.tagGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tagBtn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tagBtn:hover {
+  border-color: var(--accent);
+}
+
+.tagBtn.selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.tagBtn.surprise {
+  border-style: dashed;
+}
+
+.tagBtn.surprise.selected {
+  border-style: solid;
+}
+
+.customTagRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Session builder */
+.sessionCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.sessionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sessionTitle {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.sessionFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Activity rows in review */
+.activityRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.activityRow:last-child {
+  border-bottom: none;
+}
+
+.activityInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.activityClub {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.activityAmount {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.activityFocus {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+
+.activityTarget {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.activityRationale {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.drillCard {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent, #22c55e);
+  background: color-mix(in srgb, var(--accent, #22c55e) 6%, var(--bg-card));
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.drillName {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent, #22c55e);
+}
+
+.drillDesc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.drillLink {
+  font-size: 0.75rem;
+  color: var(--accent, #22c55e);
+  cursor: pointer;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.drillLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.addDrillLink {
+  font-size: 0.75rem;
+  color: var(--accent, #22c55e);
+  cursor: pointer;
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.addDrillLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.activityActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Generating state */
+.generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  color: var(--text-muted);
+  gap: 12px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Session type selector */
+.sessionTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.sessionTypeBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.sessionTypeBtn:hover {
+  border-color: var(--accent);
+}
+
+.sessionTypeBtn.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .typeCards {
+    grid-template-columns: 1fr;
+  }
+  .sessionFields {
+    grid-template-columns: 1fr;
+  }
+  .sessionTypeGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

@@ -18,9 +18,10 @@ export function formatPct(v: number | null | undefined, decimals = 1): string {
   return `${v.toFixed(decimals)}%`
 }
 
-// Date formatting
+// Date formatting — handles both date-only ("2025-03-13") and full ISO ("2025-03-13T23:31:00")
 export function formatDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00')
+  // Only append T00:00:00 for date-only strings (no T present)
+  const d = new Date(iso.includes('T') ? iso : iso + 'T00:00:00')
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -31,7 +32,7 @@ export function formatDateTime(iso: string): string {
 }
 
 export function formatDateShort(iso: string): string {
-  const d = new Date(iso + 'T00:00:00')
+  const d = new Date(iso.includes('T') ? iso : iso + 'T00:00:00')
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 

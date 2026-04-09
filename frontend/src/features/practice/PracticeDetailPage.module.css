@@ -1,0 +1,261 @@
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.backLink:hover {
+  color: var(--text);
+}
+
+.headerRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.headerLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.planTitle {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.tag {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.progressSection {
+  margin-bottom: 20px;
+}
+
+.progressLabel {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+/* Metadata cards */
+.metaCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.metaCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.metaTitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.metaValue {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.linkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Session cards */
+.sessionCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.sessionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sessionType {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.sessionMeta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Activity rows */
+.activityRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.activityRow:last-child {
+  border-bottom: none;
+}
+
+.activityCheck {
+  margin-top: 2px;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.activityBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.activityMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.activityClub {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.activityAmount {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.activityFocus {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.activityTarget {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.activityRationale {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.drillCard {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent, #22c55e);
+  background: color-mix(in srgb, var(--accent, #22c55e) 6%, var(--bg-card));
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.drillName {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent, #22c55e);
+}
+
+.drillDesc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.drillLink {
+  font-size: 0.75rem;
+  color: var(--accent, #22c55e);
+  cursor: pointer;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.drillLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.addDrillLink {
+  font-size: 0.75rem;
+  color: var(--accent, #22c55e);
+  cursor: pointer;
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.addDrillLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.activityActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.completed .activityClub,
+.completed .activityAmount,
+.completed .activityTarget {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+@media (max-width: 600px) {
+  .headerRow {
+    flex-direction: column;
+  }
+  .metaCards {
+    grid-template-columns: 1fr;
+  }
+}

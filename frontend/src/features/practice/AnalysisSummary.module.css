@@ -1,0 +1,152 @@
+.card {
+  margin-bottom: 20px;
+}
+
+.muted {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.section {
+  margin-top: 16px;
+}
+
+.sectionTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+/* SG bars */
+.sgRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.sgLabel {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.sgTrack {
+  flex: 1;
+  height: 12px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.sgFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.sgValue {
+  font-size: 0.8rem;
+  font-weight: 600;
+  width: 70px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Mini table */
+.miniTable {
+  font-size: 0.8rem;
+}
+
+.miniRow {
+  display: grid;
+  grid-template-columns: 1fr 80px 90px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.miniRow:last-child {
+  border-bottom: none;
+}
+
+.miniHeader {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.trend {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Miss bars */
+.missRow {
+  margin-bottom: 8px;
+}
+
+.missClub {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.missBar {
+  position: relative;
+  display: flex;
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 2px;
+}
+
+.missSeg {
+  height: 100%;
+}
+
+.missLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* Scoring stats */
+.scoringGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.scoringStat {
+  text-align: center;
+}
+
+.scoringValue {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.scoringLabel {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+@media (max-width: 480px) {
+  .sgLabel {
+    width: 80px;
+  }
+  .miniRow {
+    grid-template-columns: 1fr 60px 70px;
+  }
+  .scoringGrid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+}

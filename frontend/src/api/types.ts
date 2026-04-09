@@ -615,3 +615,264 @@ export interface HandicapData {
   trend: HandicapTrendPoint[]
   differentials: HandicapDifferential[]
 }
+
+// ============================================================
+// Practice Plans
+// ============================================================
+
+export interface RoundPlanAvailable {
+  id: number
+  name: string
+  course_name: string
+  planned_date?: string | null
+  status: string
+}
+
+export interface PracticeActivity {
+  id: number
+  activity_order: number
+  club?: string | null
+  club_id?: number | null
+  drill_id?: number | null
+  drill_name?: string | null
+  drill_description?: string | null
+  ball_count?: number | null
+  duration_minutes?: number | null
+  focus_area: string
+  sg_category?: string | null
+  rationale?: string | null
+  target_metric?: string | null
+  notes?: string | null
+  completed: boolean
+}
+
+export interface PracticeSession {
+  id: number
+  session_order: number
+  session_type: string
+  ball_count?: number | null
+  duration_minutes?: number | null
+  notes?: string | null
+  activities: PracticeActivity[]
+}
+
+export interface PracticePlanSummary {
+  id: number
+  plan_type: string
+  goal?: string | null
+  status: string
+  notes?: string | null
+  focus_tags?: string[] | null
+  round_plan_id?: number | null
+  round_plan_info?: RoundPlanAvailable | null
+  range_session_id?: number | null
+  session_count: number
+  total_activities: number
+  completed_activities: number
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface PracticePlanDetail {
+  id: number
+  plan_type: string
+  goal?: string | null
+  status: string
+  notes?: string | null
+  focus_tags?: string[] | null
+  round_plan_id?: number | null
+  round_plan_info?: RoundPlanAvailable | null
+  range_session_id?: number | null
+  analysis?: AnalysisSummary | null
+  created_at?: string | null
+  updated_at?: string | null
+  sessions: PracticeSession[]
+}
+
+// Analysis shapes from generate + snapshot
+export interface SGCategoryAnalysis {
+  category: string
+  label: string
+  sg_per_round: number
+  sg_per_shot?: number
+  recent_sg_per_round?: number
+  trend?: string | null
+  shot_count?: number
+}
+
+export interface RangeCourseGap {
+  club_id: number
+  club_name: string
+  gap: number
+  trend?: string | null
+}
+
+export interface MissHighlight {
+  club: string
+  dominant: string
+  pct: number
+  avg_miss_yards?: number
+  sample?: number
+}
+
+export interface AnalysisSummary {
+  sg_by_category?: SGCategoryAnalysis[]
+  range_course_gaps?: RangeCourseGap[]
+  miss_highlights?: MissHighlight[]
+  worst_proximity_bucket?: { band: string; sg_per_shot: number } | null
+  scoring_patterns?: {
+    three_putt_rate?: number
+    scramble_pct?: number
+    penalties_per_round?: number
+    bogey_plus_count?: number
+    bogey_causes?: Record<string, number>
+    total_holes?: number
+    round_count?: number
+  } | null
+  player_context?: {
+    mentioned_clubs?: string[]
+    mentioned_skills?: string[]
+    recent_struggles?: string[]
+    has_notes?: boolean
+  } | null
+  course_needs?: {
+    course_name?: string
+    plan_name?: string
+    club_frequency?: Record<string, number>
+    distance_bands?: { band: string; count: number }[]
+    total_holes?: number
+  } | null
+  focus_tags?: string[]
+  total_rounds?: number
+}
+
+// Generate response
+export interface GenerateSessionActivity {
+  activity_order: number
+  club?: string | null
+  club_id?: number | null
+  drill_id?: number | null
+  drill_name?: string | null
+  ball_count?: number | null
+  duration_minutes?: number | null
+  focus_area: string
+  sg_category?: string | null
+  rationale?: string | null
+  target_metric?: string | null
+  notes?: string | null
+}
+
+export interface GenerateSession {
+  session_order: number
+  session_type: string
+  ball_count?: number | null
+  duration_minutes?: number | null
+  activities: GenerateSessionActivity[]
+}
+
+export interface GeneratePlanResponse {
+  analysis: AnalysisSummary
+  sessions: GenerateSession[]
+}
+
+// Save/update request types
+export interface SessionSpecInput {
+  session_type: string
+  ball_count?: number | null
+  duration_minutes?: number | null
+}
+
+export interface SaveActivityInput {
+  activity_order: number
+  club?: string | null
+  club_id?: number | null
+  drill_id?: number | null
+  ball_count?: number | null
+  duration_minutes?: number | null
+  focus_area: string
+  sg_category?: string | null
+  rationale?: string | null
+  target_metric?: string | null
+  notes?: string | null
+}
+
+export interface SaveSessionInput {
+  session_order: number
+  session_type: string
+  ball_count?: number | null
+  duration_minutes?: number | null
+  notes?: string | null
+  activities: SaveActivityInput[]
+}
+
+export interface SavePlanRequest {
+  plan_type: string
+  round_plan_id?: number | null
+  goal?: string | null
+  focus_tags?: string[] | null
+  notes?: string | null
+  analysis_snapshot?: string | null
+  range_session_id?: number | null
+  sessions: SaveSessionInput[]
+}
+
+export interface GeneratePlanRequest {
+  plan_type: string
+  round_plan_id?: number | null
+  goal?: string | null
+  focus_tags?: string[] | null
+  sessions: SessionSpecInput[]
+}
+
+// Plan review (completed plans)
+export interface PlanReviewClubStats {
+  shot_count: number
+  avg_carry?: number
+  std_carry?: number
+  avg_lateral?: number
+  lateral_std?: number
+  avg_ball_speed?: number
+}
+
+export interface PlanReviewResponse {
+  plan_id: number
+  status: string
+  created_at?: string | null
+  before: AnalysisSummary
+  deltas: {
+    sg_categories?: { category: string; label: string; before: number }[]
+    scoring?: { three_putt_before?: number | null; three_putt_after?: number | null }
+    range_session?: {
+      session_date?: string | null
+      title?: string | null
+      shot_count: number
+      clubs: Record<string, PlanReviewClubStats>
+    }
+    miss_direction?: {
+      club: string
+      before_pct: number
+      before_side: string
+      after_pct?: number | null
+      after_dominant?: string | null
+    }[]
+    gaps?: {
+      club: string
+      before_gap: number
+      after_gap: number
+      trend: string
+    }[]
+  }
+}
+
+// Drills
+export interface DrillSummary {
+  id: number
+  name: string
+  description: string
+  target?: string | null
+  sg_category?: string | null
+  focus_area?: string | null
+  club_type?: string | null
+  session_types?: string[] | null
+  is_default: boolean
+}

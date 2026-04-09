@@ -1,6 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './components'
-import { EmptyState } from './components'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { RoundsPage } from './features/rounds/RoundsPage'
 import { RoundDetailPage } from './features/rounds/RoundDetailPage'
@@ -15,22 +14,11 @@ import { CoursesPage } from './features/courses/CoursesPage'
 import { ClubDetailPage as GolfClubDetailPage } from './features/courses/ClubDetailPage'
 import { CourseStatsPage } from './features/courses/CourseStatsPage'
 import { CourseMapPage } from './features/course-map/CourseMapPage'
+import { PracticePage } from './features/practice/PracticePage'
+import { NewPracticePage } from './features/practice/NewPracticePage'
+import { PracticeDetailPage } from './features/practice/PracticeDetailPage'
 import { ImportPage } from './features/import/ImportPage'
 import { SettingsPage } from './features/settings/SettingsPage'
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700 }}>{title}</h1>
-      </div>
-      <EmptyState
-        message="Coming soon"
-        description="This screen will be migrated in a future update."
-      />
-    </div>
-  )
-}
 
 function App() {
   return (
@@ -51,7 +39,10 @@ function App() {
         <Route path="/courses/club/:id" element={<GolfClubDetailPage />} />
         <Route path="/courses/:id" element={<CourseStatsPage />} />
         <Route path="/courses/:id/map" element={<CourseMapPage />} />
-        <Route path="/practice" element={<Placeholder title="Practice" />} />
+        <Route path="/practice" element={<PracticePage />} />
+        <Route path="/practice/new" element={<NewPracticePage />} />
+        <Route path="/practice/new/round-plan/:roundPlanId" element={<NewPracticePage />} />
+        <Route path="/practice/:id" element={<PracticeDetailPage />} />
         <Route path="/import" element={<ImportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

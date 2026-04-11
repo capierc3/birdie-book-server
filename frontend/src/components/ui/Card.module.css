@@ -18,6 +18,15 @@
   color: var(--text);
 }
 
+.titleClickable {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.titleClickable:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 768px) {
   .card {
     padding: 16px;

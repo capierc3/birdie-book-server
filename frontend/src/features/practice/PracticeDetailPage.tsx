@@ -7,6 +7,7 @@ import {
   Select,
   Card,
   useToast,
+  useConfirm,
 } from '../../components'
 import {
   usePracticePlan,
@@ -41,6 +42,7 @@ export function PracticeDetailPage() {
   const planId = Number(id)
   const navigate = useNavigate()
   const { addToast } = useToast()
+  const { confirm } = useConfirm()
 
   const { data: plan, isLoading } = usePracticePlan(planId)
   const { data: review } = usePlanReview(
@@ -85,8 +87,13 @@ export function PracticeDetailPage() {
       ? Math.round((completedActivities / totalActivities) * 100)
       : 0
 
-  const handleDelete = () => {
-    if (!confirm('Delete this practice plan? This cannot be undone.')) return
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: 'Delete Plan',
+      message: 'Delete this practice plan? This cannot be undone.',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     deletePlan.mutate(planId, {
       onSuccess: () => {
         addToast('Plan deleted', 'success')
@@ -119,8 +126,13 @@ export function PracticeDetailPage() {
     setAddingToSession(null)
   }
 
-  const handleDeleteActivity = (activityId: number) => {
-    if (!confirm('Remove this activity?')) return
+  const handleDeleteActivity = async (activityId: number) => {
+    const ok = await confirm({
+      title: 'Remove Activity',
+      message: 'Remove this activity?',
+      confirmLabel: 'Remove',
+    })
+    if (!ok) return
     deleteActivity.mutate({ planId, activityId })
   }
 

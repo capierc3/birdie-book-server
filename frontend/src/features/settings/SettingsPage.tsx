@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Card, CardHeader, Button, Select, useToast } from '../../components'
+import { Card, CardHeader, Button, Select, useToast, useConfirm } from '../../components'
 import { post } from '../../api/client'
 import styles from './SettingsPage.module.css'
 
@@ -24,6 +24,7 @@ export function SettingsPage() {
   const [rebuilding, setRebuilding] = useState(false)
   const queryClient = useQueryClient()
   const { toast } = useToast()
+  const { confirm } = useConfirm()
 
   const handleTeeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value
@@ -32,8 +33,18 @@ export function SettingsPage() {
   }, [])
 
   const handleClearData = useCallback(async () => {
-    if (!window.confirm('Are you sure you want to clear ALL data? This cannot be undone.')) return
-    if (!window.confirm('This will delete all rounds, courses, clubs, range sessions, and shots. Are you absolutely sure?')) return
+    const ok1 = await confirm({
+      title: 'Clear All Data',
+      message: 'Are you sure you want to clear ALL data? This cannot be undone.',
+      confirmLabel: 'Continue',
+    })
+    if (!ok1) return
+    const ok2 = await confirm({
+      title: 'Are You Sure?',
+      message: 'This will delete all rounds, courses, clubs, range sessions, and shots. Are you absolutely sure?',
+      confirmLabel: 'Clear Everything',
+    })
+    if (!ok2) return
 
     setClearing(true)
     try {
@@ -45,7 +56,7 @@ export function SettingsPage() {
     } finally {
       setClearing(false)
     }
-  }, [queryClient, toast])
+  }, [queryClient, toast, confirm])
 
   const handleRebuildBaseline = useCallback(async () => {
     setRebuilding(true)

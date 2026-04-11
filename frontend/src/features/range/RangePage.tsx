@@ -1,16 +1,19 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, DataTable, Button, EmptyState, MobileCardList } from '../../components'
+import { Card, DataTable, Button, EmptyState, MobileCardList, useConfirm } from '../../components'
 import type { Column } from '../../components'
 import { useRangeSessions, useDeleteRangeSession } from '../../api'
 import type { RangeSessionSummary } from '../../api'
 import { formatDate, formatDateTime } from '../../utils/format'
 import { useIsMobile } from '../../hooks/useMediaQuery'
+import { AddSessionModal } from './AddSessionModal'
 import styles from '../../styles/pages.module.css'
 
 const SOURCE_LABELS: Record<string, string> = {
   rapsodo_mlm2pro: 'Rapsodo MLM2PRO',
   trackman: 'Trackman',
+  manual_csv: 'CSV Import',
+  manual: 'Manual',
 }
 
 type SortDir = 'asc' | 'desc'
@@ -20,7 +23,9 @@ export function RangePage() {
   const isMobile = useIsMobile()
   const { data: sessions = [], isLoading } = useRangeSessions()
   const deleteMutation = useDeleteRangeSession()
+  const { confirm } = useConfirm()
 
+  const [showAddModal, setShowAddModal] = useState(false)
   const [sortKey, setSortKey] = useState('session_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
@@ -49,9 +54,14 @@ export function RangePage() {
     }
   }
 
-  const handleDelete = (e: React.MouseEvent, session: RangeSessionSummary) => {
+  const handleDelete = async (e: React.MouseEvent, session: RangeSessionSummary) => {
     e.stopPropagation()
-    if (!confirm(`Delete session from ${formatDate(session.session_date)}? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: 'Delete Session',
+      message: `Delete session from ${formatDate(session.session_date)}? This cannot be undone.`,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     deleteMutation.mutate(session.id)
   }
 
@@ -100,10 +110,15 @@ export function RangePage() {
 
   return (
     <div>
-      <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Range Sessions</h1>
-        <p className={styles.pageDesc}>Launch monitor practice data</p>
+      <div className={styles.pageHeader} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className={styles.pageTitle}>Range Sessions</h1>
+          <p className={styles.pageDesc}>Launch monitor practice data</p>
+        </div>
+        <Button onClick={() => setShowAddModal(true)}>+ Add Session</Button>
       </div>
+
+      <AddSessionModal isOpen={showAddModal} onClose={() => setShowAddModal(false)} />
 
       {sessions.length === 0 ? (
         <EmptyState

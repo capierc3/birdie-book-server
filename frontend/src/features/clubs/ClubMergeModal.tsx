@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Modal, Button } from '../../components'
+import { Modal, Button, useConfirm } from '../../components'
 import { post } from '../../api'
 import type { Club } from '../../api'
 
@@ -37,6 +37,7 @@ function clubSortKey(type: string): number {
 
 export function ClubMergeModal({ isOpen, onClose, targetClub, allClubs }: Props) {
   const queryClient = useQueryClient()
+  const { confirm } = useConfirm()
   const [merging, setMerging] = useState(false)
   const [error, setError] = useState('')
 
@@ -47,10 +48,12 @@ export function ClubMergeModal({ isOpen, onClose, targetClub, allClubs }: Props)
     .sort((a, b) => clubSortKey(a.club_type) - clubSortKey(b.club_type))
 
   const handleMerge = async (sourceClub: Club) => {
-    const confirmed = window.confirm(
-      `Merge "${sourceClub.club_type}" into "${targetClub.club_type}"?\n\nAll shots from "${sourceClub.club_type}" will be moved to "${targetClub.club_type}", and "${sourceClub.club_type}" will be deleted.\n\nThis cannot be undone.`
-    )
-    if (!confirmed) return
+    const ok = await confirm({
+      title: 'Merge Clubs',
+      message: `Merge "${sourceClub.club_type}" into "${targetClub!.club_type}"? All shots from "${sourceClub.club_type}" will be moved to "${targetClub!.club_type}", and "${sourceClub.club_type}" will be deleted. This cannot be undone.`,
+      confirmLabel: 'Merge',
+    })
+    if (!ok) return
 
     setMerging(true)
     setError('')

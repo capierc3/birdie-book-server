@@ -1,6 +1,8 @@
+import { useMemo } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
 import { useCourseMap, HAZARD_COLORS, HAZARD_LABELS } from './courseMapState'
 import type { DrawTool, HazardType } from './courseMapState'
+import { haversineYards } from './geoUtils'
 import s from './panels.module.css'
 
 const TOOLS: { id: DrawTool; label: string }[] = [
@@ -22,7 +24,34 @@ const HAZARD_OPTIONS: { value: HazardType; label: string }[] = [
 
 export function DrawToolsPanel({ onClose }: { onClose: () => void }) {
   const ctx = useCourseMap()
-  const { activeTool, hazardType, currentFwBoundary, currentHazard, fairwayBoundaries, greenBoundary, hazards } = ctx
+  const { activeTool, hazardType, currentFwBoundary, currentHazard, fairwayBoundaries, greenBoundary, hazards, fairwayPath, teePos, greenPos } = ctx
+
+  // Fairway guide: recommended nodes + gap warning
+  const fairwayGuide = useMemo(() => {
+    if (activeTool !== 'fairway') return null
+    const par = parseInt(ctx._formValues.par) || 0
+    let recommended = ''
+    if (par === 3) recommended = '3–4'
+    else if (par === 4) recommended = '7–8'
+    else if (par === 5) recommended = '10–12'
+    else if (par >= 6) recommended = '5–7'
+
+    const count = fairwayPath.length
+
+    // Build full path: tee → waypoints → green for gap check
+    const fullPath = [
+      ...(teePos ? [teePos] : []),
+      ...fairwayPath,
+      ...(greenPos ? [greenPos] : []),
+    ]
+    let maxGap = 0
+    for (let i = 1; i < fullPath.length; i++) {
+      const d = haversineYards(fullPath[i - 1].lat, fullPath[i - 1].lng, fullPath[i].lat, fullPath[i].lng)
+      if (d > maxGap) maxGap = d
+    }
+
+    return { par, recommended, count, maxGap: Math.round(maxGap) }
+  }, [activeTool, ctx._formValues.par, fairwayPath, teePos, greenPos])
 
   const handleToolSelect = (tool: DrawTool) => {
     // Finish in-progress drawing if switching away
@@ -173,6 +202,20 @@ export function DrawToolsPanel({ onClose }: { onClose: () => void }) {
           <button className={s.ghostBtn} onClick={handleClearGreenBoundary}>Clear Green Bnd</button>
         </div>
       </div>
+
+      {/* Fairway line guide */}
+      {fairwayGuide && fairwayGuide.par >= 3 && (
+        <div className={s.section}>
+          <div style={{ fontSize: 12, color: fairwayGuide.recommended && fairwayGuide.count >= parseInt(fairwayGuide.recommended) ? 'var(--color-success, #66BB6A)' : 'var(--color-text-secondary, #aaa)' }}>
+            Fairway: {fairwayGuide.count} / {fairwayGuide.recommended} recommended for par {fairwayGuide.par}
+          </div>
+          {fairwayGuide.maxGap > 80 && (
+            <div style={{ fontSize: 12, color: '#f44336', marginTop: 2 }}>
+              {fairwayGuide.maxGap} yd gap — add a point to improve accuracy
+            </div>
+          )}
+        </div>
+      )}
 
       {/* FW Boundary in-progress section */}
       {activeTool === 'fairway-boundary' && currentFwBoundary.length > 0 && (

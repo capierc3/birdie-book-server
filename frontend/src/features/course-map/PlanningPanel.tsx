@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
+import { useConfirm } from '../../components'
 import { useCourseMap } from './courseMapState'
 import { get, post, put, del } from '../../api'
 import { getClubColor } from './clubColors'
@@ -42,6 +43,7 @@ interface PlanInsights {
 }
 
 export function PlanningPanel({ onClose }: { onClose: () => void }) {
+  const { confirm, alert } = useConfirm()
   const ctx = useCourseMap()
   const { course, currentHole, teeId, teePos, greenPos, strategy } = ctx
 
@@ -85,19 +87,25 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
       const updatedPlans = await get<Plan[]>(`/plans?course_id=${course.id}`)
       setPlans(updatedPlans)
       await loadPlan(plan.id)
-    } catch { alert('Failed to create plan') }
-  }, [course, teeId, loadPlan])
+    } catch { await alert('Failed to create plan', 'Error') }
+  }, [course, teeId, loadPlan, alert])
 
   // Delete plan
   const handleDeletePlan = useCallback(async () => {
-    if (!currentPlan || !confirm('Delete this plan?')) return
+    if (!currentPlan) return
+    const ok = await confirm({
+      title: 'Delete Plan',
+      message: 'Delete this plan?',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     await del(`/plans/${currentPlan.id}`)
     setCurrentPlan(null)
     setInsights(null)
     ctx.setCurrentPlanId(null)
     ctx.triggerRedraw()
     if (course) setPlans(await get<Plan[]>(`/plans?course_id=${course.id}`).catch(() => []))
-  }, [currentPlan, course, ctx])
+  }, [currentPlan, course, ctx, confirm])
 
   // Link/unlink round
   const handleLinkRound = useCallback(async (roundId: number) => {

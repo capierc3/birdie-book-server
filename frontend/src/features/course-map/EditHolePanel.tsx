@@ -1,10 +1,12 @@
 import { useState, useCallback } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
+import { useConfirm } from '../../components'
 import { useCourseMap, getHoleCompleteness, DATA_SOURCE_COLORS } from './courseMapState'
 import { put, post, del } from '../../api'
 import s from './panels.module.css'
 
 export function EditHolePanel({ onClose }: { onClose: () => void }) {
+  const { confirm, alert } = useConfirm()
   const ctx = useCourseMap()
   const { course, currentHole, teeId } = ctx
   const totalHoles = course?.holes ?? 18
@@ -42,16 +44,21 @@ export function EditHolePanel({ onClose }: { onClose: () => void }) {
   }, [course, ctx])
 
   const handleDeleteTee = useCallback(async (deleteTeeId: number, teeName: string) => {
-    if (!confirm(`Delete tee "${teeName}"? This cannot be undone.`)) return
+    const ok = await confirm({
+      title: 'Delete Tee',
+      message: `Delete tee "${teeName}"? This cannot be undone.`,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     if (!course) return
     try {
       await del(`/courses/${course.id}/tees/${deleteTeeId}`)
       await ctx.reloadCourse()
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to delete tee'
-      alert(msg)
+      await alert(msg, 'Error')
     }
-  }, [course, ctx])
+  }, [course, ctx, confirm, alert])
 
   const handleTeeFieldChange = useCallback(async (fieldTeeId: number, field: string, value: string) => {
     if (!course) return

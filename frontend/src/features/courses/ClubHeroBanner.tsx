@@ -23,8 +23,10 @@ export function ClubHeroBanner({ club, onBack, onChangePhoto }: Props) {
           </Button>
         </div>
         <div className={cs.heroActions}>
-          <Button variant="secondary" size="sm" onClick={onChangePhoto}>
-            <Camera size={14} /> Change Photo
+          <Button variant="ghost" size="sm" onClick={onChangePhoto} title="Change photo"
+            style={{ padding: '6px', opacity: 0.7, color: '#fff' }}
+          >
+            <Camera size={14} />
           </Button>
         </div>
         <h1 className={cs.heroTitle}>{club.name}</h1>

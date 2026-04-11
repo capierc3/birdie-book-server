@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 from collections import defaultdict
 
 from app.database import get_db
@@ -9,7 +10,7 @@ from app.models.range_session import RangeSession, RangeShot
 from app.models.trackman_shot import TrackmanShot
 from app.services.rapsodo_csv_parser import parse_mlm2pro_csv
 from app.services.rapsodo_import_service import import_rapsodo_session
-from app.services.trackman_import_service import import_trackman_report
+from app.services.trackman_import_service import import_trackman_report, _resolve_club
 from app.services.rapsodo_club_types import get_standard_club_type
 from app.api.clubs import _default_club_color
 from app.services.club_stats_service import compute_club_stats
@@ -168,6 +169,283 @@ def import_trackman(body: TrackmanImportRequest, db: Session = Depends(get_db)):
     return result
 
 
+# ── CSV / Manual Import ──
+
+class CsvImportRequest(BaseModel):
+    csv_text: str
+    title: Optional[str] = None
+    session_date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ManualShotInput(BaseModel):
+    club: str
+    carry_yards: Optional[float] = None
+    total_yards: Optional[float] = None
+    ball_speed_mph: Optional[float] = None
+    height_ft: Optional[float] = None
+    launch_angle_deg: Optional[float] = None
+    launch_direction_deg: Optional[float] = None
+    carry_side_ft: Optional[float] = None
+    from_pin_yds: Optional[float] = None
+    spin_rate_rpm: Optional[float] = None
+    club_speed_mph: Optional[float] = None
+    smash_factor: Optional[float] = None
+    attack_angle_deg: Optional[float] = None
+    club_path_deg: Optional[float] = None
+    spin_axis_deg: Optional[float] = None
+
+
+class ManualSessionRequest(BaseModel):
+    title: Optional[str] = None
+    session_date: Optional[str] = None
+    notes: Optional[str] = None
+    shots: list[ManualShotInput] = []
+
+
+def _create_trackman_shot_from_manual(
+    session_id: int,
+    shot_number: int,
+    club_id: int,
+    club_raw: str,
+    data: dict,
+) -> TrackmanShot:
+    """Create a TrackmanShot from manually-entered data."""
+    # Convert carry_side from feet to yards for storage
+    side_carry_yds = None
+    if data.get("carry_side_ft") is not None:
+        side_carry_yds = round(data["carry_side_ft"] / 3.0, 2)
+
+    return TrackmanShot(
+        session_id=session_id,
+        club_id=club_id,
+        shot_number=shot_number,
+        club_type_raw=club_raw,
+        carry_yards=data.get("carry_yards"),
+        total_yards=data.get("total_yards"),
+        ball_speed_mph=data.get("ball_speed_mph"),
+        apex_ft=data.get("height_ft"),
+        launch_angle_deg=data.get("launch_angle_deg"),
+        launch_direction_deg=data.get("launch_direction_deg"),
+        side_carry_yards=side_carry_yds,
+        spin_rate_rpm=data.get("spin_rate_rpm"),
+        club_speed_mph=data.get("club_speed_mph"),
+        smash_factor=data.get("smash_factor"),
+        attack_angle_deg=data.get("attack_angle_deg"),
+        club_path_deg=data.get("club_path_deg"),
+        spin_axis_deg=data.get("spin_axis_deg"),
+    )
+
+
+def _import_manual_shots(
+    db: Session,
+    session: RangeSession,
+    shots_data: list[dict],
+    player_id: int,
+) -> int:
+    """Import a list of shot dicts into a session. Returns count of shots added."""
+    existing_max = 0
+    if session.trackman_shots:
+        existing_max = max(s.shot_number for s in session.trackman_shots)
+
+    count = 0
+    for i, shot_data in enumerate(shots_data, start=existing_max + 1):
+        club_raw = shot_data.get("club", "Unknown")
+        club_id = _resolve_club(db, club_raw, player_id)
+        db.add(_create_trackman_shot_from_manual(
+            session_id=session.id,
+            shot_number=i,
+            club_id=club_id,
+            club_raw=club_raw,
+            data=shot_data,
+        ))
+        count += 1
+
+    session.shot_count = (session.shot_count or 0) + count
+    return count
+
+
+def _do_csv_import(
+    db: Session,
+    csv_text: str,
+    meta_title: Optional[str],
+    meta_date: Optional[str],
+    meta_notes: Optional[str],
+) -> dict:
+    """Shared logic for CSV import (text or file)."""
+    from app.services.csv_manual_parser import parse_manual_csv
+    from app.services.backup_service import create_pre_import_backup
+
+    try:
+        shots_data = parse_manual_csv(csv_text)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    create_pre_import_backup()
+
+    sess_date = datetime.now()
+    if meta_date:
+        try:
+            sess_date = datetime.fromisoformat(meta_date)
+        except ValueError:
+            pass
+
+    session_title = meta_title or f"Manual Import — {sess_date.strftime('%b %d, %Y')}"
+
+    session = RangeSession(
+        player_id=1,
+        source="manual_csv",
+        session_date=sess_date,
+        title=session_title,
+        notes=meta_notes,
+        shot_count=0,
+    )
+    db.add(session)
+    db.flush()
+
+    count = _import_manual_shots(db, session, shots_data, player_id=1)
+    db.commit()
+    compute_club_stats(db)
+
+    return {
+        "status": "imported",
+        "session_id": session.id,
+        "shot_count": count,
+    }
+
+
+@router.post("/import/csv")
+def import_csv_text(body: CsvImportRequest, db: Session = Depends(get_db)):
+    """Import range shots from pasted CSV text."""
+    return _do_csv_import(db, body.csv_text, body.title, body.session_date, body.notes)
+
+
+@router.post("/import/csv-file")
+async def import_csv_file(
+    file: UploadFile = File(...),
+    title: Optional[str] = Query(None),
+    session_date: Optional[str] = Query(None),
+    notes: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Import range shots from an uploaded CSV file."""
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File must be a .csv file")
+    content = (await file.read()).decode("utf-8-sig")
+    return _do_csv_import(db, content, title, session_date, notes)
+
+
+@router.post("/sessions/manual")
+def create_manual_session(body: ManualSessionRequest, db: Session = Depends(get_db)):
+    """Create a range session with manually entered shots."""
+    from app.services.backup_service import create_pre_import_backup
+    create_pre_import_backup()
+
+    sess_date = datetime.now()
+    if body.session_date:
+        try:
+            sess_date = datetime.fromisoformat(body.session_date)
+        except ValueError:
+            pass
+
+    session_title = body.title or f"Manual Session — {sess_date.strftime('%b %d, %Y')}"
+
+    session = RangeSession(
+        player_id=1,
+        source="manual",
+        session_date=sess_date,
+        title=session_title,
+        notes=body.notes,
+        shot_count=0,
+    )
+    db.add(session)
+    db.flush()
+
+    if body.shots:
+        shots_data = [s.model_dump() for s in body.shots]
+        _import_manual_shots(db, session, shots_data, player_id=1)
+
+    db.commit()
+    compute_club_stats(db)
+
+    return {
+        "status": "created",
+        "session_id": session.id,
+        "shot_count": session.shot_count,
+    }
+
+
+@router.post("/sessions/{session_id}/shots")
+def add_shots_to_session(
+    session_id: int,
+    shots: list[ManualShotInput],
+    db: Session = Depends(get_db),
+):
+    """Add shots to an existing range session."""
+    session = (
+        db.query(RangeSession)
+        .options(joinedload(RangeSession.trackman_shots))
+        .filter(RangeSession.id == session_id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    shots_data = [s.model_dump() for s in shots]
+    count = _import_manual_shots(db, session, shots_data, player_id=session.player_id or 1)
+    db.commit()
+    compute_club_stats(db)
+
+    return {"status": "added", "shots_added": count, "total_shots": session.shot_count}
+
+
+@router.put("/shots/{shot_id}")
+def update_shot(shot_id: int, body: ManualShotInput, db: Session = Depends(get_db)):
+    """Update an individual trackman shot."""
+    shot = db.query(TrackmanShot).filter(TrackmanShot.id == shot_id).first()
+    if not shot:
+        raise HTTPException(status_code=404, detail="Shot not found")
+
+    club_id = _resolve_club(db, body.club, 1)
+    shot.club_id = club_id
+    shot.club_type_raw = body.club
+    shot.carry_yards = body.carry_yards
+    shot.total_yards = body.total_yards
+    shot.ball_speed_mph = body.ball_speed_mph
+    shot.apex_ft = body.height_ft
+    shot.launch_angle_deg = body.launch_angle_deg
+    shot.launch_direction_deg = body.launch_direction_deg
+    shot.side_carry_yards = round(body.carry_side_ft / 3.0, 2) if body.carry_side_ft is not None else None
+    shot.spin_rate_rpm = body.spin_rate_rpm
+    shot.club_speed_mph = body.club_speed_mph
+    shot.smash_factor = body.smash_factor
+    shot.attack_angle_deg = body.attack_angle_deg
+    shot.club_path_deg = body.club_path_deg
+    shot.spin_axis_deg = body.spin_axis_deg
+
+    db.commit()
+    compute_club_stats(db)
+
+    return {"status": "updated", "shot_id": shot_id}
+
+
+@router.delete("/shots/{shot_id}")
+def delete_shot(shot_id: int, db: Session = Depends(get_db)):
+    """Delete an individual trackman shot and update session count."""
+    shot = db.query(TrackmanShot).filter(TrackmanShot.id == shot_id).first()
+    if not shot:
+        raise HTTPException(status_code=404, detail="Shot not found")
+
+    session = db.query(RangeSession).filter(RangeSession.id == shot.session_id).first()
+    db.delete(shot)
+    if session:
+        session.shot_count = max(0, (session.shot_count or 1) - 1)
+    db.commit()
+    compute_club_stats(db)
+
+    return {"status": "deleted", "shot_id": shot_id}
+
+
 @router.get("/sessions", response_model=list[RangeSessionSummary])
 def list_range_sessions(
     source: Optional[str] = Query(None),
@@ -196,44 +474,29 @@ def get_range_session(session_id: int, db: Session = Depends(get_db)):
     """Get a range session with all shots and per-club aggregates."""
     session = (
         db.query(RangeSession)
-        .options(joinedload(RangeSession.shots).joinedload(RangeShot.club))
+        .options(
+            joinedload(RangeSession.shots).joinedload(RangeShot.club),
+            joinedload(RangeSession.trackman_shots).joinedload(TrackmanShot.club),
+        )
         .filter(RangeSession.id == session_id)
         .first()
     )
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Build per-club group stats — group by resolved display name
-    groups: dict[str, list[RangeShot]] = defaultdict(list)
-    for shot in session.shots:
-        groups[_resolve_display_name(shot)].append(shot)
-
     def _avg(vals: list) -> float | None:
         clean = [v for v in vals if v is not None]
         return round(sum(clean) / len(clean), 1) if clean else None
 
-    club_groups = []
-    for display_name, group_shots in groups.items():
-        # Use the first shot's raw type for the raw field
-        raw = group_shots[0].club_type_raw
-        club_groups.append(ClubGroupStats(
-            club_type_raw=raw,
-            club_name=display_name,
-            avg_carry=_avg([s.carry_yards for s in group_shots]),
-            avg_total=_avg([s.total_yards for s in group_shots]),
-            avg_ball_speed=_avg([s.ball_speed_mph for s in group_shots]),
-            avg_club_speed=_avg([s.club_speed_mph for s in group_shots]),
-            avg_launch_angle=_avg([s.launch_angle_deg for s in group_shots]),
-            avg_spin_rate=_avg([s.spin_rate_rpm for s in group_shots]),
-            shot_count=len(group_shots),
-        ))
+    # Combine MLM2PRO and Trackman shots into unified responses
+    shot_responses: list[RangeShotResponse] = []
+    all_shots_for_groups: list = []
 
-    # Sort club groups by avg total distance descending
-    club_groups.sort(key=lambda g: g.avg_total or 0, reverse=True)
-
-    shot_responses = [
-        RangeShotResponse(
-            id=s.id,
+    for s in session.shots:
+        all_shots_for_groups.append(s)
+        shot_responses.append(RangeShotResponse(
+            id=f"mlm_{s.id}",
+            raw_id=s.id,
             session_id=s.session_id,
             shot_number=s.shot_number,
             club_type_raw=s.club_type_raw,
@@ -255,9 +518,36 @@ def get_range_session(session_id: int, db: Session = Depends(get_db)):
             club_path_deg=s.club_path_deg,
             spin_rate_rpm=s.spin_rate_rpm,
             spin_axis_deg=s.spin_axis_deg,
-        )
-        for s in sorted(session.shots, key=lambda s: s.shot_number)
-    ]
+            source="rapsodo_mlm2pro",
+        ))
+
+    for s in session.trackman_shots:
+        all_shots_for_groups.append(s)
+        shot_responses.append(_tm_to_response(s))
+
+    shot_responses.sort(key=lambda r: r.shot_number)
+
+    # Build per-club group stats from all shots
+    groups: dict[str, list] = defaultdict(list)
+    for shot in all_shots_for_groups:
+        groups[_resolve_display_name(shot)].append(shot)
+
+    club_groups = []
+    for display_name, group_shots in groups.items():
+        raw = group_shots[0].club_type_raw or ""
+        club_groups.append(ClubGroupStats(
+            club_type_raw=raw,
+            club_name=display_name,
+            avg_carry=_avg([s.carry_yards for s in group_shots]),
+            avg_total=_avg([s.total_yards for s in group_shots]),
+            avg_ball_speed=_avg([s.ball_speed_mph for s in group_shots]),
+            avg_club_speed=_avg([s.club_speed_mph for s in group_shots]),
+            avg_launch_angle=_avg([s.launch_angle_deg for s in group_shots]),
+            avg_spin_rate=_avg([s.spin_rate_rpm for s in group_shots]),
+            shot_count=len(group_shots),
+        ))
+
+    club_groups.sort(key=lambda g: g.avg_total or 0, reverse=True)
 
     return RangeSessionDetail(
         id=session.id,

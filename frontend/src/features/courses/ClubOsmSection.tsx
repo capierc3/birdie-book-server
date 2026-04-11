@@ -32,6 +32,7 @@ export function ClubOsmSection({ club, courseDetails }: Props) {
   }
 
   const handleLinkClub = async (osmId: number, osmType: string) => {
+    setStatusMsg('Linking and importing features...')
     try {
       await osmLinkClub.mutateAsync({ clubId: club.id, osmId, osmType })
       setResults([])
@@ -43,6 +44,7 @@ export function ClubOsmSection({ club, courseDetails }: Props) {
   }
 
   const handleLinkCourse = async (courseId: number, osmId: number, osmType: string) => {
+    setStatusMsg('Linking course...')
     try {
       await osmLinkCourse.mutateAsync({ courseId, osmId, osmType })
       setStatusMsg(`Linked course #${courseId}.`)
@@ -57,8 +59,9 @@ export function ClubOsmSection({ club, courseDetails }: Props) {
     const hasGeo = cd.tees.some((t) =>
       t.holes.some((h) => h.tee_lat != null || h.green_boundary != null),
     )
-    if (hasOsm && hasGeo) return { icon: '\u2713\u2713', color: 'var(--accent)' }
-    if (hasOsm) return { icon: '\u2713', color: 'var(--accent)' }
+    const hasHazards = (cd.hazards?.length ?? 0) > 0
+    if (hasOsm && (hasGeo || hasHazards)) return { icon: '\u2713\u2713', color: 'var(--accent)' }
+    if (hasOsm || hasHazards) return { icon: '\u2713', color: 'var(--accent)' }
     if (hasGeo) return { icon: '\u2022', color: 'var(--info)' }
     return { icon: '\u2013', color: 'var(--text-dim)' }
   }
@@ -68,7 +71,14 @@ export function ClubOsmSection({ club, courseDetails }: Props) {
     const teesWithData = cd.tees[0]?.holes.filter((h) => h.tee_lat != null).length ?? 0
     const greensWithData = cd.tees[0]?.holes.filter((h) => h.green_boundary != null).length ?? 0
     const fairwaysWithData = cd.tees[0]?.holes.filter((h) => h.fairway_path != null).length ?? 0
-    return `${teesWithData}/${numHoles} tees, ${greensWithData}/${numHoles} greens, ${fairwaysWithData}/${numHoles} fairways`
+    const hazardCount = cd.hazards?.length ?? 0
+    const parts = [
+      `${teesWithData}/${numHoles} tees`,
+      `${greensWithData}/${numHoles} greens`,
+      `${fairwaysWithData}/${numHoles} fairways`,
+    ]
+    if (hazardCount > 0) parts.push(`${hazardCount} hazards`)
+    return parts.join(', ')
   }
 
   return (
@@ -116,7 +126,7 @@ export function ClubOsmSection({ club, courseDetails }: Props) {
 
           {statusMsg && (
             <div style={{ marginTop: 8 }}>
-              <StatusMessage variant={statusMsg.startsWith('Failed') ? 'error' : 'success'}>
+              <StatusMessage variant={statusMsg.startsWith('Failed') ? 'error' : statusMsg.endsWith('...') ? 'progress' : 'success'}>
                 {statusMsg}
               </StatusMessage>
             </div>

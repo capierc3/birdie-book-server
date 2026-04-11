@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Modal, Button, Input, FormGroup } from '../../components'
+import { Modal, Button, Input, FormGroup, useConfirm } from '../../components'
 import { post } from '../../api'
 import type { Club, ClubShot } from '../../api'
 
@@ -44,6 +44,7 @@ function getShotType(source: string): string {
 
 export function ShotEditModal({ isOpen, onClose, shot, currentClubId, allClubs }: Props) {
   const queryClient = useQueryClient()
+  const { confirm } = useConfirm()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -116,8 +117,12 @@ export function ShotEditModal({ isOpen, onClose, shot, currentClubId, allClubs }
   }
 
   const handleDelete = async () => {
-    const confirmed = window.confirm('Delete this shot? This cannot be undone.')
-    if (!confirmed) return
+    const ok = await confirm({
+      title: 'Delete Shot',
+      message: 'Delete this shot? This cannot be undone.',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     setBusy(true)
     setError('')
     try {

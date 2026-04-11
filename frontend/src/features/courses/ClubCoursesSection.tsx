@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Pencil, Trash2 } from 'lucide-react'
-import { Card, CardHeader, DataTable, Badge, Button, Select } from '../../components'
+import { Card, CardHeader, DataTable, Badge, Button, useConfirm } from '../../components'
 import type { Column } from '../../components'
 import { useDeleteTee, ApiError } from '../../api'
 import type { CourseDetail, CourseTee, TeeDeleteConflict } from '../../api'
@@ -17,6 +17,7 @@ interface Props {
 export function ClubCoursesSection({ courseDetails }: Props) {
   const navigate = useNavigate()
   const deleteTee = useDeleteTee()
+  const { confirm, alert } = useConfirm()
 
   // Tee edit state
   const [editTee, setEditTee] = useState<{ tee: CourseTee; courseId: number } | null>(null)
@@ -31,25 +32,30 @@ export function ClubCoursesSection({ courseDetails }: Props) {
   const [mergeTargets, setMergeTargets] = useState<{ id: number; name?: string | null }[]>([])
 
   const handleDeleteTee = async (courseId: number, teeId: number) => {
-    if (!window.confirm('Delete this tee and all its hole data?')) return
+    const ok = await confirm({
+      title: 'Delete Tee',
+      message: 'Delete this tee and all its hole data?',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     try {
       await deleteTee.mutateAsync({ courseId, teeId })
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         try {
-          const detail = JSON.parse(e.message) as TeeDeleteConflict
+          const parsed = JSON.parse(e.message)
+          const detail = (parsed.detail ?? parsed) as TeeDeleteConflict
           setReassignState({ courseId, teeId, conflict: detail })
         } catch {
-          alert('This tee has linked rounds. Please reassign them first.')
+          await alert('This tee has linked rounds. Please reassign them first.')
         }
       } else {
-        alert(e instanceof Error ? e.message : 'Failed to delete tee')
+        await alert(e instanceof Error ? e.message : 'Failed to delete tee', 'Error')
       }
     }
   }
 
-  const handleMergeSelect = (sourceId: number, targetId: string) => {
-    if (!targetId) return
+  const handleMergeOpen = (sourceId: number) => {
     const source = courseDetails.find((c) => c.id === sourceId)
     const others = courseDetails.filter((c) => c.id !== sourceId)
     setMergeSource({ id: sourceId, name: source?.course_name ?? source?.display_name })
@@ -120,6 +126,7 @@ export function ClubCoursesSection({ courseDetails }: Props) {
           <Card>
             <CardHeader
               title={course.course_name ?? course.display_name}
+              onTitleClick={() => navigate(`/courses/${course.id}`)}
               action={
                 <Badge>{course.holes ?? '?'} holes &middot; Par {course.par ?? '?'}</Badge>
               }
@@ -132,26 +139,18 @@ export function ClubCoursesSection({ courseDetails }: Props) {
             />
             <div className={cs.courseActions}>
               {courseDetails.length > 1 && (
-                <Select
-                  style={{ width: 'auto', fontSize: '0.85rem' }}
-                  value=""
-                  onChange={(e) => handleMergeSelect(course.id, e.target.value)}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleMergeOpen(course.id)}
                 >
-                  <option value="">Merge into...</option>
-                  {courseDetails
-                    .filter((c) => c.id !== course.id)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.course_name ?? c.display_name}
-                      </option>
-                    ))}
-                </Select>
+                  Merge
+                </Button>
               )}
               <Button
                 variant="ghost"
                 size="sm"
-                disabled
-                title="Course editor coming soon"
+                onClick={() => navigate(`/courses/${course.id}/map`)}
               >
                 View Holes
               </Button>

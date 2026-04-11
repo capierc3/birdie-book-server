@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useCourse, put, post, del, get } from '../../api'
 import type { CourseDetail, RoundDetail } from '../../api'
+import { useToast } from '../../components'
 import { useCourseStrategy } from './useCourseStrategy'
 import { CourseMapContext, parseHoleData } from './courseMapState'
 import type { CourseMapContextType, LatLng, DrawTool, HazardType, EditorHazard, PanelId } from './courseMapState'
@@ -75,7 +76,7 @@ const EDITING_PANELS: PanelId[] = ['hole', 'draw', 'data']
 const MUTUALLY_EXCLUSIVE: [PanelId, PanelId][] = [['draw', 'strategy']]
 
 // ── Map auto-center ──
-function MapController({ course, currentHole, teeId }: { course: CourseDetail | undefined; currentHole: number; teeId: number | undefined }) {
+function MapController({ course, currentHole, teeId, allRoundDetails }: { course: CourseDetail | undefined; currentHole: number; teeId: number | undefined; allRoundDetails: RoundDetail[] }) {
   const map = useMap()
   const initialRef = useRef(false)
 
@@ -85,15 +86,33 @@ function MapController({ course, currentHole, teeId }: { course: CourseDetail | 
     const hole = tee?.holes?.find((h) => h.hole_number === currentHole)
 
     let lat: number | undefined, lng: number | undefined
-    if (hole?.tee_lat && hole?.tee_lng) { lat = hole.tee_lat; lng = hole.tee_lng }
-    else if (hole?.flag_lat && hole?.flag_lng) { lat = hole.flag_lat; lng = hole.flag_lng }
-    else if (!initialRef.current && course.lat && course.lng) { lat = course.lat; lng = course.lng }
+
+    // 1. Tee GPS from course data
+    if (hole?.tee_lat && hole?.tee_lng) {
+      lat = hole.tee_lat; lng = hole.tee_lng
+    } else {
+      // 2. First shot GPS from Garmin round data
+      for (const rd of allRoundDetails) {
+        const rh = rd.holes?.find((h) => h.hole_number === currentHole)
+        const firstShot = rh?.shots?.find((s) => s.shot_number === 1)
+        if (firstShot?.start_lat && firstShot?.start_lng) {
+          lat = firstShot.start_lat; lng = firstShot.start_lng
+          break
+        }
+      }
+    }
+
+    // 3. Initial load only: fall back to course center
+    if (!lat && !initialRef.current && course.lat && course.lng) {
+      lat = course.lat; lng = course.lng
+    }
+    // If still no GPS, stay where we are
 
     if (lat && lng) {
       if (!initialRef.current) { map.setView([lat, lng], 17); initialRef.current = true }
       else map.flyTo([lat, lng], map.getZoom(), { duration: 0.5 })
     }
-  }, [map, course, currentHole, teeId])
+  }, [map, course, currentHole, teeId, allRoundDetails])
 
   return null
 }
@@ -104,6 +123,7 @@ export function CourseMapPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { toast } = useToast()
   const courseId = id ? Number(id) : undefined
 
   const { data: course } = useCourse(courseId)
@@ -125,6 +145,8 @@ export function CourseMapPage() {
 
   // Editor geometry state
   const [dirty, setDirty] = useState(false)
+  const dirtyRef = useRef(false)
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
   const [drawPanelOpen, setDrawPanelOpen] = useState(false)
   const [activeTool, setActiveTool] = useState<DrawTool | null>(null)
   const [hazardType, setHazardType] = useState<HazardType>('bunker')
@@ -177,52 +199,8 @@ export function CourseMapPage() {
     setDrawPanelOpen(openPanels.has('draw'))
   }, [openPanels])
 
-  // ── Select hole: load geometry from course data ──
-  const selectHole = useCallback((holeNum: number) => {
-    if (!course) { setCurrentHole(holeNum); return }
-    const parsed = parseHoleData(course, holeNum, teeId)
-    setCurrentHole(holeNum)
-    setTeePos(parsed.teePos)
-    setGreenPos(parsed.greenPos)
-    setTeePositions(parsed.teePositions)
-    setFairwayPath(parsed.fairwayPath)
-    setFairwayBoundaries(parsed.fairwayBoundaries)
-    setCurrentFwBoundary([])
-    setGreenBoundary(parsed.greenBoundary)
-    setHazards(parsed.hazards)
-    setCurrentHazard([])
-    setDirty(false)
-    setRedrawKey((k) => k + 1)
-
-    // Sync form values
-    if (parsed.hole) {
-      formValuesRef.current = {
-        par: parsed.hole.par?.toString() ?? '',
-        yardage: parsed.hole.yardage?.toString() ?? '',
-        handicap: parsed.hole.handicap?.toString() ?? '',
-      }
-    } else {
-      formValuesRef.current = { par: '', yardage: '', handicap: '' }
-    }
-  }, [course, teeId])
-
-  // Load initial hole when course data arrives
-  const courseLoadedRef = useRef(false)
-  useEffect(() => {
-    if (course && !courseLoadedRef.current) {
-      courseLoadedRef.current = true
-      selectHole(currentHole)
-    }
-  }, [course, currentHole, selectHole])
-
-  // Re-select hole when tee changes
-  useEffect(() => {
-    if (course && courseLoadedRef.current) selectHole(currentHole)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teeId])
-
-  // ── Save ──
-  const saveCurrentHole = useCallback(async () => {
+  // ── Save (quiet: API writes only, no reload) ──
+  const saveHoleQuiet = useCallback(async () => {
     if (!course) return
     const fv = formValuesRef.current
     const par = parseInt(fv.par) || undefined
@@ -259,11 +237,70 @@ export function CourseMapPage() {
         })
       }
     }
+  }, [course, currentHole, teeId, teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards])
 
-    // Reload course
+  // ── Select hole: auto-save if dirty, then load geometry ──
+  const selectHole = useCallback(async (holeNum: number) => {
+    // Auto-save current hole if dirty before switching
+    if (dirtyRef.current) {
+      toast('Saving hole…', 'info')
+      await saveHoleQuiet()
+      queryClient.invalidateQueries({ queryKey: ['courses', courseId] })
+    }
+
+    if (!course) { setCurrentHole(holeNum); return }
+
+    // If we auto-saved, fetch fresh course data so the new hole loads updated state
+    const src = dirtyRef.current
+      ? await get<CourseDetail>(`/courses/${course.id}`)
+      : course
+    const parsed = parseHoleData(src, holeNum, teeId)
+    setCurrentHole(holeNum)
+    setTeePos(parsed.teePos)
+    setGreenPos(parsed.greenPos)
+    setTeePositions(parsed.teePositions)
+    setFairwayPath(parsed.fairwayPath)
+    setFairwayBoundaries(parsed.fairwayBoundaries)
+    setCurrentFwBoundary([])
+    setGreenBoundary(parsed.greenBoundary)
+    setHazards(parsed.hazards)
+    setCurrentHazard([])
+    setDirty(false)
+    setRedrawKey((k) => k + 1)
+
+    // Sync form values
+    if (parsed.hole) {
+      formValuesRef.current = {
+        par: parsed.hole.par?.toString() ?? '',
+        yardage: parsed.hole.yardage?.toString() ?? '',
+        handicap: parsed.hole.handicap?.toString() ?? '',
+      }
+    } else {
+      formValuesRef.current = { par: '', yardage: '', handicap: '' }
+    }
+  }, [course, teeId, saveHoleQuiet, queryClient, courseId])
+
+  // Load initial hole when course data arrives
+  const courseLoadedRef = useRef(false)
+  useEffect(() => {
+    if (course && !courseLoadedRef.current) {
+      courseLoadedRef.current = true
+      selectHole(currentHole)
+    }
+  }, [course, currentHole, selectHole])
+
+  // Re-select hole when tee changes
+  useEffect(() => {
+    if (course && courseLoadedRef.current) selectHole(currentHole)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teeId])
+
+  // ── Save + reload (for manual save button) ──
+  const saveCurrentHole = useCallback(async () => {
+    await saveHoleQuiet()
     queryClient.invalidateQueries({ queryKey: ['courses', courseId] })
+    if (!course) return
     const updated = await get<CourseDetail>(`/courses/${course.id}`)
-    // Re-parse hole data from updated course
     const parsed = parseHoleData(updated, currentHole, teeId)
     setTeePos(parsed.teePos)
     setGreenPos(parsed.greenPos)
@@ -274,7 +311,7 @@ export function CourseMapPage() {
     setHazards(parsed.hazards)
     setDirty(false)
     setRedrawKey((k) => k + 1)
-  }, [course, courseId, currentHole, teeId, teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards, queryClient])
+  }, [saveHoleQuiet, course, courseId, currentHole, teeId, queryClient])
 
   // ── Reload course (after tee edits) ──
   const reloadCourse = useCallback(async () => {
@@ -366,7 +403,7 @@ export function CourseMapPage() {
         <div className={s.mapContainer}>
           <MapContainer center={mapCenter} zoom={16} style={{ width: '100%', height: '100%' }} zoomControl={false} attributionControl={false}>
             <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-            <MapController course={course} currentHole={currentHole} teeId={teeId} />
+            <MapController course={course} currentHole={currentHole} teeId={teeId} allRoundDetails={allRoundDetails} />
             <MapOverlays />
             <ShotOverlays visible={openPanels.has('shots')} />
             <StrategyOverlays visible={openPanels.has('strategy')} activeTool={activeStrategyTool as StrategyTool} />

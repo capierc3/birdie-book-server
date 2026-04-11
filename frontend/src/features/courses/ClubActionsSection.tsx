@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { Card, CardHeader, Button, StatusMessage } from '../../components'
+import { Card, CardHeader, Button, StatusMessage, useConfirm } from '../../components'
 import { useSyncClubCourses } from '../../api'
 
 interface Props {
@@ -9,12 +9,16 @@ interface Props {
 
 export function ClubActionsSection({ clubId }: Props) {
   const sync = useSyncClubCourses()
+  const { confirm } = useConfirm()
   const [statusMsg, setStatusMsg] = useState<{ variant: 'success' | 'error' | 'progress'; text: string } | null>(null)
 
   const handleSync = async () => {
-    if (!window.confirm('Sync all courses for this club from the golf database? This may add or update tee and hole data.')) {
-      return
-    }
+    const ok = await confirm({
+      title: 'Sync Courses',
+      message: 'Sync all courses for this club from the golf database? This may add or update tee and hole data.',
+      confirmLabel: 'Sync',
+    })
+    if (!ok) return
     setStatusMsg({ variant: 'progress', text: 'Syncing courses...' })
     try {
       const result = await sync.mutateAsync(clubId)

@@ -4,22 +4,34 @@ import { GarminJsonImport } from './GarminJsonImport'
 import { FitFileImport } from './FitFileImport'
 import { TrackmanImport } from './TrackmanImport'
 import { RapsodoImport } from './RapsodoImport'
+import { CsvRangeImport } from './CsvRangeImport'
 import styles from './ImportPage.module.css'
 
-type Tab = 'garmin' | 'fit' | 'trackman' | 'rapsodo'
+type Tab = 'garmin' | 'trackman' | 'rapsodo' | 'csv'
 
 const TABS: { id: Tab; label: string; sub: string; recommended?: boolean }[] = [
-  { id: 'garmin', label: 'Garmin Export', sub: 'JSON \u00b7 Bulk', recommended: true },
-  { id: 'fit', label: 'FIT File', sub: '.fit \u00b7 Single Round' },
+  { id: 'garmin', label: 'Garmin', sub: 'JSON \u00b7 FIT', recommended: true },
   { id: 'trackman', label: 'Trackman', sub: 'URL \u00b7 Range' },
   { id: 'rapsodo', label: 'Rapsodo', sub: 'CSV \u00b7 Range' },
+  { id: 'csv', label: 'CSV', sub: 'Paste \u00b7 Range' },
 ]
 
 const TAB_COMPONENTS: Record<Tab, React.FC> = {
-  garmin: GarminJsonImport,
-  fit: FitFileImport,
+  garmin: GarminImportCombined,
   trackman: TrackmanImport,
   rapsodo: RapsodoImport,
+  csv: CsvRangeImport,
+}
+
+/** Garmin tab: both JSON bulk export and single FIT file */
+function GarminImportCombined() {
+  return (
+    <>
+      <GarminJsonImport />
+      <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '28px 0' }} />
+      <FitFileImport />
+    </>
+  )
 }
 
 export function ImportPage() {

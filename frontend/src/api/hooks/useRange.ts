@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { get, post, del, postForm } from '../client'
-import type { RangeSessionSummary, RangeShotsResponse } from '../types'
+import type { RangeSessionSummary, RangeShotsResponse, OcrResult } from '../types'
 
 export function useRangeSessions() {
   return useQuery({
@@ -104,6 +104,16 @@ export function useCreateManualSession() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['range'] })
       qc.invalidateQueries({ queryKey: ['clubs'] })
+    },
+  })
+}
+
+export function useOcrExtract() {
+  return useMutation({
+    mutationFn: (file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return postForm<OcrResult>('/range/import/ocr', fd)
     },
   })
 }

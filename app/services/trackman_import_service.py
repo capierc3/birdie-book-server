@@ -10,7 +10,7 @@ from app.models.player import Player
 from app.models.club import Club
 from app.models.range_session import RangeSession
 from app.models.trackman_shot import TrackmanShot
-from app.services.trackman_api import fetch_trackman_report, extract_report_id
+from app.services.trackman_api import fetch_trackman_report, extract_trackman_id
 from app.services.rapsodo_club_types import get_or_create_unknown_club
 
 logger = logging.getLogger(__name__)
@@ -155,9 +155,7 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
     Import a Trackman report by URL or report ID.
     Returns a summary dict.
     """
-    report_id = extract_report_id(url_or_id)
-    if not report_id:
-        raise ValueError("Could not extract a valid report ID from the provided URL")
+    report_id, id_type = extract_trackman_id(url_or_id)
 
     # Check for duplicate
     existing = db.query(RangeSession).filter(
@@ -171,7 +169,7 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
         }
 
     # Fetch from Trackman API
-    data = fetch_trackman_report(report_id)
+    data = fetch_trackman_report(report_id, id_type)
 
     if data.get("Kind") != "multiGroupReport":
         raise ValueError(f"Unsupported report kind: {data.get('Kind')}")

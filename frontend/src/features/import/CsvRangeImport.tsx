@@ -1,23 +1,25 @@
 import { useState, useCallback } from 'react'
-import { DropZone, Button, Input, FormGroup, useToast } from '../../components'
+import { DropZone, Button, useToast } from '../../components'
 import { useImportCsvText, useImportCsvFile } from '../../api'
 import styles from './import.module.css'
 
-const CSV_EXAMPLE = `Club,Carry,Total,Ball Speed,Height,Launch Angle,Launch Dir.,Carry Side,From Pin
+const CSV_EXAMPLE = `Club,Carry,Total,Ball Speed,Height,Launch Ang.,Launch Dir.,Carry Side,From Pin
 Driver,230,245,165,95,12.5,1.2R,5L,15.3
-Driver,225,240,162,90,13.1,0.8L,3R,12.1
 7 Iron,160,168,120,78,18.2,0.5R,2L,8.5`
 
-export function CsvRangeImport() {
+interface CsvRangeImportProps {
+  sessionDate: string
+  title: string
+  notes: string
+}
+
+export function CsvRangeImport({ sessionDate, title, notes }: CsvRangeImportProps) {
   const { toast } = useToast()
   const importCsvText = useImportCsvText()
   const importCsvFile = useImportCsvFile()
 
   const [csvText, setCsvText] = useState('')
   const [csvFile, setCsvFile] = useState<File | null>(null)
-  const [title, setTitle] = useState('')
-  const [sessionDate, setSessionDate] = useState(new Date().toISOString().slice(0, 10))
-  const [notes, setNotes] = useState('')
   const [error, setError] = useState('')
 
   const busy = importCsvText.isPending || importCsvFile.isPending
@@ -25,9 +27,6 @@ export function CsvRangeImport() {
   const reset = useCallback(() => {
     setCsvText('')
     setCsvFile(null)
-    setTitle('')
-    setSessionDate(new Date().toISOString().slice(0, 10))
-    setNotes('')
     setError('')
   }, [])
 
@@ -75,39 +74,6 @@ export function CsvRangeImport() {
 
   return (
     <div>
-      <h2 className={styles.sectionTitle}>CSV Range Import</h2>
-      <p className={styles.sectionDesc}>
-        Import range session shot data from a CSV file or pasted text.
-      </p>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-        <FormGroup label="Date">
-          <Input type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
-        </FormGroup>
-        <FormGroup label="Title (optional)">
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Trackman Range Session" />
-        </FormGroup>
-      </div>
-      <FormGroup label="Notes (optional)">
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Session notes..."
-          rows={2}
-          style={{
-            width: '100%',
-            padding: '8px 10px',
-            borderRadius: 'var(--radius)',
-            border: '1px solid var(--border)',
-            background: 'var(--bg-input, var(--bg))',
-            color: 'var(--text)',
-            fontSize: '0.88rem',
-            resize: 'vertical',
-            fontFamily: 'inherit',
-          }}
-        />
-      </FormGroup>
-
       <div style={{ marginTop: 12 }}>
         <DropZone
           accept=".csv"
@@ -127,7 +93,7 @@ export function CsvRangeImport() {
             setCsvFile(null)
           }}
           placeholder={CSV_EXAMPLE}
-          rows={8}
+          rows={6}
           style={{
             width: '100%',
             padding: '10px',
@@ -142,8 +108,7 @@ export function CsvRangeImport() {
         />
 
         <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 6 }}>
-          Required columns: <strong>Club</strong> + <strong>Carry</strong> or <strong>Total</strong>. Optional: Ball
-          Speed, Height, Launch Angle, Launch Dir., Carry Side, From Pin, Spin Rate, Club Speed.
+          Expected format: <strong>Club</strong>, Carry, Total, Ball Speed, Height, Launch Ang., Launch Dir., Carry Side, From Pin
         </div>
       </div>
 

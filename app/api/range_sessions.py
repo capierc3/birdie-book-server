@@ -734,3 +734,60 @@ def delete_range_session(session_id: int, db: Session = Depends(get_db)):
     compute_club_stats(db)
 
     return {"status": "deleted", "session_id": session_id}
+
+
+# ── OCR Extract (test endpoint) ──
+
+@router.post("/import/ocr")
+async def ocr_extract(file: UploadFile = File(...)):
+    """Extract table data from a Trackman screenshot using preprocessed Tesseract OCR."""
+    import pytesseract
+    from PIL import Image
+    import io
+
+    contents = await file.read()
+    img = Image.open(io.BytesIO(contents))
+
+    # Preprocessing for light-gray-on-white Trackman screenshots
+    img = img.convert("L")                                    # grayscale
+    img = img.resize((img.width * 3, img.height * 3), Image.LANCZOS)  # scale up 3x
+    img = img.point(lambda x: 0 if x < 200 else 255)         # threshold: gray->black
+
+    # Tesseract config — no whitelist so confidence scores are accurate
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    data = pytesseract.image_to_data(
+        img,
+        config="--psm 6 --oem 3",
+        output_type=pytesseract.Output.DICT,
+    )
+
+    # Group words into rows by block_num + par_num + line_num
+    import re
+    from collections import OrderedDict
+    line_words: dict[tuple, list] = OrderedDict()
+    for i in range(len(data["text"])):
+        txt = data["text"][i].strip()
+        if not txt:
+            continue
+        # Strip non-numeric chars (keep digits, decimal, L, R)
+        clean = re.sub(r"[^0-9.LR]", "", txt)
+        if not clean:
+            continue
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        conf = int(data["conf"][i])
+        # If result is just L or R, assume it was 1L or 1R
+        if clean in ("L", "R"):
+            clean = "1" + clean
+        # If cleaning removed digits or result has no digits, flag as low confidence
+        if not re.search(r"\d", clean):
+            conf = 0
+        elif clean != txt:
+            conf = min(conf, 50)
+        line_words.setdefault(key, []).append({"text": clean, "conf": conf})
+
+    rows = []
+    for words in line_words.values():
+        cells = [{"text": w["text"], "conf": w["conf"]} for w in words]
+        rows.append(cells)
+
+    return {"rows": rows}

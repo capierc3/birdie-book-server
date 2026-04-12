@@ -819,6 +819,29 @@
 - Shareable round summaries and game plans
 - *Plan all export formats together as one cohesive feature*
 
+### Trackman Account Sync (API Discovery — April 2026)
+Reverse-engineered the Trackman undocumented API. A "Connect to Trackman" flow could auto-import sessions without manual URL pasting.
+
+**What we confirmed works:**
+- `GET https://golf-player-activities.trackmangolf.com/api/activities` — lists all user activities (paginated: `page`, `pageSize`, `total`). Requires Bearer token from Trackman portal auth.
+- Auth flow: `GET https://portal.trackmangolf.com/api/account/me` (with session cookie) returns `{ accessToken, refreshToken, expires }`. The `accessToken` (JWT) is used as `Authorization: Bearer` for the activities API.
+- Activity kinds observed: `dynamic-report`, `urn:trackman:dr:practice:1`, `urn:trackman:dr:find-my-distance:1`, `video`
+- `dynamic-report` activities contain `activityData.ReportId` — can be imported via existing `POST /api/reports/getreport` with `{"ReportId": "..."}` (no auth needed, public endpoint)
+- `?a=` URL activities (e.g. practice on TPS units) use `POST /api/reports/getactivityreport` with `{"ActivityId": "..."}` (no auth needed, public endpoint). Response structure is identical to `getreport`.
+- Practice sessions (`urn:trackman:dr:practice:1`) — metadata accessible via authenticated API but **stroke data is NOT available** through `getactivityreport` (returns 404). Practice data appears to only live in the Trackman mobile app. Sub-resource paths (`/strokes`, `/events`, `/shots`, `/measurements`, `/report`) all return 404.
+
+**Potential "Connect to Trackman" feature:**
+1. User logs into Trackman portal in browser → we grab `accessToken`
+2. List activities → filter to `dynamic-report` kind
+3. Auto-import any sessions not already in our DB (match on `report_id`)
+4. Skip `video` and `practice` types (no accessible stroke data)
+
+**Open questions:**
+- Token refresh flow — `refreshToken` is available but we haven't tested the refresh endpoint
+- Token lifetime (`expires` field observed) — how long before re-auth needed?
+- Whether Trackman will ever expose practice stroke data via API
+- *For now, CSV import and OCR remain the only paths for Trackman Range practice sessions*
+
 ---
 
 ## Architecture Notes

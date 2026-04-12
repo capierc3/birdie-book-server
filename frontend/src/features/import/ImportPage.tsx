@@ -4,23 +4,20 @@ import { GarminJsonImport } from './GarminJsonImport'
 import { FitFileImport } from './FitFileImport'
 import { TrackmanImport } from './TrackmanImport'
 import { RapsodoImport } from './RapsodoImport'
-import { CsvRangeImport } from './CsvRangeImport'
 import styles from './ImportPage.module.css'
 
-type Tab = 'garmin' | 'trackman' | 'rapsodo' | 'csv'
+type Tab = 'garmin' | 'trackman' | 'rapsodo'
 
 const TABS: { id: Tab; label: string; sub: string; recommended?: boolean }[] = [
   { id: 'garmin', label: 'Garmin', sub: 'JSON \u00b7 FIT', recommended: true },
-  { id: 'trackman', label: 'Trackman', sub: 'URL \u00b7 Range' },
+  { id: 'trackman', label: 'Trackman', sub: 'URL \u00b7 CSV \u00b7 OCR' },
   { id: 'rapsodo', label: 'Rapsodo', sub: 'CSV \u00b7 Range' },
-  { id: 'csv', label: 'CSV', sub: 'Paste \u00b7 Range' },
 ]
 
 const TAB_COMPONENTS: Record<Tab, React.FC> = {
   garmin: GarminImportCombined,
   trackman: TrackmanImport,
   rapsodo: RapsodoImport,
-  csv: CsvRangeImport,
 }
 
 /** Garmin tab: both JSON bulk export and single FIT file */
@@ -39,7 +36,7 @@ export function ImportPage() {
   const ActiveComponent = TAB_COMPONENTS[activeTab]
 
   return (
-    <div className={styles.page}>
+    <div className={cn(styles.page, activeTab === 'trackman' && styles.pageWide)}>
       <div className={styles.header}>
         <h1 className={styles.title}>Import Data</h1>
       </div>

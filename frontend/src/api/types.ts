@@ -876,3 +876,16 @@ export interface DrillSummary {
   session_types?: string[] | null
   is_default: boolean
 }
+
+// ============================================================
+// OCR
+// ============================================================
+
+export interface OcrCell {
+  text: string
+  conf: number
+}
+
+export interface OcrResult {
+  rows: OcrCell[][]
+}

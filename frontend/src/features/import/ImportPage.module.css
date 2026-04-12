@@ -2,6 +2,10 @@
   max-width: 720px;
 }
 
+.pageWide {
+  max-width: none;
+}
+
 .header {
   margin-bottom: 24px;
 }

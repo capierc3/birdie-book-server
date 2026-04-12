@@ -8,37 +8,52 @@ import json
 
 logger = logging.getLogger(__name__)
 
-TRACKMAN_API_URL = "https://golf-player-activities.trackmangolf.com/api/reports/getreport"
+TRACKMAN_BASE_URL = "https://golf-player-activities.trackmangolf.com/api/reports"
 
-# Pattern to extract report ID from various Trackman URL formats
-REPORT_ID_PATTERN = re.compile(r"[?&]r=([0-9a-f-]{36})", re.IGNORECASE)
+# Patterns to extract IDs from Trackman URL query parameters
+_REPORT_PATTERN = re.compile(r"[?&]r=([0-9a-f-]{36})", re.IGNORECASE)
+_ACTIVITY_PATTERN = re.compile(r"[?&]a=([0-9a-f-]{36})", re.IGNORECASE)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
-def extract_report_id(url_or_id: str) -> str | None:
-    """Extract the report UUID from a Trackman URL or raw ID string."""
+def extract_trackman_id(url_or_id: str) -> tuple[str, str]:
+    """Extract UUID and its type ('activity' or 'report') from a URL or bare ID.
+
+    Returns (uuid, id_type). Raises ValueError on failure.
+    """
     url_or_id = url_or_id.strip()
 
-    # Already a bare UUID?
-    if re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", url_or_id, re.I):
-        return url_or_id.lower()
+    # Bare UUID — try activity endpoint first (newer format)
+    if _UUID_RE.match(url_or_id):
+        return url_or_id.lower(), "activity"
 
-    # Extract from URL
-    m = REPORT_ID_PATTERN.search(url_or_id)
+    # Check for activity URL (?a=...)
+    m = _ACTIVITY_PATTERN.search(url_or_id)
     if m:
-        return m.group(1).lower()
+        return m.group(1).lower(), "activity"
 
-    return None
+    # Check for report URL (?r=...)
+    m = _REPORT_PATTERN.search(url_or_id)
+    if m:
+        return m.group(1).lower(), "report"
+
+    raise ValueError("Could not extract a valid report ID from the provided URL")
 
 
-def fetch_trackman_report(report_id: str) -> dict:
+def fetch_trackman_report(trackman_id: str, id_type: str = "report") -> dict:
     """
     Call the Trackman API and return the raw JSON response.
     Raises ValueError on failure.
     """
-    payload = json.dumps({"ReportId": report_id}).encode("utf-8")
+    if id_type == "activity":
+        url = f"{TRACKMAN_BASE_URL}/getactivityreport"
+        payload = json.dumps({"ActivityId": trackman_id}).encode("utf-8")
+    else:
+        url = f"{TRACKMAN_BASE_URL}/getreport"
+        payload = json.dumps({"ReportId": trackman_id}).encode("utf-8")
 
     req = urllib.request.Request(
-        TRACKMAN_API_URL,
+        url,
         data=payload,
         headers={
             "Content-Type": "application/json",

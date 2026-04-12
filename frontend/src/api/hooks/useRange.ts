@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { get, post, del, postForm } from '../client'
-import type { RangeSessionSummary, RangeShotsResponse, OcrResult } from '../types'
+import type {
+  RangeSessionSummary,
+  RangeShotsResponse,
+  OcrResult,
+  TrackmanSyncSessionsResponse,
+  TrackmanSyncImportRequest,
+} from '../types'
 
 export function useRangeSessions() {
   return useQuery({
@@ -114,6 +120,37 @@ export function useOcrExtract() {
       const fd = new FormData()
       fd.append('file', file)
       return postForm<OcrResult>('/range/import/ocr', fd)
+    },
+  })
+}
+
+// ── Trackman Sync ──
+
+export function useTrackmanSyncSessions(token: string, page: number) {
+  return useQuery({
+    queryKey: ['trackman-sync', 'sessions', token, page],
+    queryFn: () =>
+      get<TrackmanSyncSessionsResponse>(
+        `/range/import/trackman-sync/sessions?token=${encodeURIComponent(token)}&page=${page}`,
+      ),
+    enabled: !!token,
+    staleTime: 30_000,
+    retry: false,
+  })
+}
+
+export function useTrackmanSyncImport() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: TrackmanSyncImportRequest) =>
+      post<{ status: string; session_id?: number; shot_count?: number; clubs?: string[]; message?: string }>(
+        '/range/import/trackman-sync',
+        body,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['range'] })
+      qc.invalidateQueries({ queryKey: ['clubs'] })
+      qc.invalidateQueries({ queryKey: ['trackman-sync'] })
     },
   })
 }

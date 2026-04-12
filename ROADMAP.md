@@ -819,28 +819,58 @@
 - Shareable round summaries and game plans
 - *Plan all export formats together as one cohesive feature*
 
-### Trackman Account Sync (API Discovery — April 2026)
-Reverse-engineered the Trackman undocumented API. A "Connect to Trackman" flow could auto-import sessions without manual URL pasting.
+## 19. Trackman Account Sync `[~]`
 
-**What we confirmed works:**
-- `GET https://golf-player-activities.trackmangolf.com/api/activities` — lists all user activities (paginated: `page`, `pageSize`, `total`). Requires Bearer token from Trackman portal auth.
-- Auth flow: `GET https://portal.trackmangolf.com/api/account/me` (with session cookie) returns `{ accessToken, refreshToken, expires }`. The `accessToken` (JWT) is used as `Authorization: Bearer` for the activities API.
-- Activity kinds observed: `dynamic-report`, `urn:trackman:dr:practice:1`, `urn:trackman:dr:find-my-distance:1`, `video`
-- `dynamic-report` activities contain `activityData.ReportId` — can be imported via existing `POST /api/reports/getreport` with `{"ReportId": "..."}` (no auth needed, public endpoint)
-- `?a=` URL activities (e.g. practice on TPS units) use `POST /api/reports/getactivityreport` with `{"ActivityId": "..."}` (no auth needed, public endpoint). Response structure is identical to `getreport`.
-- Practice sessions (`urn:trackman:dr:practice:1`) — metadata accessible via authenticated API but **stroke data is NOT available** through `getactivityreport` (returns 404). Practice data appears to only live in the Trackman mobile app. Sub-resource paths (`/strokes`, `/events`, `/shots`, `/measurements`, `/report`) all return 404.
+**Goal:** One-click sync of all Trackman data — range practice, shot analysis, and find-my-distance sessions — using a single Bearer token from the mytrackman.com web portal.
 
-**Potential "Connect to Trackman" feature:**
-1. User logs into Trackman portal in browser → we grab `accessToken`
-2. List activities → filter to `dynamic-report` kind
-3. Auto-import any sessions not already in our DB (match on `report_id`)
-4. Skip `video` and `practice` types (no accessible stroke data)
+**API Discovery (April 2026):** Reverse-engineered the Trackman undocumented APIs. Two separate backends, one token works for both.
 
-**Open questions:**
-- Token refresh flow — `refreshToken` is available but we haven't tested the refresh endpoint
-- Token lifetime (`expires` field observed) — how long before re-auth needed?
-- Whether Trackman will ever expose practice stroke data via API
-- *For now, CSV import and OCR remain the only paths for Trackman Range practice sessions*
+**Auth:**
+- User logs into mytrackman.com → DevTools → Network → `portal.trackmangolf.com/api/account/me` → copy `accessToken`
+- Or: Storage → Cookies → `appSession` cookie on `portal.trackmangolf.com`
+- JWT from `login.trackmangolf.com` (web portal) works against both the portal API and the Range API (`api.trackmanrange.com`)
+- Token lifetime: 7 days (web portal), refresh token available
+- User ID extracted automatically from JWT `sub` claim — no manual entry needed
+
+**Two APIs, unified listing:**
+
+| API | Endpoint | What it serves |
+|---|---|---|
+| Portal Activities | `GET golf-player-activities.trackmangolf.com/api/activities?userId={sub}` | Lists ALL activities (48 total): practice, shot-analysis, find-my-distance, video, CoursePlay, virtual golf |
+| Range Strokes | `GET api.trackmanrange.com/api/activities/{id}/strokes?pageSize=100` | Full stroke + measurement data for range practice sessions |
+| Public Reports | `POST golf-player-activities.trackmangolf.com/api/reports/getactivityreport` | Shot analysis data (`multiGroupReport` format — existing import handles this) |
+
+**Activity kinds and import handlers:**
+
+| Kind | Count | Import Handler | Data Type | Status |
+|---|---|---|---|---|
+| `urn:trackman:dr:practice:1` | 14 | Range REST strokes endpoint (new) | Ball-only (carry, total, spin, launch, trajectory) | `[~]` Building |
+| `shot-analysis` | 1 | Existing `getactivityreport` (no changes needed) | Full club+ball (club speed, face angle, etc.) | `[~]` Building |
+| `urn:trackman:dr:find-my-distance:1` | 2 | Range REST strokes endpoint (new) | Ball-only | `[~]` Building |
+| `video` | 25 | Skip (no shot data) | N/A | N/A |
+| `dynamic-report` | 1 | TBD — 404 on both report endpoints | Unknown | Backlog |
+| `urn:trackman:vg:play:1` | 2 | TBD — virtual golf / simulator games | Likely full club+ball | Backlog |
+| `urn:trackman:vg:practice:1` | 1 | TBD — virtual practice | Unknown | Backlog |
+| `CoursePlay` | 2 | TBD — sim course rounds | May overlap with real course data | Backlog |
+
+**User flow:**
+1. User pastes Bearer token (one-time per 7-day window)
+2. App calls portal activities API → gets all sessions
+3. Displays table: date, type (Practice/Shot Analysis/FMD), shot count, facility, imported status
+4. Already-imported sessions show green checkmark; new sessions show "Import" button
+5. User clicks Import → app fetches data from appropriate API → saves to DB → button becomes green checkmark
+
+**Range REST strokes endpoint (confirmed working):**
+- `GET api.trackmanrange.com/api/activities/{id}/strokes?pageSize=100` — returns all strokes with full measurement data
+- Same Bearer token, standard pagination (`page`, `pageSize`, `total`)
+- Measurement fields (camelCase, metric): `ballSpeed`, `carry`, `total`, `carrySide`, `totalSide`, `maxHeight`, `curve`, `launchAngle`, `launchDirection`, `ballSpin`, `spinAxis`, `ballTrajectory`, `reducedAccuracy`
+- Ball-only data — no club speed, face angle, attack angle (outdoor Trackman Range tracks ball only)
+
+**Open questions (deferred):**
+- Token refresh automation — `refreshToken` available but refresh endpoint not tested
+- `dynamic-report` kind — 404 on both report endpoints, needs investigation
+- Virtual golf (`vg:play`, `vg:practice`) — untested, likely has full club+ball data
+- `CoursePlay` — sim course data could conflict with real course stats; would need a 3rd data section (Course / Range / Sim)
 
 ---
 

@@ -889,3 +889,33 @@ export interface OcrCell {
 export interface OcrResult {
   rows: OcrCell[][]
 }
+
+// ============================================================
+// Trackman Sync
+// ============================================================
+
+export interface TrackmanSyncSession {
+  id: string
+  range_id?: string | null
+  kind: string
+  time: string
+  display_type: string
+  facility?: string | null
+  shot_count?: number | null
+  already_imported: boolean
+}
+
+export interface TrackmanSyncSessionsResponse {
+  sessions: TrackmanSyncSession[]
+  page: number
+  page_count: number
+  total: number
+}
+
+export interface TrackmanSyncImportRequest {
+  token: string
+  activity_id: string
+  range_id?: string
+  kind: string
+  activity_time?: string
+}

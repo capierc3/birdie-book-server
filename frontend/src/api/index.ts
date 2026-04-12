@@ -6,7 +6,7 @@ export { useRounds, useRound } from './hooks/useRounds'
 export { useCourses, useCourse, useCourseStats, useGolfClubs, useSearchCreateCourse } from './hooks/useCourses'
 export { useClubs, useClubDetail } from './hooks/useClubs'
 export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
-export { useRangeSessions, useRangeShots, useDeleteRangeSession, useImportCsvText, useImportCsvFile, useCreateManualSession, useOcrExtract } from './hooks/useRange'
+export { useRangeSessions, useRangeShots, useDeleteRangeSession, useImportCsvText, useImportCsvFile, useCreateManualSession, useOcrExtract, useTrackmanSyncSessions, useTrackmanSyncImport } from './hooks/useRange'
 export {
   usePracticePlans,
   usePracticePlan,
@@ -108,4 +108,7 @@ export type {
   DrillSummary,
   OcrCell,
   OcrResult,
+  TrackmanSyncSession,
+  TrackmanSyncSessionsResponse,
+  TrackmanSyncImportRequest,
 } from './types'

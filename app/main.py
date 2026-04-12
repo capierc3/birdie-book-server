@@ -181,6 +181,69 @@ def create_backup_endpoint():
     return {"status": "skipped", "reason": "Not a SQLite database"}
 
 
+# --- Trackman Token Storage ---
+
+@app.get("/api/settings/trackman-token")
+def get_trackman_token():
+    """Return the saved Trackman token and metadata."""
+    from app.models.app_setting import AppSetting
+    db = SessionLocal()
+    try:
+        token_row = db.query(AppSetting).filter(AppSetting.key == "trackman_token").first()
+        saved_at_row = db.query(AppSetting).filter(AppSetting.key == "trackman_token_saved_at").first()
+        return {
+            "token": token_row.value if token_row else None,
+            "saved_at": saved_at_row.value if saved_at_row else None,
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/settings/trackman-token")
+def save_trackman_token(body: dict):
+    """Save a Trackman Bearer token."""
+    from app.models.app_setting import AppSetting
+    from datetime import datetime, timezone
+    token = (body.get("token") or "").strip()
+    if not token:
+        return {"status": "error", "message": "No token provided"}
+
+    db = SessionLocal()
+    try:
+        # Upsert token
+        row = db.query(AppSetting).filter(AppSetting.key == "trackman_token").first()
+        if row:
+            row.value = token
+        else:
+            db.add(AppSetting(key="trackman_token", value=token))
+
+        # Upsert saved_at
+        now = datetime.now(timezone.utc).isoformat()
+        row2 = db.query(AppSetting).filter(AppSetting.key == "trackman_token_saved_at").first()
+        if row2:
+            row2.value = now
+        else:
+            db.add(AppSetting(key="trackman_token_saved_at", value=now))
+
+        db.commit()
+        return {"status": "saved", "saved_at": now}
+    finally:
+        db.close()
+
+
+@app.delete("/api/settings/trackman-token")
+def delete_trackman_token():
+    """Remove the saved Trackman token."""
+    from app.models.app_setting import AppSetting
+    db = SessionLocal()
+    try:
+        db.query(AppSetting).filter(AppSetting.key.in_(["trackman_token", "trackman_token_saved_at"])).delete(synchronize_session=False)
+        db.commit()
+        return {"status": "deleted"}
+    finally:
+        db.close()
+
+
 # --- React SPA (Feature 18) ---
 # Serves the built React app at /app/*. During dev, use Vite's dev server instead.
 _frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"

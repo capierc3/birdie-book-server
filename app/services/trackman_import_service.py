@@ -10,7 +10,11 @@ from app.models.player import Player
 from app.models.club import Club
 from app.models.range_session import RangeSession
 from app.models.trackman_shot import TrackmanShot
-from app.services.trackman_api import fetch_trackman_report, extract_trackman_id
+from app.services.trackman_api import (
+    fetch_trackman_report,
+    extract_trackman_id,
+    fetch_trackman_range_strokes,
+)
 from app.services.rapsodo_club_types import get_or_create_unknown_club
 
 logger = logging.getLogger(__name__)
@@ -49,6 +53,17 @@ TRACKMAN_CLUB_MAP: dict[str, str] = {
     "SandWedge": "Sand Wedge",
     "LobWedge": "Lob Wedge",
     "Putter": "Putter",
+    # Degree-specific wedges (Trackman Range app format)
+    "46Wedge": "46° Wedge",
+    "48Wedge": "48° Wedge",
+    "50Wedge": "50° Wedge",
+    "52Wedge": "52° Wedge",
+    "54Wedge": "54° Wedge",
+    "56Wedge": "56° Wedge",
+    "58Wedge": "58° Wedge",
+    "60Wedge": "60° Wedge",
+    "62Wedge": "62° Wedge",
+    "64Wedge": "64° Wedge",
 }
 
 
@@ -268,6 +283,186 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
         "session_id": session.id,
         "shot_count": total_shots,
         "clubs": [_standard_club_name(g["Club"]) for g in stroke_groups],
+        "player": player_name,
+        "date": session_date.isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Trackman Range API import (camelCase, ball-only data)
+# ---------------------------------------------------------------------------
+
+def _convert_range_measurement(m: dict) -> dict:
+    """Convert a Trackman Range measurement dict (camelCase, metric) to imperial."""
+    def _dist(key):
+        v = _safe_float(m.get(key))
+        return round(v * M_TO_YDS, 1) if v is not None else None
+
+    def _speed(key):
+        v = _safe_float(m.get(key))
+        return round(v * MS_TO_MPH, 1) if v is not None else None
+
+    def _height(key):
+        v = _safe_float(m.get(key))
+        return round(v * M_TO_FT, 1) if v is not None else None
+
+    def _deg(key):
+        return _safe_float(m.get(key))
+
+    return {
+        "carry_yards": _dist("carry"),
+        "total_yards": _dist("total"),
+        "side_carry_yards": _dist("carrySide"),
+        "side_total_yards": _dist("totalSide"),
+        "apex_ft": _height("maxHeight"),
+        "curve_yards": _dist("curve"),
+        "ball_speed_mph": _speed("ballSpeed"),
+        "launch_angle_deg": _deg("launchAngle"),
+        "launch_direction_deg": _deg("launchDirection"),
+        "landing_angle_deg": _deg("landingAngle"),
+        "spin_rate_rpm": _safe_float(m.get("ballSpin")),
+        "spin_axis_deg": _deg("spinAxis"),
+        # Ball-only — no club head data from Trackman Range
+        "club_speed_mph": None,
+        "ball_speed_diff_mph": None,
+        "attack_angle_deg": None,
+        "club_path_deg": None,
+        "face_angle_deg": None,
+        "face_to_path_deg": None,
+        "dynamic_loft_deg": None,
+        "spin_loft_deg": None,
+        "swing_plane_deg": None,
+        "swing_direction_deg": None,
+        "dynamic_lie_deg": None,
+        "smash_factor": None,
+        "smash_index": None,
+        "hang_time_sec": None,
+        "impact_offset_in": None,
+        "impact_height_in": None,
+        "low_point_distance_in": None,
+        "low_point_height_in": None,
+        "low_point_side_in": None,
+    }
+
+
+def import_trackman_range_activity(
+    db: Session,
+    activity_id: str,
+    bearer_token: str,
+    activity_time: str | None = None,
+    activity_kind: str | None = None,
+) -> dict:
+    """Import a Trackman Range activity by ID using the authenticated Range API."""
+    # Dedup check
+    existing = db.query(RangeSession).filter(
+        RangeSession.report_id == activity_id
+    ).first()
+    if existing:
+        return {
+            "status": "duplicate",
+            "session_id": existing.id,
+            "message": f"This session was already imported on {existing.created_at}",
+        }
+
+    # Fetch all strokes
+    strokes = fetch_trackman_range_strokes(activity_id, bearer_token)
+    if not strokes:
+        raise ValueError("Activity contains no stroke data")
+
+    # Resolve player from first stroke
+    first_player = strokes[0].get("player", {})
+    player_name = (first_player.get("name") or "Unknown Player").title()
+    player = db.query(Player).filter(Player.name == player_name).first()
+    if not player:
+        player = Player(name=player_name)
+        db.add(player)
+        db.flush()
+
+    # Session date
+    try:
+        session_date = datetime.fromisoformat(activity_time) if activity_time else datetime.now()
+    except (ValueError, TypeError):
+        session_date = datetime.now()
+
+    # Title based on kind
+    date_str = session_date.strftime("%b %d, %Y")
+    if activity_kind and "find-my-distance" in activity_kind:
+        title = f"Trackman FMD — {date_str}"
+    else:
+        title = f"Trackman Range — {date_str}"
+
+    session = RangeSession(
+        player_id=player.id,
+        source="trackman_range",
+        session_date=session_date,
+        title=title,
+        report_id=activity_id,
+        import_fingerprint=activity_id,
+    )
+    db.add(session)
+    db.flush()
+
+    shot_number = 0
+    clubs_seen: set[str] = set()
+
+    for stroke in strokes:
+        if stroke.get("isDeleted"):
+            continue
+        measurement = stroke.get("measurement")
+        if not measurement:
+            continue
+
+        shot_number += 1
+        raw_club = stroke.get("club")
+
+        # Resolve club
+        if raw_club:
+            club_id = _resolve_club(db, raw_club, player.id)
+            clubs_seen.add(_standard_club_name(raw_club))
+        else:
+            unknown = get_or_create_unknown_club(db, player.id)
+            club_id = unknown.id
+            clubs_seen.add("Unknown")
+
+        converted = _convert_range_measurement(measurement)
+
+        # Trajectory JSON
+        trajectory = measurement.get("ballTrajectory", [])
+        trajectory_json = json.dumps(trajectory) if trajectory else None
+
+        # Reduced accuracy
+        reduced = measurement.get("reducedAccuracy", [])
+        reduced_json = json.dumps(reduced) if reduced else None
+
+        # Timestamp
+        ts = None
+        time_str = stroke.get("time") or measurement.get("time")
+        if time_str:
+            try:
+                ts = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+
+        db.add(TrackmanShot(
+            session_id=session.id,
+            club_id=club_id,
+            shot_number=shot_number,
+            trackman_id=stroke.get("id", f"{activity_id}_{shot_number}"),
+            timestamp=ts,
+            club_type_raw=raw_club or "Unknown",
+            trajectory_json=trajectory_json,
+            reduced_accuracy_json=reduced_json,
+            **converted,
+        ))
+
+    session.shot_count = shot_number
+    db.commit()
+
+    return {
+        "status": "imported",
+        "session_id": session.id,
+        "shot_count": shot_number,
+        "clubs": sorted(clubs_seen),
         "player": player_name,
         "date": session_date.isoformat(),
     }

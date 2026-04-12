@@ -4,6 +4,7 @@ import { Button, Input, FormGroup, useToast } from '../../components'
 import { post } from '../../api/client'
 import { CsvRangeImport } from './CsvRangeImport'
 import { OcrImport } from './OcrImport'
+import { TrackmanSync } from './TrackmanSync'
 import styles from './import.module.css'
 
 interface TrackmanResult {
@@ -22,6 +23,8 @@ export function TrackmanImport() {
   const [importing, setImporting] = useState(false)
   const queryClient = useQueryClient()
   const { toast } = useToast()
+
+  const [mode, setMode] = useState<'sync' | 'manual'>('sync')
 
   // Shared session metadata for Range CSV and Range OCR
   const [sessionDate, setSessionDate] = useState(new Date().toISOString().slice(0, 10))
@@ -57,6 +60,32 @@ export function TrackmanImport() {
 
   return (
     <div>
+      {/* Mode toggle: API Sync vs Manual */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 24 }}>
+        {(['sync', 'manual'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            style={{
+              padding: '6px 16px',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--border)',
+              background: mode === m ? 'var(--accent)' : 'transparent',
+              color: mode === m ? '#fff' : 'var(--text-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            {m === 'sync' ? 'API Sync' : 'Manual'}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'sync' && <TrackmanSync />}
+
+      {mode === 'manual' && (
+        <>
       {/* Section 1: TPS Report */}
       <h2 className={styles.sectionTitle}>TPS Report (URL)</h2>
       <p className={styles.sectionDesc}>
@@ -140,6 +169,8 @@ export function TrackmanImport() {
       )}
       {rangeMode === 'ocr' && (
         <OcrImport sessionDate={sessionDate} title={title} notes={notes} />
+      )}
+        </>
       )}
     </div>
   )

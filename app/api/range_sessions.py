@@ -10,7 +10,12 @@ from app.models.range_session import RangeSession, RangeShot
 from app.models.trackman_shot import TrackmanShot
 from app.services.rapsodo_csv_parser import parse_mlm2pro_csv
 from app.services.rapsodo_import_service import import_rapsodo_session
-from app.services.trackman_import_service import import_trackman_report, _resolve_club
+from app.services.trackman_import_service import (
+    import_trackman_report,
+    import_trackman_range_activity,
+    _resolve_club,
+)
+from app.services.trackman_api import fetch_trackman_activities
 from app.services.rapsodo_club_types import get_standard_club_type
 from app.api.clubs import _default_club_color
 from app.services.club_stats_service import compute_club_stats
@@ -160,6 +165,140 @@ def import_trackman(body: TrackmanImportRequest, db: Session = Depends(get_db)):
 
     try:
         result = import_trackman_report(db, body.url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if result["status"] == "imported":
+        compute_club_stats(db)
+
+    return result
+
+
+# ── Trackman Sync (authenticated API) ──
+
+_SUPPORTED_SYNC_KINDS = {
+    "shot-analysis": "Shot Analysis",
+    "urn:trackman:dr:practice:1": "Practice",
+    "urn:trackman:dr:find-my-distance:1": "Find My Distance",
+}
+
+
+class TrackmanSyncSessionItem(BaseModel):
+    id: str
+    range_id: Optional[str] = None  # Range API activity ID (different from portal ID for practice/FMD)
+    kind: str
+    time: str
+    display_type: str
+    facility: Optional[str] = None
+    shot_count: Optional[int] = None
+    already_imported: bool
+
+
+class TrackmanSyncSessionsResponse(BaseModel):
+    sessions: list[TrackmanSyncSessionItem]
+    page: int
+    page_count: int
+    total: int
+
+
+class TrackmanSyncImportRequest(BaseModel):
+    token: str
+    activity_id: str
+    range_id: Optional[str] = None  # Range API ID for practice/FMD sessions
+    kind: str
+    activity_time: Optional[str] = None
+
+
+@router.get("/import/trackman-sync/sessions")
+def list_trackman_sync_sessions(
+    token: str = Query(...),
+    page: int = Query(1),
+    db: Session = Depends(get_db),
+):
+    """List available Trackman sessions for sync."""
+    try:
+        data = fetch_trackman_activities(token, page)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Build set of already-imported report IDs
+    imported_ids = set(
+        r[0]
+        for r in db.query(RangeSession.report_id).filter(
+            RangeSession.report_id.isnot(None)
+        ).all()
+    )
+
+    sessions: list[TrackmanSyncSessionItem] = []
+    for item in data.get("items", []):
+        kind = item.get("kind", "")
+        display_type = _SUPPORTED_SYNC_KINDS.get(kind)
+        if not display_type:
+            continue
+
+        # Extract facility name and Range activity ID from tags
+        facility = None
+        range_activity_id = None
+        for tag in item.get("tags", []):
+            tag_kind = tag.get("kind", "")
+            if "Facility" in tag_kind or "facility" in tag_kind:
+                facility = tag.get("name")
+            if tag_kind == "urn:trackman:dr:activity-tag-type:activity-id":
+                range_activity_id = tag.get("id")
+
+        # Extract shot count
+        ad = item.get("activityData", {})
+        shot_count = ad.get("TotalNumberOfStrokes") or ad.get("StrokeCount")
+
+        activity_id = item.get("id", "")
+        # For dedup, check both portal ID and range ID
+        is_imported = activity_id in imported_ids or (
+            range_activity_id is not None and range_activity_id in imported_ids
+        )
+
+        sessions.append(TrackmanSyncSessionItem(
+            id=activity_id,
+            range_id=range_activity_id,
+            kind=kind,
+            time=item.get("time", ""),
+            display_type=display_type,
+            facility=facility,
+            shot_count=shot_count,
+            already_imported=is_imported,
+        ))
+
+    return TrackmanSyncSessionsResponse(
+        sessions=sessions,
+        page=data.get("page", 1),
+        page_count=data.get("pageCount", 1),
+        total=len(sessions),
+    )
+
+
+@router.post("/import/trackman-sync")
+def import_trackman_sync(
+    body: TrackmanSyncImportRequest,
+    db: Session = Depends(get_db),
+):
+    """Import a single Trackman session via sync."""
+    from app.services.backup_service import create_pre_import_backup
+    create_pre_import_backup()
+
+    try:
+        if body.kind == "shot-analysis":
+            # Shot analysis uses existing public reports API (activity ID as bare UUID)
+            result = import_trackman_report(db, body.activity_id)
+        else:
+            # Practice / FMD use authenticated Range strokes API
+            # The Range API uses a different ID than the portal API
+            range_id = body.range_id or body.activity_id
+            result = import_trackman_range_activity(
+                db,
+                range_id,
+                body.token,
+                body.activity_time,
+                body.kind,
+            )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -5,7 +5,7 @@ import { formatNum } from '../../utils/format'
 
 interface Props {
   clubs: Club[]
-  dataSource: 'course' | 'range' | 'combined'
+  dataSource: 'garmin' | 'rapsodo' | 'combined'
   compareWindow: string
   onRowClick?: (club: Club) => void
   onMerge?: (club: Club) => void
@@ -13,7 +13,7 @@ interface Props {
 
 const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
   garmin: { label: 'G', color: '#4caf50' },
-  rapsodo_mlm2pro: { label: 'R', color: '#f59e0b' },
+  rapsodo: { label: 'R', color: '#f59e0b' },
   trackman: { label: 'T', color: '#3b82f6' },
   manual: { label: 'M', color: '#8b8f98' },
 }
@@ -21,7 +21,7 @@ const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
 function getStats(club: Club, source: string) {
   const s = club.stats
   if (!s) return null
-  if (source === 'range') {
+  if (source === 'rapsodo') {
     return {
       avg: s.range_avg_yards, median: s.range_median_yards,
       max: s.range_max_yards, std: s.range_std_dev,
@@ -49,7 +49,7 @@ function getComparisonStats(club: Club, compareWindow: string): ClubDistanceStat
 
   if (compareWindow.startsWith('source:')) {
     const cmpSrc = compareWindow.split(':')[1]
-    if (cmpSrc === 'range') {
+    if (cmpSrc === 'rapsodo') {
       return s.range_avg_yards != null ? {
         avg_yards: s.range_avg_yards, median_yards: s.range_median_yards,
         max_yards: s.range_max_yards, std_dev: s.range_std_dev,
@@ -57,7 +57,7 @@ function getComparisonStats(club: Club, compareWindow: string): ClubDistanceStat
         sample_count: s.range_sample_count,
       } : null
     }
-    if (cmpSrc === 'course') {
+    if (cmpSrc === 'garmin') {
       return s.avg_yards != null ? {
         avg_yards: s.avg_yards, median_yards: s.median_yards,
         max_yards: s.max_yards, std_dev: s.std_dev,

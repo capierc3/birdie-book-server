@@ -360,8 +360,8 @@ export interface ClubDetail {
   club: Club
   shots: ClubShot[]
   source_counts: {
-    course: number
-    range: number
+    garmin: number
+    rapsodo: number
     trackman: number
   }
   avg_ball_speed?: number | null

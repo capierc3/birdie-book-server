@@ -50,7 +50,7 @@ def import_rapsodo_session(db: Session, parsed: ParsedRangeSession, csv_content:
     title = f"MLM2PRO — {parsed.session_date.strftime('%b %d, %Y %I:%M %p')}"
     session = RangeSession(
         player_id=player.id,
-        source="rapsodo_mlm2pro",
+        source="rapsodo",
         session_date=parsed.session_date,
         title=title,
         import_fingerprint=fingerprint,
@@ -65,7 +65,7 @@ def import_rapsodo_session(db: Session, parsed: ParsedRangeSession, csv_content:
     for i, shot in enumerate(parsed.shots, start=1):
         club_id = resolve_club(
             db, shot.club_type_raw, player.id,
-            create_if_missing=True, source="rapsodo_mlm2pro",
+            create_if_missing=True, source="rapsodo",
             brand=shot.club_brand, model=shot.club_model,
         )
 

@@ -20,7 +20,7 @@ class Club(Base):
     loft_deg = Column(Float)
     lie_deg = Column(Float)
     color = Column(String(7))  # Hex color e.g. "#42a5f5", assigned on creation
-    source = Column(String(30), default="manual")  # "garmin", "rapsodo_mlm2pro", "trackman", "manual"
+    source = Column(String(30), default="manual")  # "garmin", "rapsodo", "trackman", "manual"
     retired = Column(Boolean, default=False)
     sort_order = Column(Integer, default=0)
     garmin_last_modified = Column(DateTime)

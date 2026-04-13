@@ -10,7 +10,7 @@ class RangeSession(Base):
 
     id = Column(Integer, primary_key=True)
     player_id = Column(Integer, ForeignKey("players.id"))
-    source = Column(String(30), nullable=False, default="rapsodo_mlm2pro")
+    source = Column(String(30), nullable=False, default="rapsodo")
     session_date = Column(DateTime, nullable=False)
     title = Column(String(200))
     notes = Column(String(2000))

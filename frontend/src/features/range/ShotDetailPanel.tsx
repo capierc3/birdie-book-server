@@ -69,7 +69,7 @@ const PANEL_SECTIONS: { title: string; fields: FieldDef[] }[] = [
 function formatSource(source: string): string {
   const map: Record<string, string> = {
     trackman: 'Trackman',
-    rapsodo_mlm2pro: 'MLM2PRO',
+    rapsodo: 'Rapsodo',
     garmin: 'Garmin',
   }
   return map[source] ?? source

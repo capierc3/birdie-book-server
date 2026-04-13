@@ -10,7 +10,7 @@ import { AddSessionModal } from './AddSessionModal'
 import styles from '../../styles/pages.module.css'
 
 const SOURCE_LABELS: Record<string, string> = {
-  rapsodo_mlm2pro: 'Rapsodo MLM2PRO',
+  rapsodo: 'Rapsodo',
   trackman: 'Trackman',
   manual_csv: 'CSV Import',
   manual: 'Manual',

@@ -3,7 +3,7 @@ import type { Club, ClubDistanceStats } from '../../api'
 
 interface Props {
   clubs: Club[]
-  dataSource: 'course' | 'range' | 'combined'
+  dataSource: 'garmin' | 'rapsodo' | 'combined'
   compareWindow: string
   compareLabel: string
 }
@@ -11,7 +11,7 @@ interface Props {
 function getStats(club: Club, source: string) {
   const s = club.stats
   if (!s) return null
-  if (source === 'range') {
+  if (source === 'rapsodo') {
     return { avg: s.range_avg_yards, median: s.range_median_yards, min: s.range_min_yards, max: s.range_max_yards, p10: s.range_p10, p90: s.range_p90, count: s.range_sample_count }
   }
   if (source === 'combined') {
@@ -27,14 +27,14 @@ function getComparisonStats(club: Club, compareWindow: string): ClubDistanceStat
 
   if (compareWindow.startsWith('source:')) {
     const cmpSrc = compareWindow.split(':')[1]
-    if (cmpSrc === 'range') {
+    if (cmpSrc === 'rapsodo') {
       return s.range_avg_yards != null ? {
         avg_yards: s.range_avg_yards, median_yards: s.range_median_yards,
         min_yards: s.range_min_yards, max_yards: s.range_max_yards,
         p10: s.range_p10, p90: s.range_p90, sample_count: s.range_sample_count,
       } : null
     }
-    if (cmpSrc === 'course') {
+    if (cmpSrc === 'garmin') {
       return s.avg_yards != null ? {
         avg_yards: s.avg_yards, median_yards: s.median_yards,
         min_yards: s.min_yards, max_yards: s.max_yards,
@@ -58,8 +58,8 @@ function clubSortKey(type: string): number {
 }
 
 const sourceLabels: Record<string, string> = {
-  course: 'On-Course',
-  range: 'Range',
+  garmin: 'Garmin',
+  rapsodo: 'Rapsodo',
   combined: 'Combined',
 }
 

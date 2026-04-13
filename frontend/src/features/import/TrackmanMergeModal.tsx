@@ -12,7 +12,7 @@ interface Props {
 
 const SOURCE_LABELS: Record<string, string> = {
   garmin: 'Garmin',
-  rapsodo_mlm2pro: 'Rapsodo',
+  rapsodo: 'Rapsodo',
   trackman: 'Trackman',
   manual: 'Manual',
 }

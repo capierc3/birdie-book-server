@@ -10,16 +10,16 @@ import { ClubEditModal } from './ClubEditModal'
 import { ClubMergeModal } from './ClubMergeModal'
 import styles from '../../styles/pages.module.css'
 
-type DataSource = 'course' | 'range' | 'combined'
+type DataSource = 'garmin' | 'rapsodo' | 'combined'
 
 function getCompareOptions(source: DataSource): { value: string; label: string }[] {
   const opts: { value: string; label: string }[] = [
     { value: '', label: 'All Time' },
-    { value: 'source:range', label: 'Range Data' },
-    { value: 'source:course', label: 'Course Data' },
+    { value: 'source:rapsodo', label: 'Rapsodo Data' },
+    { value: 'source:garmin', label: 'Garmin Data' },
   ]
 
-  if (source === 'course') {
+  if (source === 'garmin') {
     opts.push(
       { value: 'rounds:1', label: 'Last Round' },
       { value: 'rounds:3', label: 'Last 3 Rounds' },
@@ -27,7 +27,7 @@ function getCompareOptions(source: DataSource): { value: string; label: string }
       { value: 'rounds:10', label: 'Last 10 Rounds' },
       { value: 'rounds:20', label: 'Last 20 Rounds' },
     )
-  } else if (source === 'range') {
+  } else if (source === 'rapsodo') {
     opts.push(
       { value: 'sessions:1', label: 'Last Session' },
       { value: 'sessions:3', label: 'Last 3 Sessions' },
@@ -111,8 +111,8 @@ export function ClubsPage() {
                 onChange={(e) => handleDataSourceChange(e.target.value as DataSource)}
                 style={{ width: 'auto' }}
               >
-                <option value="course">On-Course</option>
-                <option value="range">Range</option>
+                <option value="garmin">Garmin</option>
+                <option value="rapsodo">Rapsodo</option>
                 <option value="combined">Combined</option>
               </Select>
             </div>

@@ -100,7 +100,7 @@ class RangeShotResponse(BaseModel):
     smash_index: Optional[float] = None
     ball_speed_diff_mph: Optional[float] = None
     trajectory_json: Optional[str] = None
-    source: str = "rapsodo_mlm2pro"
+    source: str = "rapsodo"
 
 class ClubGroupStats(BaseModel):
     club_type_raw: str
@@ -657,7 +657,7 @@ def get_range_session(session_id: int, db: Session = Depends(get_db)):
             club_path_deg=s.club_path_deg,
             spin_rate_rpm=s.spin_rate_rpm,
             spin_axis_deg=s.spin_axis_deg,
-            source="rapsodo_mlm2pro",
+            source="rapsodo",
         ))
 
     for s in session.trackman_shots:
@@ -732,7 +732,7 @@ def _mlm_to_response(s: RangeShot) -> RangeShotResponse:
         club_path_deg=s.club_path_deg,
         spin_rate_rpm=s.spin_rate_rpm,
         spin_axis_deg=s.spin_axis_deg,
-        source="rapsodo_mlm2pro",
+        source="rapsodo",
     )
 
 

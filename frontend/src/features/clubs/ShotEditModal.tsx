@@ -14,7 +14,7 @@ interface Props {
 
 const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
   garmin: { label: 'G', color: '#4caf50' },
-  rapsodo_mlm2pro: { label: 'R', color: '#f59e0b' },
+  rapsodo: { label: 'R', color: '#f59e0b' },
   trackman: { label: 'T', color: '#3b82f6' },
   manual: { label: 'M', color: '#8b8f98' },
 }
@@ -37,7 +37,7 @@ function clubSortKey(type: string): number {
 }
 
 function getShotType(source: string): string {
-  if (source === 'course') return 'course'
+  if (source === 'garmin') return 'course'
   if (source === 'trackman') return 'trackman'
   return 'range'
 }

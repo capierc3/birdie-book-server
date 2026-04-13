@@ -552,7 +552,7 @@ def get_club_shots(club_id: int, db: Session = Depends(get_db)):
             shots.append(ClubShotResponse(
                 id=f"course_{s.id}",
                 raw_id=s.id,
-                source="course",
+                source="garmin",
                 date=r.date.isoformat() if r.date else None,
                 shot_number=s.shot_number,
                 distance_yards=s.distance_yards,
@@ -588,7 +588,7 @@ def get_club_shots(club_id: int, db: Session = Depends(get_db)):
         shots.append(ClubShotResponse(
             id=f"mlm_{s.id}",
             raw_id=s.id,
-            source="rapsodo_mlm2pro",
+            source="rapsodo",
             date=sess.session_date.strftime("%Y-%m-%d") if sess.session_date else None,
             shot_number=s.shot_number,
             carry_yards=s.carry_yards,
@@ -657,17 +657,17 @@ def get_club_shots(club_id: int, db: Session = Depends(get_db)):
     shots.sort(key=lambda s: s.date or "", reverse=True)
 
     # Source counts
-    source_counts = {"course": 0, "range": 0, "trackman": 0}
+    source_counts = {"garmin": 0, "rapsodo": 0, "trackman": 0}
     for s in shots:
-        if s.source == "course":
-            source_counts["course"] += 1
-        elif s.source == "rapsodo_mlm2pro":
-            source_counts["range"] += 1
+        if s.source == "garmin":
+            source_counts["garmin"] += 1
+        elif s.source == "rapsodo":
+            source_counts["rapsodo"] += 1
         elif s.source == "trackman":
             source_counts["trackman"] += 1
 
     # Aggregate speed/angle stats from range + trackman shots
-    range_tm = [s for s in shots if s.source != "course"]
+    range_tm = [s for s in shots if s.source != "garmin"]
 
     return ClubDetailResponse(
         club=_build_club_response(club),

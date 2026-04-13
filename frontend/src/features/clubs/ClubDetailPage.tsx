@@ -11,10 +11,9 @@ import styles from '../../styles/pages.module.css'
 // ── Source badges ──
 const SOURCE_COLORS: Record<string, { label: string; color: string }> = {
   garmin: { label: 'G', color: '#4caf50' },
-  rapsodo_mlm2pro: { label: 'R', color: '#f59e0b' },
+  rapsodo: { label: 'R', color: '#f59e0b' },
   trackman: { label: 'T', color: '#3b82f6' },
   manual: { label: 'M', color: '#8b8f98' },
-  course: { label: 'C', color: '#4caf50' },
 }
 
 // ── Column definitions ──
@@ -82,11 +81,10 @@ function saveColumnConfig(cols: string[]) {
 }
 
 // ── Source filter types ──
-type SourceFilter = 'all' | 'course' | 'range' | 'trackman'
+type SourceFilter = 'all' | 'garmin' | 'rapsodo' | 'trackman'
 
 function filterShots(shots: ClubShot[], filter: SourceFilter): ClubShot[] {
   if (filter === 'all') return shots
-  if (filter === 'range') return shots.filter((s) => s.source === 'rapsodo_mlm2pro')
   return shots.filter((s) => s.source === filter)
 }
 
@@ -281,10 +279,10 @@ export function ClubDetailPage() {
   // Distance stats based on source filter
   const distStats = (() => {
     if (!s) return null
-    if (sourceFilter === 'course') {
+    if (sourceFilter === 'garmin') {
       return { avg: s.avg_yards, median: s.median_yards, max: s.max_yards, std: s.std_dev, p10: s.p10, p90: s.p90, count: s.sample_count }
     }
-    if (sourceFilter === 'range' || sourceFilter === 'trackman') {
+    if (sourceFilter === 'rapsodo' || sourceFilter === 'trackman') {
       return { avg: s.range_avg_yards, median: s.range_median_yards, max: s.range_max_yards, std: s.range_std_dev, p10: s.range_p10, p90: s.range_p90, count: s.range_sample_count }
     }
     return { avg: s.combined_avg_yards, median: s.combined_median_yards, max: s.combined_max_yards, std: s.combined_std_dev, p10: s.combined_p10, p90: s.combined_p90, count: s.combined_sample_count }
@@ -318,12 +316,12 @@ export function ClubDetailPage() {
   if (club.shaft_length_in != null) specs.push(`Shaft: ${club.shaft_length_in}"`)
 
   const hasLaunchData = data.avg_ball_speed != null || data.avg_club_speed != null || data.avg_spin_rate != null
-  const totalShots = (sourceCounts.course || 0) + (sourceCounts.range || 0) + (sourceCounts.trackman || 0)
+  const totalShots = (sourceCounts.garmin || 0) + (sourceCounts.rapsodo || 0) + (sourceCounts.trackman || 0)
 
   const toggles: { key: SourceFilter; label: string; count: number; color: string }[] = [
     { key: 'all', label: 'All', count: totalShots, color: 'var(--accent)' },
-    ...(sourceCounts.course > 0 ? [{ key: 'course' as SourceFilter, label: 'Course', count: sourceCounts.course, color: '#4CAF50' }] : []),
-    ...(sourceCounts.range > 0 ? [{ key: 'range' as SourceFilter, label: 'Range', count: sourceCounts.range, color: '#2196F3' }] : []),
+    ...(sourceCounts.garmin > 0 ? [{ key: 'garmin' as SourceFilter, label: 'Garmin', count: sourceCounts.garmin, color: '#4CAF50' }] : []),
+    ...(sourceCounts.rapsodo > 0 ? [{ key: 'rapsodo' as SourceFilter, label: 'Rapsodo', count: sourceCounts.rapsodo, color: '#2196F3' }] : []),
     ...(sourceCounts.trackman > 0 ? [{ key: 'trackman' as SourceFilter, label: 'Trackman', count: sourceCounts.trackman, color: '#FF9800' }] : []),
   ]
 
@@ -342,8 +340,8 @@ export function ClubDetailPage() {
     sdRow[key] = fmtSummary(calcStdDev(vals), col)
   }
 
-  const srcLabels: Record<string, string> = { course: 'Course', rapsodo_mlm2pro: 'Range', trackman: 'TM' }
-  const srcColors: Record<string, string> = { course: '#4CAF50', rapsodo_mlm2pro: '#2196F3', trackman: '#FF9800' }
+  const srcLabels: Record<string, string> = { garmin: 'Garmin', rapsodo: 'Rapsodo', trackman: 'TM' }
+  const srcColors: Record<string, string> = { garmin: '#4CAF50', rapsodo: '#2196F3', trackman: '#FF9800' }
 
   const thStyle = (sortable?: boolean): React.CSSProperties => ({
     padding: '8px 10px', textAlign: 'center',
@@ -594,9 +592,9 @@ export function ClubDetailPage() {
                       {isExpanded && (
                         <tr>
                           <td colSpan={activeCols.length + 1} style={{ padding: '8px 16px', background: 'var(--bg-elevated, #1a1d24)', borderBottom: '2px solid var(--border)' }}>
-                            {shot.source === 'course' ? <CourseDetailPanel shot={shot} /> : <RangeDetailPanel shot={shot} />}
+                            {shot.source === 'garmin' ? <CourseDetailPanel shot={shot} /> : <RangeDetailPanel shot={shot} />}
                             <div style={{ textAlign: 'right', marginTop: 4, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                              {shot.source === 'course' && shot.round_id && (
+                              {shot.source === 'garmin' && shot.round_id && (
                                 <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); navigate(`/rounds/${shot.round_id}`) }}>
                                   View Round
                                 </Button>

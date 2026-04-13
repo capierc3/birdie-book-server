@@ -3,7 +3,8 @@ import { Check } from 'lucide-react'
 import { Button, Input, useToast } from '../../components'
 import { get, post, del } from '../../api/client'
 import { useTrackmanSyncSessions, useTrackmanSyncImport } from '../../api'
-import type { TrackmanSyncSession } from '../../api'
+import type { TrackmanSyncSession, MergeSuggestion } from '../../api'
+import { TrackmanMergeModal } from './TrackmanMergeModal'
 import styles from './import.module.css'
 
 const TYPE_COLORS: Record<string, string> = {
@@ -41,6 +42,7 @@ export function TrackmanSync() {
   const [importedIds, setImportedIds] = useState<Set<string>>(new Set())
   const [importingId, setImportingId] = useState<string | null>(null)
   const [loadingToken, setLoadingToken] = useState(true)
+  const [mergeSuggestions, setMergeSuggestions] = useState<MergeSuggestion[]>([])
   const { toast } = useToast()
 
   const { data, isLoading, error } = useTrackmanSyncSessions(activeToken, page)
@@ -105,6 +107,9 @@ export function TrackmanSync() {
           toast(
             `Imported ${result.shot_count} shots${result.clubs?.length ? ` (${result.clubs.join(', ')})` : ''}`,
           )
+          if (result.merge_suggestions?.length) {
+            setMergeSuggestions(result.merge_suggestions)
+          }
         }
         setImportedIds((prev) => new Set(prev).add(session.id))
       } catch (e) {
@@ -307,6 +312,12 @@ export function TrackmanSync() {
           )}
         </>
       )}
+
+      <TrackmanMergeModal
+        isOpen={mergeSuggestions.length > 0}
+        onClose={() => setMergeSuggestions([])}
+        suggestions={mergeSuggestions}
+      />
     </div>
   )
 }

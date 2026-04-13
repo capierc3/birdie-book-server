@@ -272,12 +272,11 @@ export function ClubDetailPage() {
     dragIdx.current = null
   }, [])
 
-  if (isLoading) return <div className={styles.loading}>Loading...</div>
-  if (!data) return <EmptyState message="Club not found" />
-
-  const { club, shots: allShots, source_counts: sourceCounts } = data
-  const s = club.stats
-  const badge = SOURCE_COLORS[club.source] ?? SOURCE_COLORS.manual
+  const club = data?.club
+  const allShots = data?.shots ?? []
+  const sourceCounts = data?.source_counts ?? { course: 0, range: 0, trackman: 0 }
+  const s = club?.stats
+  const badge = SOURCE_COLORS[club?.source ?? 'manual'] ?? SOURCE_COLORS.manual
 
   // Distance stats based on source filter
   const distStats = (() => {
@@ -307,6 +306,9 @@ export function ClubDetailPage() {
       return (va - vb) * dir
     })
   }, [filteredShots, sortKey, sortDir])
+
+  if (isLoading) return <div className={styles.loading}>Loading...</div>
+  if (!data || !club) return <EmptyState message="Club not found" />
 
   // Club specs
   const specs: string[] = []

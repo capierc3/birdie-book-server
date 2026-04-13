@@ -111,4 +111,7 @@ export type {
   TrackmanSyncSession,
   TrackmanSyncSessionsResponse,
   TrackmanSyncImportRequest,
+  TrackmanSyncImportResult,
+  MergeSuggestion,
+  MergeSuggestionCandidate,
 } from './types'

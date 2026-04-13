@@ -48,14 +48,50 @@ function generateBezier(carry: number, launchDeg: number, descentDeg: number): F
   return points
 }
 
+interface PolyFitEntry {
+  xFit: number[]
+  yFit: number[]
+  timeInterval: [number, number]
+}
+
+function evalPoly(coeffs: number[], t: number): number {
+  let val = 0
+  for (let i = 0; i < coeffs.length; i++) val += coeffs[i] * t ** i
+  return val
+}
+
 function parseTrajectory(json: string): FlightPoint[] {
   try {
-    const raw = JSON.parse(json) as { X: number; Y: number; Z: number }[]
-    // Trackman: X = forward (meters), Y = height (meters), Z = side
-    return raw.map((p) => ({
-      x: p.X * METERS_TO_YARDS,
-      y: p.Y * METERS_TO_YARDS,
-    }))
+    const raw = JSON.parse(json) as unknown[]
+    if (!Array.isArray(raw) || raw.length === 0) return []
+
+    const first = raw[0] as Record<string, unknown>
+
+    // Polynomial fit format (Trackman Range API): [{xFit, yFit, zFit, timeInterval}, ...]
+    if ('xFit' in first) {
+      const points: FlightPoint[] = []
+      for (const entry of raw as PolyFitEntry[]) {
+        const [t0, t1] = entry.timeInterval ?? [0, 3]
+        const steps = 30
+        for (let i = 0; i <= steps; i++) {
+          const t = t0 + (t1 - t0) * (i / steps)
+          const x = evalPoly(entry.xFit, t) * METERS_TO_YARDS
+          const y = evalPoly(entry.yFit, t) * METERS_TO_YARDS
+          if (y >= 0) points.push({ x, y })
+        }
+      }
+      return points
+    }
+
+    // Discrete point format (regular Trackman API): [{X, Y, Z}, ...]
+    if ('X' in first) {
+      return (raw as { X: number; Y: number; Z: number }[]).map((p) => ({
+        x: p.X * METERS_TO_YARDS,
+        y: p.Y * METERS_TO_YARDS,
+      }))
+    }
+
+    return []
   } catch {
     return []
   }

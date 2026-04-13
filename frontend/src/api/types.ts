@@ -919,3 +919,26 @@ export interface TrackmanSyncImportRequest {
   kind: string
   activity_time?: string
 }
+
+export interface MergeSuggestionCandidate {
+  id: number
+  club_type: string
+  model?: string | null
+  source: string
+}
+
+export interface MergeSuggestion {
+  new_club_id: number
+  club_type: string
+  new_club_source: string
+  candidates: MergeSuggestionCandidate[]
+}
+
+export interface TrackmanSyncImportResult {
+  status: string
+  session_id?: number
+  shot_count?: number
+  clubs?: string[]
+  message?: string
+  merge_suggestions?: MergeSuggestion[]
+}

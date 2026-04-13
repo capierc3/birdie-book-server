@@ -6,6 +6,7 @@ import type {
   OcrResult,
   TrackmanSyncSessionsResponse,
   TrackmanSyncImportRequest,
+  TrackmanSyncImportResult,
 } from '../types'
 
 export function useRangeSessions() {
@@ -15,11 +16,12 @@ export function useRangeSessions() {
   })
 }
 
-export function useRangeShots(sessionId: string) {
+export function useRangeShots(sessionId: string, enabled = true) {
   return useQuery({
     queryKey: ['range', 'shots', sessionId],
     queryFn: () => get<RangeShotsResponse>(`/range/shots?session_id=${sessionId}`),
     staleTime: 2 * 60 * 1000,
+    enabled,
   })
 }
 
@@ -143,7 +145,7 @@ export function useTrackmanSyncImport() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: TrackmanSyncImportRequest) =>
-      post<{ status: string; session_id?: number; shot_count?: number; clubs?: string[]; message?: string }>(
+      post<TrackmanSyncImportResult>(
         '/range/import/trackman-sync',
         body,
       ),

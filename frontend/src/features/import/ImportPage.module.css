@@ -77,14 +77,6 @@
   border-radius: 2px 2px 0 0;
 }
 
-.recommended {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  display: inline-block;
-  flex-shrink: 0;
-}
 
 .content {
   background: var(--bg-card);

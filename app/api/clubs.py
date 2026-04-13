@@ -556,6 +556,7 @@ def get_club_shots(club_id: int, db: Session = Depends(get_db)):
                 date=r.date.isoformat() if r.date else None,
                 shot_number=s.shot_number,
                 distance_yards=s.distance_yards,
+                total_yards=s.distance_yards,
                 shot_type=s.shot_type,
                 start_lie=s.start_lie,
                 end_lie=s.end_lie,

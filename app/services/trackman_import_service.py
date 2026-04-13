@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -72,31 +73,109 @@ def _standard_club_name(raw: str) -> str:
     return TRACKMAN_CLUB_MAP.get(raw, raw)
 
 
-def _resolve_club(db: Session, raw_club: str, player_id: int) -> int:
-    """Find or create a club for the given Trackman club name."""
+def _extract_degree_loft(standard_name: str) -> float | None:
+    """Extract loft from a degree-specific wedge name like '60° Wedge' → 60.0."""
+    m = re.match(r"(\d+)°\s*Wedge", standard_name)
+    return float(m.group(1)) if m else None
+
+
+def _resolve_club(db: Session, raw_club: str, player_id: int) -> tuple[int, bool]:
+    """Find or create a club for the given Trackman club name.
+
+    Returns (club_id, is_new) where is_new indicates a new club was created.
+    """
     standard = _standard_club_name(raw_club)
 
-    # Look for existing club
-    club = db.query(Club).filter(
+    # Step 1: Exact club_type match (ignore player_id — single-user app)
+    matches = db.query(Club).filter(
         Club.club_type == standard,
-        Club.player_id == player_id,
-    ).first()
+        Club.retired == False,
+    ).all()
 
-    if club:
-        return club.id
+    if not matches:
+        # Include retired clubs too
+        matches = db.query(Club).filter(Club.club_type == standard).all()
 
-    # Create new club
+    if len(matches) == 1:
+        return matches[0].id, False
+    if len(matches) > 1:
+        # Prefer garmin-sourced, then most recently updated
+        garmin = [c for c in matches if c.source == "garmin"]
+        club = garmin[0] if garmin else matches[0]
+        return club.id, False
+
+    # Step 2: If degree wedge, try matching by loft_deg
+    loft = _extract_degree_loft(standard)
+    if loft is not None:
+        loft_matches = db.query(Club).filter(
+            Club.loft_deg == loft,
+            Club.club_type.ilike("%wedge%"),
+            Club.retired == False,
+        ).all()
+
+        if not loft_matches:
+            loft_matches = db.query(Club).filter(
+                Club.loft_deg == loft,
+                Club.club_type.ilike("%wedge%"),
+            ).all()
+
+        if len(loft_matches) == 1:
+            club = loft_matches[0]
+            logger.info(
+                "Matched degree wedge '%s' to existing '%s' (loft_deg=%s)",
+                standard, club.club_type, loft,
+            )
+            return club.id, False
+
+    # Step 3: Create new club
     from app.api.clubs import _default_club_color
-    club = Club(
+
+    new_club = Club(
         club_type=standard,
         player_id=player_id,
         source="trackman",
         color=_default_club_color(standard),
+        loft_deg=loft,  # Set loft if we know it from degree name
     )
-    db.add(club)
+    db.add(new_club)
     db.flush()
     logger.info("Auto-created club '%s' (source=trackman) for player %d", standard, player_id)
-    return club.id
+    return new_club.id, True
+
+
+def _build_merge_suggestions(db: Session, new_club_ids: set[int]) -> list[dict]:
+    """Build merge suggestions for newly created clubs that have similar existing clubs."""
+    if not new_club_ids:
+        return []
+
+    suggestions = []
+    new_clubs = db.query(Club).filter(Club.id.in_(new_club_ids)).all()
+
+    for nc in new_clubs:
+        # Find other non-retired clubs with the same club_type
+        candidates = db.query(Club).filter(
+            Club.club_type == nc.club_type,
+            Club.id != nc.id,
+            Club.retired == False,
+        ).all()
+
+        if candidates:
+            suggestions.append({
+                "new_club_id": nc.id,
+                "club_type": nc.club_type,
+                "new_club_source": nc.source,
+                "candidates": [
+                    {
+                        "id": c.id,
+                        "club_type": c.club_type,
+                        "model": c.model,
+                        "source": c.source,
+                    }
+                    for c in candidates
+                ],
+            })
+
+    return suggestions
 
 
 def _safe_float(val) -> float | None:
@@ -226,7 +305,8 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
 
     # Import shots
     shot_number = 0
-    clubs_created = set()
+    clubs_seen: set[str] = set()
+    new_club_ids: set[int] = set()
     total_shots = 0
 
     for group in stroke_groups:
@@ -241,7 +321,10 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
             total_shots += 1
 
             # Resolve club
-            club_id = _resolve_club(db, raw_club, player.id)
+            club_id, is_new = _resolve_club(db, raw_club, player.id)
+            clubs_seen.add(_standard_club_name(raw_club))
+            if is_new:
+                new_club_ids.add(club_id)
 
             # Convert measurements
             converted = _convert_measurement(measurement)
@@ -282,9 +365,10 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
         "status": "imported",
         "session_id": session.id,
         "shot_count": total_shots,
-        "clubs": [_standard_club_name(g["Club"]) for g in stroke_groups],
+        "clubs": sorted(clubs_seen),
         "player": player_name,
         "date": session_date.isoformat(),
+        "merge_suggestions": _build_merge_suggestions(db, new_club_ids),
     }
 
 
@@ -404,6 +488,7 @@ def import_trackman_range_activity(
 
     shot_number = 0
     clubs_seen: set[str] = set()
+    new_club_ids: set[int] = set()
 
     for stroke in strokes:
         if stroke.get("isDeleted"):
@@ -417,8 +502,10 @@ def import_trackman_range_activity(
 
         # Resolve club
         if raw_club:
-            club_id = _resolve_club(db, raw_club, player.id)
+            club_id, is_new = _resolve_club(db, raw_club, player.id)
             clubs_seen.add(_standard_club_name(raw_club))
+            if is_new:
+                new_club_ids.add(club_id)
         else:
             unknown = get_or_create_unknown_club(db, player.id)
             club_id = unknown.id
@@ -465,4 +552,5 @@ def import_trackman_range_activity(
         "clubs": sorted(clubs_seen),
         "player": player_name,
         "date": session_date.isoformat(),
+        "merge_suggestions": _build_merge_suggestions(db, new_club_ids),
     }

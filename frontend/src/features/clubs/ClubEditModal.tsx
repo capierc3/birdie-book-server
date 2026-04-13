@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Modal, Button, Input, FormGroup } from '../../components'
+import { Modal, Button, Input, FormGroup, useConfirm } from '../../components'
 import { post, put } from '../../api'
+import { del } from '../../api/client'
 import type { Club } from '../../api'
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 
 export function ClubEditModal({ isOpen, onClose, club }: Props) {
   const queryClient = useQueryClient()
+  const { confirm } = useConfirm()
   const isEdit = !!club
 
   const [clubType, setClubType] = useState('')
@@ -75,6 +77,28 @@ export function ClubEditModal({ isOpen, onClose, club }: Props) {
     }
   }
 
+  const handleDelete = async () => {
+    if (!club) return
+    const ok = await confirm({
+      title: 'Delete Club',
+      message: `Delete "${club.club_type}"? Any linked shots will be unlinked. This cannot be undone.`,
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
+
+    setSaving(true)
+    setError('')
+    try {
+      await del(`/clubs/${club.id}`)
+      await queryClient.invalidateQueries({ queryKey: ['clubs'] })
+      onClose()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Delete failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Modal
       isOpen={isOpen}
@@ -83,6 +107,17 @@ export function ClubEditModal({ isOpen, onClose, club }: Props) {
       maxWidth={520}
       footer={
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          {isEdit && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleDelete}
+              disabled={saving}
+              style={{ marginRight: 'auto', color: 'var(--red, #ef5350)' }}
+            >
+              Delete
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
           <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving...' : 'Save'}

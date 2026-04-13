@@ -42,7 +42,7 @@ export function RangeDetailPage() {
   // Fetch shots for primary session
   const { data, isLoading } = useRangeShots(selectedSession)
   // Fetch compare session shots
-  const { data: compareData } = useRangeShots(compareSessionId ?? '__none__')
+  const { data: compareData } = useRangeShots(compareSessionId ?? '', !!compareSessionId)
 
   // Filtering
   const [enabledClubs, setEnabledClubs] = useState<Set<string>>(new Set())
@@ -252,6 +252,7 @@ export function RangeDetailPage() {
           style={{ width: 'auto', minWidth: 180 }}
         >
           <option value="">Compare...</option>
+          {selectedSession !== 'all' && <option value="all">All Sessions</option>}
           {data.sessions
             .filter((s) => String(s.id) !== selectedSession)
             .map((s) => (

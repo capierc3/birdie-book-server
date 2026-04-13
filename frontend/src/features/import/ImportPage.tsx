@@ -8,8 +8,8 @@ import styles from './ImportPage.module.css'
 
 type Tab = 'garmin' | 'trackman' | 'rapsodo'
 
-const TABS: { id: Tab; label: string; sub: string; recommended?: boolean }[] = [
-  { id: 'garmin', label: 'Garmin', sub: 'JSON \u00b7 FIT', recommended: true },
+const TABS: { id: Tab; label: string; sub: string }[] = [
+  { id: 'garmin', label: 'Garmin', sub: 'JSON \u00b7 FIT' },
   { id: 'trackman', label: 'Trackman', sub: 'Sync \u00b7 URL \u00b7 CSV \u00b7 OCR' },
   { id: 'rapsodo', label: 'Rapsodo', sub: 'CSV \u00b7 Range' },
 ]
@@ -50,7 +50,6 @@ export function ImportPage() {
           >
             <div className={styles.tabLabel}>
               {tab.label}
-              {tab.recommended && <span className={styles.recommended} />}
             </div>
             <div className={styles.tabSub}>{tab.sub}</div>
           </button>

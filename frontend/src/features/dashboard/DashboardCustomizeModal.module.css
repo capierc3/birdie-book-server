@@ -1,0 +1,85 @@
+.categorySection {
+  margin-bottom: 20px;
+}
+
+.categoryTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.widgetRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.widgetRow:last-child {
+  border-bottom: none;
+}
+
+.widgetInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.widgetTitle {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.widgetDesc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition);
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.toggle[data-on='true'] {
+  background: var(--primary);
+}
+
+.toggle[data-on='false'] {
+  background: var(--bg-hover, #333);
+}
+
+.toggleKnob {
+  position: absolute;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left var(--transition);
+}
+
+.toggle[data-on='true'] .toggleKnob {
+  left: 20px;
+}
+
+.toggle[data-on='false'] .toggleKnob {
+  left: 2px;
+}
+
+.footerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}

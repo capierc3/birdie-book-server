@@ -55,6 +55,13 @@
   margin-bottom: 24px;
 }
 
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 .loading {
   display: flex;
   align-items: center;
@@ -65,6 +72,10 @@
 
 @media (max-width: 768px) {
   .grid2 {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboardGrid {
     grid-template-columns: 1fr;
   }
 

@@ -80,6 +80,11 @@ function parseTrajectory(json: string): FlightPoint[] {
           if (y >= 0) points.push({ x, y })
         }
       }
+      // Rebase x so trajectory starts at 0 (polynomials use Trackman device position as origin)
+      if (points.length > 0) {
+        const xOffset = points[0].x
+        for (const p of points) p.x -= xOffset
+      }
       return points
     }
 
@@ -105,6 +110,13 @@ function buildFlightPath(shot: RangeShotResponse, isCompare: boolean): FlightPat
   if (shot.trajectory_json) {
     points = parseTrajectory(shot.trajectory_json)
     if (points.length === 0) return null
+    // Scale x-axis to match measured total distance (trajectory polynomials underestimate forward distance)
+    const total = shot.total_yards ?? carry
+    const maxX = points[points.length - 1].x
+    if (maxX > 0 && total > 0) {
+      const scale = total / maxX
+      for (const p of points) p.x *= scale
+    }
   } else if (shot.launch_angle_deg != null) {
     points = generateBezier(carry, shot.launch_angle_deg, shot.descent_angle_deg ?? 40)
   } else {

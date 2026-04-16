@@ -52,7 +52,7 @@ export function ScoringPage() {
         <StatCard label="Fairway %" value={formatPct(data.fairway_pct)} />
         <StatCard label="Putts/Hole" value={formatNum(data.avg_putts_per_hole)} />
         <StatCard label="Putts/GIR" value={formatNum(data.putts_per_gir)} />
-        <StatCard label="Scramble %" value={formatPct(data.scramble_pct)} />
+        <StatCard label="Scrambling %" value={formatPct(data.scramble_pct)} />
         <StatCard label="3-Putt %" value={formatPct(data.three_putt_pct)} />
       </div>
 

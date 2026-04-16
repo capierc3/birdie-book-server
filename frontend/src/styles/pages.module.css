@@ -94,6 +94,6 @@
 
 @media (max-width: 480px) {
   .statsRow {
-    grid-template-columns: 1fr;
+    gap: 10px;
   }
 }

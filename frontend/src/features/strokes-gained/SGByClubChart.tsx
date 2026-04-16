@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Card, CardHeader, Select } from '../../components'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import type { SGByClubResponse } from '../../api'
 import { SG_LABELS } from '../../utils/chartTheme'
 import { formatSG, sgColor } from '../../utils/format'
@@ -13,6 +14,7 @@ type MinShots = '0' | '3' | '5' | '10'
 type CategoryFilter = '' | 'off_the_tee' | 'approach' | 'short_game' | 'putting'
 
 export function SGByClubChart({ data, baseline }: Props) {
+  const isMobile = useIsMobile()
   const [minShots, setMinShots] = useState<MinShots>('5')
   const [catFilter, setCatFilter] = useState<CategoryFilter>('')
 
@@ -76,7 +78,7 @@ export function SGByClubChart({ data, baseline }: Props) {
         }
       />
 
-      <div style={{ padding: '0 20px 20px' }}>
+      <div style={{ padding: isMobile ? '0 12px 12px' : '0 20px 20px' }}>
         {clubs.length === 0 ? (
           <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', padding: '16px 0' }}>
             No clubs match the current filters.
@@ -92,37 +94,58 @@ export function SGByClubChart({ data, baseline }: Props) {
                 key={`${c.club_name}-${c.category}`}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '120px 90px 1fr 65px 55px',
+                  gridTemplateColumns: isMobile
+                    ? '1fr auto auto'
+                    : '120px 90px 1fr 65px 55px',
                   alignItems: 'center',
-                  gap: 8,
+                  gap: isMobile ? 6 : 8,
                   padding: '6px 0',
                   fontSize: '0.85rem',
                   borderBottom: '1px solid var(--border)',
                 }}
               >
-                <span style={{ color: 'var(--text)', fontWeight: 500 }}>{c.club_name}</span>
-                <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
-                  {SG_LABELS[c.category] ?? c.category}
-                </span>
-                <div style={{ position: 'relative', height: 14, background: 'transparent' }}>
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      height: '100%',
-                      width: `${pct}%`,
-                      background: color,
-                      borderRadius: 3,
-                    }}
-                  />
-                </div>
-                <span style={{ color: sgColor(v), fontWeight: 600, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {formatSG(v)}
-                </span>
-                <span style={{ color: 'var(--text-dim)', fontSize: '0.78rem', textAlign: 'right' }}>
-                  {c.shot_count} shots
-                </span>
+                {isMobile ? (
+                  <>
+                    <span style={{ color: 'var(--text)', fontWeight: 500, minWidth: 0 }}>
+                      {c.club_name}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginLeft: 6 }}>
+                        {SG_LABELS[c.category] ?? c.category}
+                      </span>
+                    </span>
+                    <span style={{ color: sgColor(v), fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                      {formatSG(v)}
+                    </span>
+                    <span style={{ color: 'var(--text-dim)', fontSize: '0.72rem', textAlign: 'right' }}>
+                      {c.shot_count} shots
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ color: 'var(--text)', fontWeight: 500 }}>{c.club_name}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                      {SG_LABELS[c.category] ?? c.category}
+                    </span>
+                    <div style={{ position: 'relative', height: 14, background: 'transparent' }}>
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          height: '100%',
+                          width: `${pct}%`,
+                          background: color,
+                          borderRadius: 3,
+                        }}
+                      />
+                    </div>
+                    <span style={{ color: sgColor(v), fontWeight: 600, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {formatSG(v)}
+                    </span>
+                    <span style={{ color: 'var(--text-dim)', fontSize: '0.78rem', textAlign: 'right' }}>
+                      {c.shot_count} shots
+                    </span>
+                  </>
+                )}
               </div>
             )
           })

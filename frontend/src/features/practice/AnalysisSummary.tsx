@@ -108,7 +108,7 @@ export function AnalysisSummaryCard({ analysis, compact }: Props) {
                 <div className={s.scoringValue}>
                   {analysis.scoring_patterns!.scramble_pct.toFixed(1)}%
                 </div>
-                <div className={s.scoringLabel}>Scramble %</div>
+                <div className={s.scoringLabel}>Scrambling %</div>
               </div>
             )}
             {analysis.scoring_patterns!.penalties_per_round != null && (

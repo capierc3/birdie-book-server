@@ -42,3 +42,22 @@
     font-size: 1.4rem;
   }
 }
+
+@media (max-width: 480px) {
+  .card {
+    padding: 10px;
+  }
+
+  .label {
+    font-size: 0.7rem;
+    margin-bottom: 4px;
+  }
+
+  .value {
+    font-size: 1.2rem;
+  }
+
+  .sub {
+    font-size: 0.72rem;
+  }
+}

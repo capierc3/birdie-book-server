@@ -14,7 +14,7 @@ export function ScoringSummaryCard({ data }: Props) {
     { label: 'GIR %', value: formatPct(data.gir_pct) },
     { label: 'Fairway %', value: formatPct(data.fairway_pct) },
     { label: 'Putts/Hole', value: formatNum(data.avg_putts_per_hole) },
-    { label: 'Scramble %', value: formatPct(data.scramble_pct) },
+    { label: 'Scrambling %', value: formatPct(data.scramble_pct) },
     { label: '3-Putt %', value: formatPct(data.three_putt_pct) },
   ]
 

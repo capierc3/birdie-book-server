@@ -1,4 +1,5 @@
 import { Card, CardHeader } from '../../components'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import type { Club, ClubDistanceStats } from '../../api'
 
 interface Props {
@@ -92,9 +93,10 @@ export function ClubBoxPlot({ clubs, dataSource, compareWindow, compareLabel }: 
   globalMax = Math.ceil(globalMax / 10) * 10
   const range = globalMax - globalMin || 1
 
+  const isMobile = useIsMobile()
   const MAIN_ROW_H = 36
   const COMPARE_ROW_H = 28
-  const LABEL_W = 150
+  const LABEL_W = isMobile ? 80 : 150
 
   const pctOf = (v: number) => ((v - globalMin) / range) * 100
   const srcLabel = sourceLabels[dataSource] ?? dataSource
@@ -132,11 +134,11 @@ export function ClubBoxPlot({ clubs, dataSource, compareWindow, compareLabel }: 
                 <div style={{
                   width: LABEL_W,
                   flexShrink: 0,
-                  paddingRight: 10,
-                  textAlign: 'right',
+                  paddingRight: isMobile ? 6 : 10,
+                  textAlign: isMobile ? 'left' : 'right',
                 }}>
                   <div style={{
-                    fontSize: '0.8rem',
+                    fontSize: isMobile ? '0.72rem' : '0.8rem',
                     fontWeight: 700,
                     color: club.color ?? 'var(--text)',
                     overflow: 'hidden',
@@ -194,7 +196,7 @@ export function ClubBoxPlot({ clubs, dataSource, compareWindow, compareLabel }: 
               {hasComparison && (
                 <div style={{ display: 'flex', alignItems: 'center', height: COMPARE_ROW_H }}>
                   <div style={{
-                    width: LABEL_W, flexShrink: 0, paddingRight: 10, textAlign: 'right',
+                    width: LABEL_W, flexShrink: 0, paddingRight: isMobile ? 6 : 10, textAlign: isMobile ? 'left' : 'right',
                     fontSize: '0.65rem', color: 'var(--text-dim)',
                   }}>
                     {compareLabel}

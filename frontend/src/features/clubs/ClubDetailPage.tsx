@@ -360,7 +360,7 @@ export function ClubDetailPage() {
       </div>
 
       {/* Header Card */}
-      <Card>
+      <Card className={styles.section}>
         <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',

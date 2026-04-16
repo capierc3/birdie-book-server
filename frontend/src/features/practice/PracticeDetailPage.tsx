@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Button,
@@ -70,7 +70,10 @@ export function PracticeDetailPage() {
     sessionType: string
   } | null>(null)
 
+  const deletingRef = useRef(false)
+
   if (isLoading) return <div className={pageStyles.loading}>Loading...</div>
+  if (!plan && deletingRef.current) return <div className={pageStyles.loading}>Deleting...</div>
   if (!plan) return <div className={pageStyles.loading}>Plan not found</div>
 
   const totalActivities = plan.sessions.reduce(
@@ -94,10 +97,15 @@ export function PracticeDetailPage() {
       confirmLabel: 'Delete',
     })
     if (!ok) return
+    deletingRef.current = true
     deletePlan.mutate(planId, {
       onSuccess: () => {
-        addToast('Plan deleted', 'success')
         navigate('/practice')
+        addToast('Plan deleted', 'success')
+      },
+      onError: () => {
+        deletingRef.current = false
+        addToast('Failed to delete plan', 'error')
       },
     })
   }

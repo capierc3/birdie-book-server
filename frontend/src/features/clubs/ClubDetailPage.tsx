@@ -320,8 +320,8 @@ export function ClubDetailPage() {
 
   const toggles: { key: SourceFilter; label: string; count: number; color: string }[] = [
     { key: 'all', label: 'All', count: totalShots, color: 'var(--accent)' },
-    ...(sourceCounts.garmin > 0 ? [{ key: 'garmin' as SourceFilter, label: 'Garmin', count: sourceCounts.garmin, color: '#4CAF50' }] : []),
-    ...(sourceCounts.rapsodo > 0 ? [{ key: 'rapsodo' as SourceFilter, label: 'Rapsodo', count: sourceCounts.rapsodo, color: '#2196F3' }] : []),
+    ...(sourceCounts.garmin > 0 ? [{ key: 'garmin' as SourceFilter, label: 'Course', count: sourceCounts.garmin, color: '#4CAF50' }] : []),
+    ...(sourceCounts.rapsodo > 0 ? [{ key: 'rapsodo' as SourceFilter, label: 'Range', count: sourceCounts.rapsodo, color: '#2196F3' }] : []),
     ...(sourceCounts.trackman > 0 ? [{ key: 'trackman' as SourceFilter, label: 'Trackman', count: sourceCounts.trackman, color: '#FF9800' }] : []),
   ]
 

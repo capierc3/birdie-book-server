@@ -65,7 +65,7 @@ export function useSavePlan() {
     mutationFn: (req: SavePlanRequest) =>
       post<PracticePlanDetail>('/practice/plans', req),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['practice', 'plans'] })
+      void qc.invalidateQueries({ queryKey: ['practice', 'plans'] })
     },
   })
 }
@@ -96,8 +96,9 @@ export function useDeletePlan() {
   return useMutation({
     mutationFn: (planId: number) =>
       del<{ status: string }>(`/practice/plans/${planId}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['practice', 'plans'] })
+    onSuccess: (_data, planId) => {
+      qc.removeQueries({ queryKey: ['practice', 'plans', planId], exact: true })
+      void qc.invalidateQueries({ queryKey: ['practice', 'plans'] })
     },
   })
 }

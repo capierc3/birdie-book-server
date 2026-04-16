@@ -188,10 +188,22 @@ export function CourseMapPage() {
     if (teeId !== undefined) localStorage.setItem('birdie_book_default_tee', String(teeId))
   }, [teeId])
 
-  // Parse initial hole from URL
+  // Parse initial hole and round from URL
   useEffect(() => {
     const h = searchParams.get('hole')
     if (h) { const n = Number(h); if (n >= 1 && n <= totalHoles) setCurrentHole(n) }
+    const r = searchParams.get('round')
+    if (r) {
+      const roundId = Number(r)
+      setViewMode(roundId)
+      setOpenPanels(new Set<PanelId>(['scorecard', 'shots']))
+      // Fetch round detail and set tee to match
+      get<RoundDetail>(`/rounds/${roundId}`).then((detail) => {
+        setRoundDetail(detail)
+        setAllRoundDetails((prev) => prev.some((rd) => rd.id === roundId) ? prev : [...prev, detail])
+        if (detail.tee_id) setTeeId(detail.tee_id)
+      }).catch(() => { /* round not found — stay historic */ })
+    }
   }, [searchParams, totalHoles])
 
   // Sync drawPanelOpen with panel toggle

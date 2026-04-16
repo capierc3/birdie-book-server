@@ -204,6 +204,7 @@ export function ScoreOverTimeChart({ rounds }: Props) {
             strokeWidth={2.5}
             dot={{ r: 3, fill: AVG_COLOR }}
             connectNulls
+            isAnimationActive={false}
           />
 
           {/* Per-round line (dashed) */}
@@ -216,6 +217,7 @@ export function ScoreOverTimeChart({ rounds }: Props) {
             strokeDasharray="4 3"
             dot={{ r: 2, fill: RAW_COLOR }}
             connectNulls
+            isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>

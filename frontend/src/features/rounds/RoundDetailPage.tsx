@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Map } from 'lucide-react'
 import { StatCard, Card, CardHeader, Badge, Button, EmptyState } from '../../components'
 import { useRound, useCourse } from '../../api'
 import { formatDate, formatVsPar, formatPct, formatNum, formatGameFormat, vsParColor } from '../../utils/format'
@@ -61,10 +61,15 @@ export function RoundDetailPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Button variant="ghost" size="sm" onClick={() => navigate('/rounds')}>
           <ArrowLeft size={16} /> Back to Rounds
         </Button>
+        {round.course_id && (
+          <Button variant="ghost" size="sm" onClick={() => navigate(`/courses/${round.course_id}/map?round=${round.id}`)}>
+            <Map size={16} /> View Holes Map
+          </Button>
+        )}
       </div>
 
       <div className={styles.pageHeader}>

@@ -64,7 +64,7 @@ export function NewPracticePage() {
   const [analysisSnapshot, setAnalysisSnapshot] = useState<string | null>(null)
 
   // Activity editor state
-  const [saved, setSaved] = useState(false)
+
 
   const [editingActivity, setEditingActivity] = useState<{
     sessionIdx: number
@@ -177,11 +177,10 @@ export function NewPracticePage() {
     )
   }
 
-  const handleSave = async () => {
-    if (saved || saveMutation.isPending) return
-    try {
-      setSaved(true)
-      const result = await saveMutation.mutateAsync({
+  const handleSave = () => {
+    if (saveMutation.isPending) return
+    saveMutation.mutate(
+      {
         plan_type: state.plan_type!,
         round_plan_id: state.round_plan_id,
         goal: state.goal,
@@ -207,13 +206,17 @@ export function NewPracticePage() {
             notes: act.notes,
           })),
         })),
-      })
-      addToast('Practice plan saved', 'success')
-      navigate(`/practice/${result.id}`)
-    } catch (err) {
-      setSaved(false)
-      addToast('Failed to save plan', 'error')
-    }
+      },
+      {
+        onSuccess: () => {
+          navigate('/practice')
+          addToast('Practice plan saved', 'success')
+        },
+        onError: () => {
+          addToast('Failed to save plan', 'error')
+        },
+      },
+    )
   }
 
   const stepLabels = ['Plan Type', 'Sessions', 'Review']
@@ -289,7 +292,7 @@ export function NewPracticePage() {
             onAddActivity={handleAddActivity}
             onBack={() => setStep(2)}
             onSave={handleSave}
-            isSaving={saveMutation.isPending || saved}
+            isSaving={saveMutation.isPending}
           />
         )}
       </div>

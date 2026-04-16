@@ -15,8 +15,8 @@ type DataSource = 'garmin' | 'rapsodo' | 'combined'
 function getCompareOptions(source: DataSource): { value: string; label: string }[] {
   const opts: { value: string; label: string }[] = [
     { value: '', label: 'All Time' },
-    { value: 'source:rapsodo', label: 'Rapsodo Data' },
-    { value: 'source:garmin', label: 'Garmin Data' },
+    { value: 'source:rapsodo', label: 'Range Data' },
+    { value: 'source:garmin', label: 'Course Data' },
   ]
 
   if (source === 'garmin') {
@@ -111,9 +111,9 @@ export function ClubsPage() {
                 onChange={(e) => handleDataSourceChange(e.target.value as DataSource)}
                 style={{ width: 'auto' }}
               >
-                <option value="garmin">Garmin</option>
-                <option value="rapsodo">Rapsodo</option>
                 <option value="combined">Combined</option>
+                <option value="garmin">Course</option>
+                <option value="rapsodo">Range</option>
               </Select>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

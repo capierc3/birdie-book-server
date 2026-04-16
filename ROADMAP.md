@@ -819,7 +819,7 @@
 - Shareable round summaries and game plans
 - *Plan all export formats together as one cohesive feature*
 
-## 19. Trackman Account Sync `[~]`
+## 19. Trackman Account Sync `[x]`
 
 **Goal:** One-click sync of all Trackman data — range practice, shot analysis, and find-my-distance sessions — using a single Bearer token from the mytrackman.com web portal.
 
@@ -844,9 +844,9 @@
 
 | Kind | Count | Import Handler | Data Type | Status |
 |---|---|---|---|---|
-| `urn:trackman:dr:practice:1` | 14 | Range REST strokes endpoint (new) | Ball-only (carry, total, spin, launch, trajectory) | `[~]` Building |
-| `shot-analysis` | 1 | Existing `getactivityreport` (no changes needed) | Full club+ball (club speed, face angle, etc.) | `[~]` Building |
-| `urn:trackman:dr:find-my-distance:1` | 2 | Range REST strokes endpoint (new) | Ball-only | `[~]` Building |
+| `urn:trackman:dr:practice:1` | 14 | Range REST strokes endpoint (new) | Ball-only (carry, total, spin, launch, trajectory) | `[x]` Done |
+| `shot-analysis` | 1 | Existing `getactivityreport` (no changes needed) | Full club+ball (club speed, face angle, etc.) | `[x]` Done |
+| `urn:trackman:dr:find-my-distance:1` | 2 | Range REST strokes endpoint (new) | Ball-only | `[x]` Done |
 | `video` | 25 | Skip (no shot data) | N/A | N/A |
 | `dynamic-report` | 1 | TBD — 404 on both report endpoints | Unknown | Backlog |
 | `urn:trackman:vg:play:1` | 2 | TBD — virtual golf / simulator games | Likely full club+ball | Backlog |

@@ -1477,7 +1477,7 @@ def _weakness_driven_buckets(
                 flag_msgs = {
                     "low_smash": "Contact quality below optimal (smash factor).",
                     "high_spin_variability": "Inconsistent spin — face control issue.",
-                    "steep_attack_driver": f"Attack angle {swing_data.get('avg_attack_angle', 0):.1f}° too steep for driver.",
+                    "steep_attack_driver": f"Attack angle {swing_data.get('avg_attack_angle') or 0:.1f}° too steep for driver.",
                     "toe_strikes": "Strike pattern trending toward toe.",
                     "heel_strikes": "Strike pattern trending toward heel.",
                 }

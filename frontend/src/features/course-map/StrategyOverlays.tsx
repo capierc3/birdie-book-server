@@ -2,14 +2,10 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { useCourseMap } from './courseMapState'
-import { haversineYards, destPoint, bearing, normalCDF } from './geoUtils'
+import { haversineYards, destPoint, bearing } from './geoUtils'
+import { getClubStats, rankClubs, computeCarryProbabilities } from './caddieCalc'
+import type { ClubStats } from './caddieCalc'
 import type { StrategyTool } from './StrategyToolsPanel'
-
-interface ClubData {
-  type: string; color: string; avg: number; std: number
-  p10: number; p90: number; lateralStd: number; lateralMean: number
-  missLeft: number; missRight: number; missCenter: number
-}
 
 /**
  * StrategyOverlays: Renders strategy tool overlays on the Leaflet map.
@@ -30,28 +26,14 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
   const rulerRef = useRef<{ line: L.Polyline | null; label: L.Marker | null; origin: L.CircleMarker | null; cursor: L.Marker | null }>({ line: null, label: null, origin: null, cursor: null })
   // Results are rendered via DOM manipulation into #strategy-results-content
 
-  const getClubData = useCallback((): ClubData | null => {
+  const getClubStats = useCallback((): ClubStats | null => {
     const select = document.getElementById('strategy-club-select') as HTMLSelectElement | null
     if (!select) return null
     const clubType = select.value
     const c = ctxRef.current.strategy?.player
     const club = c?.clubs?.find((cl) => cl.club_type === clubType)
     if (!club) return null
-    const lat = c?.lateral_dispersion?.[clubType]
-    const miss = c?.miss_tendencies?.[clubType]
-    return {
-      type: clubType,
-      color: club.color || '#4CAF50',
-      avg: club.avg_yards,
-      std: club.std_dev || club.avg_yards * 0.08,
-      p10: club.p10 || club.avg_yards * 0.88,
-      p90: club.p90 || club.avg_yards * 1.12,
-      lateralStd: Math.min(lat?.lateral_std_dev || ((club.std_dev || 0) * 0.15) || 8, club.avg_yards * 0.12),
-      lateralMean: lat?.lateral_mean || 0,
-      missLeft: miss?.left_pct || 33,
-      missRight: miss?.right_pct || 33,
-      missCenter: miss?.center_pct || 34,
-    }
+    return getClubStats(club, c?.lateral_dispersion?.[clubType], c?.miss_tendencies?.[clubType])
   }, [])
 
   // Add/remove layer group
@@ -87,7 +69,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
   }, [map, visible, activeTool])
 
   // ── Drawing functions ──
-  const drawCone = useCallback((originLat: number, originLng: number, aimBearing: number, club: ClubData) => {
+  const drawCone = useCallback((originLat: number, originLng: number, aimBearing: number, club: ClubStats) => {
     const lg = layerRef.current
     lg.eachLayer((l) => { if (l !== ballMarkerRef.current) lg.removeLayer(l) })
 
@@ -130,7 +112,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
     L.circleMarker([originLat, originLng], { radius: 4, color: club.color, fillColor: club.color, fillOpacity: 1, interactive: false }).addTo(lg)
   }, [])
 
-  const drawLandingZone = useCallback((clickLat: number, clickLng: number, club: ClubData) => {
+  const drawLandingZone = useCallback((clickLat: number, clickLng: number, club: ClubStats) => {
     const lg = layerRef.current
     lg.eachLayer((l) => { if (l !== ballMarkerRef.current) lg.removeLayer(l) })
 
@@ -189,16 +171,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
     if (c.teePos) L.polyline([[fromLat, fromLng], [clickLat, clickLng]], { color: '#f44336', weight: 1.5, dashArray: '4,4', interactive: false }).addTo(lg)
 
     const clubs = c.strategy?.player?.clubs || []
-    const rows: { type: string; avg: number; pct: number }[] = []
-    for (const cl of clubs) {
-      const std = cl.std_dev || cl.avg_yards * 0.08
-      if (std === 0) continue
-      const zScore = (targetDist - cl.avg_yards) / std
-      const pct = Math.round((1 - normalCDF(zScore)) * 100)
-      if (pct < 1 || pct > 99) continue
-      rows.push({ type: cl.club_type, avg: cl.avg_yards, pct })
-    }
-    rows.sort((a, b) => b.pct - a.pct)
+    const rows = computeCarryProbabilities(clubs, targetDist)
 
     // Update results in panel via DOM (simple approach)
     const resultsSection = document.getElementById('strategy-results-section')
@@ -237,12 +210,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
     }).addTo(lg)
 
     const clubs = c.strategy?.player?.clubs || []
-    const ranked = clubs.filter((cl) => cl.avg_yards).map((cl) => {
-      const diff = Math.abs(cl.avg_yards - targetDist)
-      const std = cl.std_dev || cl.avg_yards * 0.08
-      const matchPct = Math.max(0, Math.round(100 - (diff / std) * 25))
-      return { type: cl.club_type, avg: cl.avg_yards, diff, matchPct }
-    }).sort((a, b) => a.diff - b.diff)
+    const ranked = rankClubs(clubs, targetDist, { count: 10 })
 
     const resultsSection = document.getElementById('strategy-results-section')
     const resultsContent = document.getElementById('strategy-results-content')
@@ -318,7 +286,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
       }
 
       if (tool === 'cone') {
-        const club = getClubData()
+        const club = getClubStats()
         if (club) {
           const aimBear = bearing(o.lat, o.lng, e.latlng.lat, e.latlng.lng)
           drawCone(o.lat, o.lng, aimBear, club)
@@ -347,7 +315,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
       if (c.drawPanelOpen && c.activeTool) return
 
       const tool = toolRef.current
-      const club = getClubData()
+      const club = getClubStats()
 
       if (tool === 'placeball') {
         const newPos = { lat: e.latlng.lat, lng: e.latlng.lng }
@@ -378,7 +346,7 @@ export function StrategyOverlays({ visible, activeTool }: { visible: boolean; ac
       map.off('click', onClick)
       map.dragging.enable()
     }
-  }, [map, visible, getClubData, drawCone, drawLandingZone, doCarryCheck, doClubRecommend])
+  }, [map, visible, getClubStats, drawCone, drawLandingZone, doCarryCheck, doClubRecommend])
 
   return null
 }

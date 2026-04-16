@@ -48,7 +48,7 @@
 /* ── Center on me FAB (inside MapContainer, needs high z-index) ── */
 .centerFab {
   position: fixed;
-  bottom: 126px;
+  bottom: 146px;
   right: 12px;
   z-index: 1000;
   width: 44px;
@@ -195,6 +195,151 @@
   color: var(--text-muted);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Peek tools row ── */
+.peekTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ── Peek quick controls row ── */
+.peekQuickRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  gap: 8px;
+}
+
+.peekQuickLeft {
+  flex: 1;
+  min-width: 0;
+}
+
+.clubPicker {
+  position: relative;
+}
+
+.clubPickerToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  min-height: 28px;
+  white-space: nowrap;
+}
+.clubPickerToggle:active {
+  background: var(--bg-hover);
+}
+
+.clubPickerDropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  min-width: 160px;
+  max-height: 200px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 600;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+}
+
+.clubPickerOption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.clubPickerOption:active {
+  background: var(--bg-hover);
+}
+
+.clubPickerOptionActive {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.clubPickerYards {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.peekScoreGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.peekScoreBtn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.peekScoreBtn:active {
+  background: var(--bg-hover);
+}
+
+.peekScoreDisplay {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.peekEndHoleBtn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: 4px;
+}
+.peekEndHoleBtn:active {
+  background: var(--accent);
+  color: #fff;
 }
 
 /* ── Overlay toggle button ── */

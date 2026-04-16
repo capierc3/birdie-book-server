@@ -10,7 +10,7 @@ export interface TabConfig {
   label: string
 }
 
-const PEEK_HEIGHT = 110
+const PEEK_HEIGHT = 130
 const HANDLE_HEIGHT = 32
 
 interface Props {

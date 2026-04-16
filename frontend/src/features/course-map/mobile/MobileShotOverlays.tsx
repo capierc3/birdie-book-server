@@ -11,7 +11,7 @@ import { getClubColor } from '../clubColors'
 export function MobileShotOverlays() {
   const map = useMap()
   const ctx = useMobileMap()
-  const { currentHole, teeId, viewMode, roundDetail, allRoundDetails } = ctx
+  const { currentHole, teeId, viewMode, roundDetail, allRoundDetails, showOverlays } = ctx
   const layerRef = useRef<L.LayerGroup>(L.layerGroup())
 
   const teeRounds = useMemo(() => allRoundDetails.filter(r => r.tee_id === teeId), [allRoundDetails, teeId])
@@ -42,6 +42,8 @@ export function MobileShotOverlays() {
   useEffect(() => {
     const lg = layerRef.current
     lg.clearLayers()
+
+    if (!showOverlays) return
 
     shots.forEach((shot, idx) => {
       if (!shot.start_lat || !shot.start_lng || !shot.end_lat || !shot.end_lng) return
@@ -75,7 +77,7 @@ export function MobileShotOverlays() {
         }).addTo(lg)
       }
     })
-  }, [shots, isHistoric])
+  }, [shots, isHistoric, showOverlays])
 
   return null
 }

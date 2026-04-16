@@ -1,45 +1,17 @@
-import { useEffect, useRef, useMemo } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { useMobileMap } from './MobileMapContext'
-import { haversineYards, bearing } from '../geoUtils'
-import type { LatLng } from '../courseMapState'
+import { haversineYards } from '../geoUtils'
+import { rankClubs, findNearbyHazards, computeGreenFrontBack, determineShotContext } from '../caddieCalc'
 
 export interface RangefinderData {
   distToGreenCenter: number | null
   distToGreenFront: number | null
   distToGreenBack: number | null
   nearbyHazards: { type: string; name?: string | null; distance: number }[]
-  clubRec: { club: string; avgYards: number }[]
+  clubRec: { club: string; avgYards: number; delta: number }[]
   gpsActive: boolean
-}
-
-/** Compute green front/back by projecting boundary onto GPS→flag line */
-function computeGreenFrontBack(
-  gpsLat: number, gpsLng: number,
-  flagLat: number, flagLng: number,
-  greenBoundary: LatLng[],
-): { front: number; back: number } {
-  const centerDist = haversineYards(gpsLat, gpsLng, flagLat, flagLng)
-  if (greenBoundary.length < 3) {
-    return { front: Math.max(0, centerDist - 10), back: centerDist + 10 }
-  }
-
-  const bear = bearing(gpsLat, gpsLng, flagLat, flagLng)
-  let minProj = Infinity, maxProj = -Infinity
-
-  for (const pt of greenBoundary) {
-    const dist = haversineYards(gpsLat, gpsLng, pt.lat, pt.lng)
-    const ptBear = bearing(gpsLat, gpsLng, pt.lat, pt.lng)
-    const proj = dist * Math.cos(ptBear - bear)
-    if (proj < minProj) minProj = proj
-    if (proj > maxProj) maxProj = proj
-  }
-
-  return {
-    front: Math.max(0, Math.round(minProj)),
-    back: Math.round(maxProj),
-  }
 }
 
 /**
@@ -111,7 +83,6 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
     }
 
     if (!greenPos) {
-      // GPS is active but hole has no green position — report GPS active with no distances
       onDataRef.current({
         distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
         nearbyHazards: [], clubRec: [], gpsActive: true,
@@ -121,41 +92,35 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
 
     const distCenter = Math.round(haversineYards(gps.lat, gps.lng, greenPos.lat, greenPos.lng))
 
-    let distFront: number | null = null
-    let distBack: number | null = null
-    if (greenPos) {
-      const fb = computeGreenFrontBack(gps.lat, gps.lng, greenPos.lat, greenPos.lng, greenBoundary)
-      distFront = fb.front
-      distBack = fb.back
-    }
+    const fb = computeGreenFrontBack(gps.lat, gps.lng, greenPos.lat, greenPos.lng, greenBoundary)
 
-    // Nearby hazards
-    const nearbyHazards: RangefinderData['nearbyHazards'] = []
-    for (const h of hazards) {
-      if (h._deleted || h.boundary.length < 3) continue
-      let minDist = Infinity
-      for (const p of h.boundary) {
-        const d = haversineYards(gps.lat, gps.lng, p.lat, p.lng)
-        if (d < minDist) minDist = d
-      }
-      if (minDist < 300) {
-        nearbyHazards.push({ type: h.hazard_type, name: h.name, distance: Math.round(minDist) })
-      }
-    }
-    nearbyHazards.sort((a, b) => a.distance - b.distance)
+    // Determine context for hazard detection
+    const context = determineShotContext(distCenter, true)
 
-    // Club recommendation
+    // Nearby hazards using shared function
+    const nearby = findNearbyHazards({ lat: gps.lat, lng: gps.lng }, hazards, context)
+
+    // Club recommendation using shared function
     const clubRec: RangefinderData['clubRec'] = []
     if (distCenter && strategy?.player?.clubs?.length) {
-      const clubs = [...strategy.player.clubs]
-        .filter(c => c.club_type !== 'Unknown')
-        .sort((a, b) => Math.abs((a.avg_yards || 0) - distCenter) - Math.abs((b.avg_yards || 0) - distCenter))
-      for (const c of clubs.slice(0, 2)) {
-        clubRec.push({ club: c.club_type, avgYards: Math.round(c.avg_yards || 0) })
+      const ranked = rankClubs(strategy.player.clubs, distCenter, {
+        count: 2,
+        excludeUnknown: true,
+        excludeDriver: context !== 'tee',
+      })
+      for (const r of ranked) {
+        clubRec.push({ club: r.type, avgYards: Math.round(r.avg), delta: r.delta })
       }
     }
 
-    onDataRef.current({ distToGreenCenter: distCenter, distToGreenFront: distFront, distToGreenBack: distBack, nearbyHazards, clubRec, gpsActive: true })
+    onDataRef.current({
+      distToGreenCenter: distCenter,
+      distToGreenFront: fb.front,
+      distToGreenBack: fb.back,
+      nearbyHazards: nearby,
+      clubRec,
+      gpsActive: true,
+    })
   }, [gps.lat, gps.lng, greenPos, greenBoundary, hazards, strategy])
 
   return null

@@ -6,17 +6,17 @@ const QUICK_TAGS = [
   'Great Drive', 'Missed FW L', 'Missed FW R', 'GIR', 'Up & Down', '3-Putt', 'Penalty', 'Sand Save',
 ]
 
-interface HoleNote {
+export interface HoleNote {
   score: number | null
   tags: string[]
   text: string
 }
 
-function getStorageKey(courseId: number | undefined, holeNum: number) {
+export function getStorageKey(courseId: number | undefined, holeNum: number) {
   return `birdie_book_notes_${courseId}_h${holeNum}`
 }
 
-function loadNote(courseId: number | undefined, holeNum: number): HoleNote {
+export function loadNote(courseId: number | undefined, holeNum: number): HoleNote {
   try {
     const raw = localStorage.getItem(getStorageKey(courseId, holeNum))
     if (raw) return JSON.parse(raw)
@@ -24,7 +24,7 @@ function loadNote(courseId: number | undefined, holeNum: number): HoleNote {
   return { score: null, tags: [], text: '' }
 }
 
-function saveNote(courseId: number | undefined, holeNum: number, note: HoleNote) {
+export function saveNote(courseId: number | undefined, holeNum: number, note: HoleNote) {
   localStorage.setItem(getStorageKey(courseId, holeNum), JSON.stringify(note))
 }
 

@@ -407,6 +407,50 @@
   outline: none;
 }
 
+/* ── Rangefinder tools ── */
+.toolGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.toolBtn {
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 32px;
+}
+.toolBtn:active {
+  background: var(--bg-hover);
+}
+
+.toolBtnActive {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.toolClubSelect {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  margin-top: 6px;
+}
+.toolClubSelect:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 /* ── Edit tab ── */
 .editFieldRow {
   display: flex;

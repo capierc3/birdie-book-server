@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
 import { useCourseMap } from './courseMapState'
 import { haversineYards } from './geoUtils'
+import { determineShotContext, getTeeClubTarget, rankClubs, findNearbyHazards } from './caddieCalc'
+import type { ShotContext } from './caddieCalc'
 import s from './panels.module.css'
 
 /**
@@ -21,7 +23,7 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
     if (!player?.clubs?.length) return [{ label: 'No player data available', value: '', cls: '', header: '' }]
     if (!yardage) return [{ label: 'Add yardage to see insights', value: '', cls: '', header: '' }]
 
-    const clubs = [...player.clubs].sort((a, b) => (b.avg_yards || 0) - (a.avg_yards || 0))
+    const clubs = player.clubs
     const ballOrigin = ballPos || teePos
     const distToGreen = (ballOrigin && greenPos)
       ? Math.round(haversineYards(ballOrigin.lat, ballOrigin.lng, greenPos.lat, greenPos.lng))
@@ -31,13 +33,8 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
       : 0
     const hasBallPlaced = !!ballPos
 
-    // Determine context
-    let context: 'tee' | 'approach' | 'short_game' | 'green' = 'tee'
-    if (hasBallPlaced) {
-      if (distToGreen <= 10) context = 'green'
-      else if (distToGreen <= 50) context = 'short_game'
-      else context = 'approach'
-    }
+    // Determine context using shared function
+    const context: ShotContext = determineShotContext(distToGreen, hasBallPlaced)
 
     const result: { label: string; value: string; cls: string; header?: string }[] = []
     const contextLabels = { tee: 'From the Tee', approach: 'Approach Shot', short_game: 'Short Game', green: 'On the Green' }
@@ -50,20 +47,18 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
     })
 
     if (context === 'tee') {
-      // Best tee club
-      const targetDist = par === 3 ? yardage : par === 4 ? yardage - 140 : Math.min(yardage * 0.55, 280)
-      let bestClub = clubs[0], bestDiff = Infinity
-      for (const c of clubs) {
-        const diff = Math.abs((c.avg_yards || 0) - targetDist)
-        if (diff < bestDiff) { bestDiff = diff; bestClub = c }
-      }
+      const targetDist = getTeeClubTarget(par, yardage)
+      const ranked = rankClubs(clubs, targetDist, { count: 1 })
+      const bestClub = ranked[0]
+
       if (bestClub) {
-        const remaining = yardage - (bestClub.avg_yards || 0)
-        result.push({ label: par === 3 ? 'Club to green' : 'Club off tee', value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y avg)`, cls: 'good' })
+        const remaining = yardage - bestClub.avg
+        result.push({ label: par === 3 ? 'Club to green' : 'Club off tee', value: `${bestClub.type} (${Math.round(bestClub.avg)}y avg)`, cls: 'good' })
         if (par !== 3 && remaining > 0) {
-          let approachClub = clubs[clubs.length - 1], aDiff = Infinity
-          for (const c of clubs) { const d = Math.abs((c.avg_yards || 0) - remaining); if (d < aDiff) { aDiff = d; approachClub = c } }
-          result.push({ label: 'Approach club', value: `${approachClub.club_type} (${Math.round(remaining)}y to green)`, cls: '' })
+          const approachRanked = rankClubs(clubs, remaining, { count: 1 })
+          if (approachRanked[0]) {
+            result.push({ label: 'Approach club', value: `${approachRanked[0].type} (${Math.round(remaining)}y to green)`, cls: '' })
+          }
         }
       }
 
@@ -81,56 +76,42 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
 
       // Miss tendency
       if (bestClub && player.miss_tendencies) {
-        const miss = player.miss_tendencies[bestClub.club_type]
+        const miss = player.miss_tendencies[bestClub.type]
         if (miss && miss.total_shots >= 5) {
           const dominant = miss.left_pct > miss.right_pct ? 'left' : 'right'
           const pct = Math.max(miss.left_pct, miss.right_pct)
-          if (pct > 55) result.push({ label: `${bestClub.club_type} miss`, value: `${pct}% ${dominant} (${miss.total_shots} shots)`, cls: pct > 70 ? 'danger' : 'warning' })
+          if (pct > 55) result.push({ label: `${bestClub.type} miss`, value: `${pct}% ${dominant} (${miss.total_shots} shots)`, cls: pct > 70 ? 'danger' : 'warning' })
         }
       }
 
       // Dispersion
-      if (bestClub?.std_dev) result.push({ label: `${bestClub.club_type} spread`, value: `${Math.round(bestClub.std_dev * 2)}yd (2σ)`, cls: '' })
+      const bestClubObj = clubs.find(c => c.club_type === bestClub?.type)
+      if (bestClubObj?.std_dev) result.push({ label: `${bestClubObj.club_type} spread`, value: `${Math.round(bestClubObj.std_dev * 2)}yd (2σ)`, cls: '' })
 
     } else if (context === 'approach') {
-      // Best club (exclude Driver)
-      let bestClub = null as typeof clubs[0] | null, bestDiff = Infinity
-      for (const c of clubs) {
-        if (c.club_type === 'Driver' || c.club_type === 'Unknown') continue
-        const diff = Math.abs((c.avg_yards || 0) - distToGreen)
-        if (diff < bestDiff) { bestDiff = diff; bestClub = c }
+      const ranked = rankClubs(clubs, distToGreen, { count: 2, excludeDriver: true })
+      if (ranked[0]) {
+        result.push({ label: 'Recommended club', value: `${ranked[0].type} (${Math.round(ranked[0].avg)}y, ${ranked[0].delta >= 0 ? '+' : ''}${ranked[0].delta}y)`, cls: 'good' })
       }
-      if (bestClub) {
-        const delta = Math.round(bestClub.avg_yards) - distToGreen
-        result.push({ label: 'Recommended club', value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y, ${delta >= 0 ? '+' : ''}${delta}y)`, cls: 'good' })
-      }
-
-      // Second option
-      let secondClub = null as typeof clubs[0] | null, secondDiff = Infinity
-      for (const c of clubs) {
-        if (c.club_type === 'Driver' || c.club_type === 'Unknown' || c === bestClub) continue
-        const diff = Math.abs((c.avg_yards || 0) - distToGreen)
-        if (diff < secondDiff) { secondDiff = diff; secondClub = c }
-      }
-      if (secondClub) {
-        const delta = Math.round(secondClub.avg_yards) - distToGreen
-        result.push({ label: 'Alternative', value: `${secondClub.club_type} (${Math.round(secondClub.avg_yards)}y, ${delta >= 0 ? '+' : ''}${delta}y)`, cls: '' })
+      if (ranked[1]) {
+        result.push({ label: 'Alternative', value: `${ranked[1].type} (${Math.round(ranked[1].avg)}y, ${ranked[1].delta >= 0 ? '+' : ''}${ranked[1].delta}y)`, cls: '' })
       }
 
       // Miss tendency
-      if (bestClub && player.miss_tendencies) {
-        const miss = player.miss_tendencies[bestClub.club_type]
+      if (ranked[0] && player.miss_tendencies) {
+        const miss = player.miss_tendencies[ranked[0].type]
         if (miss && miss.total_shots >= 5) {
           const dominant = miss.left_pct > miss.right_pct ? 'left' : 'right'
           const pct = Math.max(miss.left_pct, miss.right_pct)
-          if (pct > 55) result.push({ label: `${bestClub.club_type} miss`, value: `${pct}% ${dominant}`, cls: pct > 70 ? 'danger' : 'warning' })
+          if (pct > 55) result.push({ label: `${ranked[0].type} miss`, value: `${pct}% ${dominant}`, cls: pct > 70 ? 'danger' : 'warning' })
         }
       }
 
       // Dispersion
-      if (bestClub?.std_dev) {
-        result.push({ label: 'Dispersion', value: `±${Math.round(bestClub.std_dev)}y (1σ)`, cls: '' })
-        const lateralDisp = player.lateral_dispersion?.[bestClub.club_type]
+      const bestClubObj = clubs.find(c => c.club_type === ranked[0]?.type)
+      if (bestClubObj?.std_dev) {
+        result.push({ label: 'Dispersion', value: `±${Math.round(bestClubObj.std_dev)}y (1σ)`, cls: '' })
+        const lateralDisp = player.lateral_dispersion?.[bestClubObj.club_type]
         if (lateralDisp?.lateral_std_dev) result.push({ label: 'Lateral spread', value: `±${Math.round(lateralDisp.lateral_std_dev)}y`, cls: '' })
       }
 
@@ -141,13 +122,8 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
       }
 
     } else if (context === 'short_game') {
-      let bestClub = null as typeof clubs[0] | null, bestDiff = Infinity
-      for (const c of clubs) {
-        if (c.club_type === 'Driver' || c.club_type === 'Unknown') continue
-        const diff = Math.abs((c.avg_yards || 0) - distToGreen)
-        if (diff < bestDiff) { bestDiff = diff; bestClub = c }
-      }
-      if (bestClub) result.push({ label: 'Club recommendation', value: `${bestClub.club_type} (${Math.round(bestClub.avg_yards)}y avg)`, cls: 'good' })
+      const ranked = rankClubs(clubs, distToGreen, { count: 1, excludeDriver: true })
+      if (ranked[0]) result.push({ label: 'Club recommendation', value: `${ranked[0].type} (${Math.round(ranked[0].avg)}y avg)`, cls: 'good' })
       if (player.sg_categories?.CHIP) {
         const sg = player.sg_categories.CHIP
         result.push({ label: 'Short Game SG', value: `${sg.avg_sg_pga >= 0 ? '+' : ''}${sg.avg_sg_pga.toFixed(2)}/shot`, cls: sg.avg_sg_pga >= 0 ? 'good' : 'danger' })
@@ -162,22 +138,15 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
       result.push({ label: 'Distance', value: `${distToGreen}y to pin`, cls: '' })
     }
 
-    // Nearby hazards
+    // Nearby hazards using shared function
     if (context !== 'green' && ballOrigin && hazards.length > 0) {
-      for (const h of hazards) {
-        if (h._deleted || h.boundary.length < 3) continue
-        let minDist = Infinity
-        for (const p of h.boundary) {
-          const d = haversineYards(ballOrigin.lat, ballOrigin.lng, p.lat, p.lng)
-          if (d < minDist) minDist = d
-        }
-        if (minDist > 20 && minDist < (context === 'tee' ? 350 : 200)) {
-          result.push({
-            label: `${h.hazard_type}${h.name ? ' (' + h.name + ')' : ''}`,
-            value: `${Math.round(minDist)}y away`,
-            cls: minDist < 30 ? 'danger' : minDist < 80 ? 'warning' : '',
-          })
-        }
+      const nearby = findNearbyHazards(ballOrigin, hazards, context)
+      for (const h of nearby) {
+        result.push({
+          label: `${h.type}${h.name ? ' (' + h.name + ')' : ''}`,
+          value: `${h.distance}y away`,
+          cls: h.cls,
+        })
       }
     }
 

@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useCourse, put, get } from '../../../api'
 import type { CourseDetail, RoundDetail } from '../../../api'
 import { useCourseStrategy } from '../useCourseStrategy'
+import { useCourseRounds } from '../useCourseRounds'
 import { parseHoleData } from '../courseMapState'
 import type { LatLng, EditorHazard } from '../courseMapState'
 import type { CourseStrategyData } from '../useCourseStrategy'
@@ -43,6 +44,10 @@ export interface MobileMapState {
   // Display toggles
   showOverlays: boolean
 
+  // Rangefinder tools
+  activeRangefinderTool: 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler'
+  selectedClubType: string | null
+
   // Edit state (minimal: tee, green, fairway line, par/yardage)
   editMode: 'tee' | 'green' | 'fairway' | null
   dirty: boolean
@@ -60,6 +65,10 @@ export interface MobileMapActions {
 
   // Display toggles
   setShowOverlays: (show: boolean) => void
+
+  // Rangefinder tool actions
+  setActiveRangefinderTool: (tool: 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler') => void
+  setSelectedClubType: (clubType: string | null) => void
 
   // Edit actions
   setEditMode: (mode: 'tee' | 'green' | 'fairway' | null) => void
@@ -127,7 +136,11 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
   }, [searchParams])
 
   // Display toggles
-  const [showOverlays, setShowOverlays] = useState(true)
+  const [showOverlays, setShowOverlays] = useState(!playMode)
+
+  // Rangefinder tool state
+  const [activeRangefinderTool, setActiveRangefinderTool] = useState<'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler'>('none')
+  const [selectedClubType, setSelectedClubType] = useState<string | null>(null)
 
   // Edit state
   const [editMode, setEditMode] = useState<'tee' | 'green' | 'fairway' | null>(null)
@@ -145,6 +158,22 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
   const [viewMode, setViewMode] = useState<'historic' | number>('historic')
   const [roundDetail, setRoundDetail] = useState<RoundDetail | null>(null)
   const [allRoundDetails, setAllRoundDetails] = useState<RoundDetail[]>([])
+
+  // Auto-load all round details for hole history data
+  const { data: courseRounds = [] } = useCourseRounds(courseId)
+  const roundsLoadedRef = useRef(false)
+  useEffect(() => {
+    if (roundsLoadedRef.current || courseRounds.length === 0 || allRoundDetails.length > 0) return
+    roundsLoadedRef.current = true
+    const load = async () => {
+      const details: RoundDetail[] = []
+      for (const r of courseRounds) {
+        try { details.push(await get<RoundDetail>(`/rounds/${r.id}`)) } catch { /* skip */ }
+      }
+      if (details.length > 0) setAllRoundDetails(details)
+    }
+    load()
+  }, [courseRounds, allRoundDetails.length])
 
   // Tee default
   useEffect(() => {
@@ -256,10 +285,12 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     gps,
     playMode,
     showOverlays,
+    activeRangefinderTool, selectedClubType,
     editMode, dirty, formValues: formValuesRef.current,
     selectHole, prevHole, nextHole, setTeeId,
     setViewMode, setRoundDetail, setAllRoundDetails,
     setShowOverlays,
+    setActiveRangefinderTool, setSelectedClubType,
     setEditMode, setTeePos, setGreenPos, setFairwayPath,
     setFormValues, setDirty, saveHole,
     redrawKey, triggerRedraw,
@@ -270,6 +301,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     gps,
     playMode,
     showOverlays,
+    activeRangefinderTool, selectedClubType,
     editMode, dirty, formValues,
     selectHole, prevHole, nextHole,
     setFormValues, saveHole,

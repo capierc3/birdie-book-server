@@ -6,6 +6,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useCourse, put, post, del, get } from '../../api'
 import type { CourseDetail, RoundDetail } from '../../api'
 import { useToast } from '../../components'
+import { useIsMobile } from '../../hooks/useMediaQuery'
 import { useCourseStrategy } from './useCourseStrategy'
 import { CourseMapContext, parseHoleData } from './courseMapState'
 import type { CourseMapContextType, LatLng, DrawTool, HazardType, EditorHazard, PanelId } from './courseMapState'
@@ -25,6 +26,7 @@ import { PlanningPanel } from './PlanningPanel'
 import { PlanOverlays } from './PlanOverlays'
 import { PlanAimOverlay } from './PlanAimOverlay'
 import { DataImportPanel } from './DataImportPanel'
+import { MobileHoleViewer } from './mobile/MobileHoleViewer'
 import s from './CourseMapPage.module.css'
 import 'leaflet/dist/leaflet.css'
 
@@ -117,8 +119,14 @@ function MapController({ course, currentHole, teeId, allRoundDetails }: { course
   return null
 }
 
-// ── Main page ──
+// ── Main page (routes mobile vs desktop) ──
 export function CourseMapPage() {
+  const isMobile = useIsMobile()
+  if (isMobile) return <MobileHoleViewer />
+  return <DesktopCourseMapPage />
+}
+
+function DesktopCourseMapPage() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()

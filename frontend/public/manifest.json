@@ -3,6 +3,7 @@
   "short_name": "Birdie Book",
   "description": "Golf performance tracking and analytics",
   "start_url": "/app/",
+  "scope": "/app/",
   "display": "standalone",
   "background_color": "#111318",
   "theme_color": "#4caf50",

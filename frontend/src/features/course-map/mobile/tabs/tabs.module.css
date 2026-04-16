@@ -1,0 +1,498 @@
+/* ── Shared tab styles ── */
+
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.hint {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.subHint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.error {
+  font-size: 0.82rem;
+  color: var(--danger);
+}
+
+.pulse {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #2196F3;
+  animation: gpsPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes gpsPulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.5); opacity: 0.3; }
+}
+
+/* ── Buttons ── */
+.primaryBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: var(--touch-target);
+}
+.primaryBtn:active {
+  opacity: 0.85;
+}
+.primaryBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ghostBtn {
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  min-height: 36px;
+}
+.ghostBtn:active {
+  background: var(--bg-hover);
+}
+
+/* ── Section layout ── */
+.section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.section:last-child {
+  border-bottom: none;
+}
+
+.sectionTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ── Rangefinder tab ── */
+.rangefinder {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.distanceBlock {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.distanceBig {
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--text);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.distanceUnit {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.frontBack {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 0;
+}
+
+.fbItem {
+  flex: 1;
+  text-align: center;
+}
+
+.fbLabel {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fbValue {
+  display: block;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.fbDivider {
+  width: 1px;
+  height: 32px;
+  background: var(--border);
+}
+
+.clubRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 0.82rem;
+}
+
+.clubPrimary {
+  font-weight: 600;
+}
+
+.clubName {
+  color: var(--text);
+}
+
+.clubDist {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.hazardRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.78rem;
+}
+
+.hazardDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hazardName {
+  color: var(--text);
+  flex: 1;
+}
+
+.hazardDist {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.gpsMeta {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* ── Caddie / Insights ── */
+.insightList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.insightHeader {
+  font-size: 0.68rem;
+  color: var(--accent);
+  font-weight: 600;
+  margin: 8px 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.insightHeader:first-child {
+  margin-top: 0;
+}
+
+.insightRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+
+.insightLabel {
+  color: var(--text-muted);
+}
+
+.insightValue {
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ── Shots tab ── */
+.shotList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shotRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 0.82rem;
+}
+
+.shotDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.shotClub {
+  color: var(--text);
+  flex: 1;
+}
+
+.shotDist {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.shotSg {
+  font-weight: 600;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 42px;
+  text-align: right;
+}
+
+/* ── Notes tab ── */
+.cumulativeScore {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.scorecardStrip {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0;
+}
+
+.scorecardCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 28px;
+  padding: 2px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.scorecardActive {
+  background: var(--accent-dim);
+  outline: 1px solid var(--accent);
+}
+
+.scorecardHole {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.scorecardScore {
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreInput {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.scoreStepper {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 1.4rem;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.scoreStepper:active {
+  background: var(--bg-hover);
+}
+
+.scoreDisplay {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--text);
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.tagGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tagBtn {
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  border-radius: 16px;
+  cursor: pointer;
+  min-height: 36px;
+}
+.tagBtn:active {
+  background: var(--bg-hover);
+}
+
+.tagActive {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.noteTextarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  resize: vertical;
+  font-family: inherit;
+  min-height: 60px;
+}
+.noteTextarea:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ── Edit tab ── */
+.editFieldRow {
+  display: flex;
+  gap: 12px;
+}
+
+.editFieldLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.editFieldInput {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  min-height: 40px;
+}
+.editFieldInput:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.editToolRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editToolBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: var(--touch-target);
+  text-align: left;
+}
+.editToolBtn:active {
+  background: var(--bg-hover);
+}
+
+.editToolActive {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.editToolDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.checkMark {
+  color: var(--accent);
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+.editHint {
+  font-size: 0.75rem;
+  color: var(--accent);
+  font-style: italic;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--accent-dim);
+  border-radius: 8px;
+}
+
+.editActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}

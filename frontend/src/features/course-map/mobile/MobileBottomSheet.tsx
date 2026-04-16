@@ -5,6 +5,11 @@ import s from './MobileBottomSheet.module.css'
 export type SheetSnap = 'peek' | 'half' | 'full'
 export type MobileTab = 'gps' | 'caddie' | 'shots' | 'notes' | 'edit'
 
+export interface TabConfig {
+  key: MobileTab
+  label: string
+}
+
 const PEEK_HEIGHT = 110
 const HANDLE_HEIGHT = 32
 
@@ -12,10 +17,19 @@ interface Props {
   peekContent: ReactNode
   activeTab: MobileTab
   onTabChange: (tab: MobileTab) => void
+  tabs?: TabConfig[]
   children: ReactNode
 }
 
-export function MobileBottomSheet({ peekContent, activeTab, onTabChange, children }: Props) {
+const DEFAULT_TABS: TabConfig[] = [
+  { key: 'gps', label: 'GPS' },
+  { key: 'caddie', label: 'Caddie' },
+  { key: 'shots', label: 'Shots' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'edit', label: 'Edit' },
+]
+
+export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = DEFAULT_TABS, children }: Props) {
   const [snap, setSnap] = useState<SheetSnap>('peek')
   const sheetRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({ startY: 0, startTranslate: 0, dragging: false })
@@ -100,13 +114,13 @@ export function MobileBottomSheet({ peekContent, activeTab, onTabChange, childre
       {/* Tab bar (visible when expanded) */}
       {isExpanded && (
         <div className={s.tabBar}>
-          {(['gps', 'caddie', 'shots', 'notes', 'edit'] as MobileTab[]).map(tab => (
+          {tabs.map(tab => (
             <button
-              key={tab}
-              className={`${s.tab} ${activeTab === tab ? s.tabActive : ''}`}
-              onClick={() => handleTabClick(tab)}
+              key={tab.key}
+              className={`${s.tab} ${activeTab === tab.key ? s.tabActive : ''}`}
+              onClick={() => handleTabClick(tab.key)}
             >
-              {tab === 'gps' ? 'GPS' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab.label}
             </button>
           ))}
         </div>

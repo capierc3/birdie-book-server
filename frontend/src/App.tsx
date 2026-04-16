@@ -19,6 +19,7 @@ import { NewPracticePage } from './features/practice/NewPracticePage'
 import { PracticeDetailPage } from './features/practice/PracticeDetailPage'
 import { ImportPage } from './features/import/ImportPage'
 import { SettingsPage } from './features/settings/SettingsPage'
+import { StartRoundPage } from './features/play/StartRoundPage'
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
         <Route path="/practice/new" element={<NewPracticePage />} />
         <Route path="/practice/new/round-plan/:roundPlanId" element={<NewPracticePage />} />
         <Route path="/practice/:id" element={<PracticeDetailPage />} />
+        <Route path="/play/new" element={<StartRoundPage />} />
         <Route path="/import" element={<ImportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -8,7 +8,7 @@ import type { RangefinderData } from './GpsRangefinder'
 import { HoleInfoBar } from './HoleInfoBar'
 import { MobileHoleNav } from './MobileHoleNav'
 import { MobileBottomSheet } from './MobileBottomSheet'
-import type { MobileTab } from './MobileBottomSheet'
+import type { MobileTab, TabConfig } from './MobileBottomSheet'
 import { RangefinderTab } from './tabs/RangefinderTab'
 import { CaddieTab } from './tabs/CaddieTab'
 import { ShotsTab } from './tabs/ShotsTab'
@@ -86,10 +86,25 @@ function CenterOnMeButton() {
   )
 }
 
+const PLAY_TABS: TabConfig[] = [
+  { key: 'gps', label: 'Rangefinder' },
+  { key: 'caddie', label: 'Caddie' },
+  { key: 'notes', label: 'Scorecard' },
+  { key: 'edit', label: 'Edit' },
+]
+
+const REVIEW_TABS: TabConfig[] = [
+  { key: 'gps', label: 'GPS' },
+  { key: 'caddie', label: 'Caddie' },
+  { key: 'shots', label: 'Shots' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'edit', label: 'Edit' },
+]
+
 function MobileHoleViewerInner() {
   const ctx = useMobileMap()
-  const { course, gps, greenPos, strategy, formValues } = ctx
-  const [activeTab, setActiveTab] = useState<MobileTab>('gps')
+  const { course, gps, greenPos, strategy, formValues, playMode } = ctx
+  const [activeTab, setActiveTab] = useState<MobileTab>(playMode ? 'gps' : 'gps')
   const [rangefinderData, setRangefinderData] = useState<RangefinderData>({
     distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
     nearbyHazards: [], clubRec: [], gpsActive: false,
@@ -199,10 +214,10 @@ function MobileHoleViewerInner() {
         </svg>
       </button>
 
-      <MobileBottomSheet peekContent={peekContent} activeTab={activeTab} onTabChange={setActiveTab}>
+      <MobileBottomSheet peekContent={peekContent} activeTab={activeTab} onTabChange={setActiveTab} tabs={playMode ? PLAY_TABS : REVIEW_TABS}>
         {activeTab === 'gps' && <RangefinderTab data={rangefinderData} />}
         {activeTab === 'caddie' && <CaddieTab />}
-        {activeTab === 'shots' && <ShotsTab />}
+        {activeTab === 'shots' && !playMode && <ShotsTab />}
         {activeTab === 'notes' && <NotesTab />}
         {activeTab === 'edit' && <EditTab />}
       </MobileBottomSheet>

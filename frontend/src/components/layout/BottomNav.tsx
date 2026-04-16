@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
-  ListOrdered,
+  Flag,
   BarChart3,
   Briefcase,
   MoreHorizontal,
@@ -11,7 +11,7 @@ import styles from './BottomNav.module.css'
 
 const tabs = [
   { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
-  { to: '/rounds', icon: ListOrdered, label: 'Rounds', end: false },
+  { to: '/play/new', icon: Flag, label: 'Play', end: false },
   { to: '/scoring', icon: BarChart3, label: 'Stats', end: false },
   { to: '/clubs', icon: Briefcase, label: 'Bag', end: false },
 ]

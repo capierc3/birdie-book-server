@@ -37,6 +37,9 @@ export interface MobileMapState {
   // GPS
   gps: GpsState & { startWatching: () => void; stopWatching: () => void }
 
+  // Mode
+  playMode: boolean
+
   // Display toggles
   showOverlays: boolean
 
@@ -113,6 +116,15 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
   const [greenBoundary, setGreenBoundary] = useState<LatLng[]>([])
   const [hazards, setHazards] = useState<EditorHazard[]>([])
   const [redrawKey, setRedrawKey] = useState(0)
+
+  // Play mode (derived from URL param)
+  const playMode = searchParams.get('mode') === 'play'
+
+  // Tee from URL (for play mode)
+  useEffect(() => {
+    const teeParam = searchParams.get('tee')
+    if (teeParam) setTeeId(Number(teeParam))
+  }, [searchParams])
 
   // Display toggles
   const [showOverlays, setShowOverlays] = useState(true)
@@ -242,6 +254,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards,
     viewMode, roundDetail, allRoundDetails,
     gps,
+    playMode,
     showOverlays,
     editMode, dirty, formValues: formValuesRef.current,
     selectHole, prevHole, nextHole, setTeeId,
@@ -255,6 +268,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards,
     viewMode, roundDetail, allRoundDetails,
     gps,
+    playMode,
     showOverlays,
     editMode, dirty, formValues,
     selectHole, prevHole, nextHole,

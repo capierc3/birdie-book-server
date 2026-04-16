@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import {
+  ListOrdered,
   TrendingUp,
   Trophy,
   Target,
@@ -12,6 +13,7 @@ import { cn } from '../../utils/cn'
 import styles from './MoreMenu.module.css'
 
 const moreItems = [
+  { to: '/rounds', icon: ListOrdered, label: 'Rounds' },
   { to: '/strokes-gained', icon: TrendingUp, label: 'Strokes Gained' },
   { to: '/handicap', icon: Trophy, label: 'Handicap' },
   { to: '/range', icon: Target, label: 'Range' },

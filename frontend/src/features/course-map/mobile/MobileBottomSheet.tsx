@@ -5,7 +5,7 @@ import s from './MobileBottomSheet.module.css'
 export type SheetSnap = 'peek' | 'half' | 'full'
 export type MobileTab = 'gps' | 'caddie' | 'shots' | 'notes' | 'edit'
 
-const PEEK_HEIGHT = 80
+const PEEK_HEIGHT = 110
 const HANDLE_HEIGHT = 32
 
 interface Props {

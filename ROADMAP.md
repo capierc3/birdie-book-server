@@ -874,6 +874,68 @@
 
 ---
 
+## 20. Map Library Migration — Leaflet → MapLibre GL JS
+
+**Goal:** Replace Leaflet with MapLibre GL JS to unlock native map rotation, 3D tilt, and WebGL-powered rendering. The primary motivator is orienting each hole tee-at-bottom / green-at-top — something Leaflet cannot do without broken CSS hacks.
+
+**Why MapLibre over Mapbox:** MapLibre GL JS is the open-source fork of Mapbox GL JS. Same WebGL engine, same rotation/pitch/bearing APIs, no access token or usage-based pricing. Active community, growing adoption.
+
+### What We Gain
+- **Native map rotation (`bearing`)** — Orient each hole tee-at-bottom, green-at-top using the tee-to-green bearing (already computed in `geoUtils.ts`)
+- **3D tilt (`pitch`)** — Optional golfer's-eye perspective of the hole
+- **WebGL rendering** — Hardware-accelerated, handles many overlays (fairways, hazards, shots, dispersion cones) more efficiently than Leaflet's DOM-based approach
+- **Vector tiles** — Sharper at any zoom, smaller downloads, dynamic styling
+- **Smooth animations** — Transitions between holes, fly-to GPS position all feel slicker
+- **Better mobile performance** — WebGL handles complex scenes (overlays + GPS + strategy tools) better than DOM manipulation on phones
+
+### What Changes (Migration Cost)
+The codebase is heavily imperative Leaflet. Every overlay component will need rewriting:
+
+- **Paradigm shift:** Leaflet uses imperative object creation (`L.polygon()`, `L.marker()`, `L.circleMarker()`). MapLibre uses GeoJSON data sources + declarative style layers. All overlay files must be restructured.
+- **Custom HTML markers:** Extensive use of `L.divIcon` for shot badges, distance labels, tee markers, flag SVGs, fairway waypoints. MapLibre has `Marker` for HTML but it works differently — these need rethinking.
+- **Layer groups:** 8+ `L.layerGroup()` instances for batch visibility. MapLibre uses layer `visibility` property and source filtering instead.
+- **Drawing/editing tools:** Click-to-place, drag waypoints, right-click delete — all use Leaflet event handlers (`map.on('click')`, `marker.on('drag')`). MapLibre has equivalent events but different API surface.
+- **Strategy tools:** Ruler, dispersion cone, carry check, club recommendation — all render imperatively with `L.polyline`, `L.polygon`, live cursor-following. Need MapLibre equivalents.
+- **React wrapper:** Replace `react-leaflet` with `react-map-gl` (Vis.gl/Uber, works with MapLibre). Different component API.
+- **Tile source:** Currently ArcGIS raster satellite tiles. MapLibre can consume raster sources, so same imagery works — just loaded via MapLibre's `raster` source type instead of `TileLayer`.
+
+### Files Affected
+Major rewrites:
+- `features/course-map/MapOverlays.tsx` — desktop course overlays
+- `features/course-map/ShotOverlays.tsx` — shot visualization
+- `features/course-map/StrategyOverlays.tsx` — strategy tools (ruler, cone, carry, recommend)
+- `features/course-map/PlanOverlays.tsx` — round planning overlays
+- `features/course-map/mobile/MobileMapOverlays.tsx` — mobile overlays
+- `features/course-map/mobile/MobileShotOverlays.tsx` — mobile shots
+- `features/course-map/mobile/GpsRangefinder.tsx` — GPS marker/accuracy ring (distance calc logic stays)
+- `features/course-map/CourseMapPage.tsx` — map container setup
+- `features/course-map/mobile/MobileHoleViewer.tsx` — mobile map container
+
+Untouched (pure logic, no Leaflet dependency):
+- `features/course-map/geoUtils.ts` — bearing, haversine, destPoint
+- `features/course-map/courseMapState.ts` — state management
+- `features/course-map/mobile/MobileMapContext.tsx` — mobile state
+- All bottom sheet, tab, and panel UI components
+- All distance calculation and club recommendation logic
+
+### Migration Strategy
+Incremental, feature-by-feature — never break the working app:
+
+1. **Phase A:** Install `maplibre-gl` + `react-map-gl`. Create a parallel `MapLibreMap` component. Get satellite tiles rendering with rotation working in a test route.
+2. **Phase B:** Port mobile view first (simpler — read-only overlays, fewer tools). `MobileMapOverlays` → MapLibre sources/layers. Verify GPS marker, hazards, fairways render correctly with bearing rotation.
+3. **Phase C:** Port desktop overlays (`MapOverlays`, `ShotOverlays`). These are read-only visualization — no interaction.
+4. **Phase D:** Port interactive tools — drawing tools, strategy tools, planning mode. This is the hardest phase due to drag/click/hover interactions.
+5. **Phase E:** Remove Leaflet dependencies. Clean up.
+
+### Device Requirements
+- MapLibre requires WebGL — supported on all Android devices from the last 5+ years
+- Very low-end or older devices may struggle. Leaflet fallback could be maintained but adds complexity — probably not worth it for a single-user app.
+
+### Decision
+**Deferred.** Finish the mobile rangefinder UI with Leaflet first. The bottom sheet, peek content, GPS hooks, distance calculations, and club recommendations are all map-library-agnostic and transfer directly. Tackle MapLibre as a dedicated project once the on-course experience is validated.
+
+---
+
 ## Architecture Notes
 
 ### Database: SQLite (current) → PostgreSQL (if multi-user)

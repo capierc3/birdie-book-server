@@ -1,19 +1,18 @@
-/* ── Top info bar ── */
+/* ── Combined header + hole info bar ── */
 .bar {
   position: fixed;
-  top: 8px;
-  left: 8px;
-  right: 8px;
+  top: 0;
+  left: 0;
+  right: 0;
   z-index: 400;
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(28, 31, 38, 0.9);
+  height: 52px;
+  background: rgba(28, 31, 38, 0.92);
   backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 12px;
-  min-height: var(--touch-target);
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
 }
 
 .backBtn {
@@ -33,10 +32,14 @@
   background: var(--bg-hover);
 }
 
+.brandIcon {
+  color: var(--accent);
+}
+
 .info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
   min-width: 0;
 }

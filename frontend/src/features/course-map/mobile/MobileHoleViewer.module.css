@@ -2,7 +2,7 @@
 .layout {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 200;
   background: var(--bg);
   overflow: hidden;
 }
@@ -48,7 +48,7 @@
 /* ── Center on me FAB (inside MapContainer, needs high z-index) ── */
 .centerFab {
   position: fixed;
-  bottom: 96px;
+  bottom: 126px;
   right: 12px;
   z-index: 1000;
   width: 44px;
@@ -113,10 +113,94 @@
   background: var(--accent-dim);
 }
 
+/* ── Enhanced peek grid ── */
+.peekGrid {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.peekDistBlock {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.peekDistLabel {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.peekMid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.peekFrontBack {
+  display: flex;
+  gap: 10px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.peekHoleInfo {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.peekClubs {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.peekClubItem {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ── Hazard warning row in peek ── */
+.peekHazardRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.72rem;
+}
+
+.peekHazardDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.peekHazardText {
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.peekHazardDist {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Overlay toggle button ── */
 .overlayToggle {
   position: fixed;
-  top: 68px;
+  top: 62px;
   right: 12px;
   z-index: 400;
   width: 40px;

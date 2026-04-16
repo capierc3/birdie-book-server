@@ -14,6 +14,7 @@ import { CaddieTab } from './tabs/CaddieTab'
 import { ShotsTab } from './tabs/ShotsTab'
 import { NotesTab } from './tabs/NotesTab'
 import { EditTab } from './tabs/EditTab'
+import { HAZARD_COLORS, HAZARD_LABELS } from '../courseMapState'
 import s from './MobileHoleViewer.module.css'
 import 'leaflet/dist/leaflet.css'
 
@@ -101,6 +102,9 @@ function MobileHoleViewerInner() {
 
   // Peek content: compact rangefinder summary
   const peekContent = useMemo(() => {
+    const { currentHole } = ctx
+    const par = formValues.par || '—'
+
     if (!gps.watching) {
       return (
         <div className={s.peekRow}>
@@ -111,20 +115,46 @@ function MobileHoleViewerInner() {
         </div>
       )
     }
+
     if (rangefinderData.distToGreenCenter != null) {
-      const rec = rangefinderData.clubRec[0]
+      const hazard = rangefinderData.nearbyHazards[0]
       return (
-        <div className={s.peekRow}>
-          <span className={s.peekDist}>{rangefinderData.distToGreenCenter} yds</span>
-          {rec && (
-            <>
-              <span className={s.peekSep}>|</span>
-              <span className={s.peekClub}>{rec.club}</span>
-            </>
+        <>
+          <div className={s.peekGrid}>
+            <div className={s.peekDistBlock}>
+              <span className={s.peekDist}>{rangefinderData.distToGreenCenter}</span>
+              <span className={s.peekDistLabel}>yds</span>
+            </div>
+            <div className={s.peekMid}>
+              <div className={s.peekFrontBack}>
+                <span>F: {rangefinderData.distToGreenFront ?? '—'}</span>
+                <span>B: {rangefinderData.distToGreenBack ?? '—'}</span>
+              </div>
+              <div className={s.peekHoleInfo}>
+                Hole {currentHole} · Par {par}
+              </div>
+            </div>
+            {rangefinderData.clubRec.length > 0 && (
+              <div className={s.peekClubs}>
+                {rangefinderData.clubRec.slice(0, 2).map(c => (
+                  <span key={c.club} className={s.peekClubItem}>{c.club}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          {hazard && (
+            <div className={s.peekHazardRow}>
+              <span className={s.peekHazardDot} style={{ background: (HAZARD_COLORS[hazard.type] || ['#999'])[0] }} />
+              <span className={s.peekHazardText}>
+                {HAZARD_LABELS[hazard.type] || hazard.type}{hazard.name ? ` (${hazard.name})` : ''}
+              </span>
+              <span className={s.peekHazardDist}>{hazard.distance}y</span>
+            </div>
           )}
-        </div>
+        </>
       )
     }
+
     if (rangefinderData.gpsActive) {
       return (
         <div className={s.peekRow}>
@@ -132,12 +162,13 @@ function MobileHoleViewerInner() {
         </div>
       )
     }
+
     return (
       <div className={s.peekRow}>
         <span className={s.peekLabel}>Acquiring GPS...</span>
       </div>
     )
-  }, [gps.watching, gps.lat, rangefinderData])
+  }, [gps.watching, gps.lat, rangefinderData, ctx.currentHole, formValues.par])
 
   return (
     <div className={s.layout}>

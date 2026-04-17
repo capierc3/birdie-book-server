@@ -11,11 +11,14 @@ interface InsightItem {
   value: string
   cls: '' | 'good' | 'warning' | 'danger'
   header?: string
+  sub?: string        // secondary text shown in muted color
+  tag?: string        // badge label
+  tagColor?: string   // badge color
 }
 
 export function CaddieTab() {
   const ctx = useMobileMap()
-  const { strategy, gps, teePos, greenPos, hazards, formValues, allRoundDetails, teeId, currentHole, course } = ctx
+  const { strategy, gps, teePos, greenPos, hazards, formValues, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail } = ctx
   const player = strategy?.player
   const par = parseInt(formValues.par) || 4
   const yardage = parseInt(formValues.yardage) || 0
@@ -151,90 +154,174 @@ export function CaddieTab() {
       }
     }
 
-    // ── Hole History from past rounds ──
+    // ── Hole data section (round-specific or historic) ──
     const teeRounds = allRoundDetails.filter(r => r.tee_id === teeId)
-    if (teeRounds.length > 0 && par > 0) {
-      const holeData = teeRounds
-        .map(r => (r.holes || []).find(h => h.hole_number === currentHole))
-        .filter((rh): rh is NonNullable<typeof rh> => rh != null && (rh.strokes ?? 0) > 0)
+    const holeData = teeRounds
+      .map(r => (r.holes || []).find(h => h.hole_number === currentHole))
+      .filter((rh): rh is NonNullable<typeof rh> => rh != null && (rh.strokes ?? 0) > 0)
 
+    const isRoundMode = viewMode !== 'historic' && roundDetail != null
+    const rh = isRoundMode ? (roundDetail.holes || []).find(h => h.hole_number === currentHole) : null
+
+    if (isRoundMode && rh && (rh.strokes ?? 0) > 0) {
+      // ── Round-specific hole review ──
+      const roundDate = new Date(roundDetail.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      result.push({ label: '', value: '', cls: '', header: `Hole ${currentHole} — ${roundDate}` })
+
+      // Score + vs avg comparison
+      const scoreDiff = (rh.strokes ?? 0) - par
+      let scoreVal = `${rh.strokes} (${scoreDiff >= 0 ? '+' : ''}${scoreDiff})`
+      let scoreCls: InsightItem['cls'] = scoreDiff <= 0 ? 'good' : scoreDiff <= 1 ? 'warning' : 'danger'
+
+      let verdict = ''
+      let verdictColor = ''
+      let vsAvgStr = ''
       if (holeData.length > 0) {
-        result.push({ label: '', value: '', cls: '', header: `Hole ${currentHole} History (${holeData.length} rnd${holeData.length !== 1 ? 's' : ''})` })
+        const avg = holeData.map(h => h.strokes!).reduce((a, b) => a + b, 0) / holeData.length
+        const vsAvg = (rh.strokes ?? 0) - avg
+        vsAvgStr = `(${vsAvg >= 0 ? '+' : ''}${vsAvg.toFixed(1)} vs avg)`
+        if (vsAvg <= -1) { scoreCls = 'good'; verdict = 'Great hole'; verdictColor = '#22c55e' }
+        else if (vsAvg <= -0.3) { scoreCls = 'good'; verdict = 'Above average'; verdictColor = '#22c55e' }
+        else if (vsAvg >= 1) { scoreCls = 'danger'; verdict = 'Below average'; verdictColor = '#ef4444' }
+        else { verdict = 'Average'; verdictColor = '#3b82f6' }
+      }
+      result.push({ label: 'Score', value: scoreVal, cls: scoreCls, sub: vsAvgStr, tag: verdict, tagColor: verdictColor })
 
-        // Best / Avg score
-        const scores = holeData.map(rh => rh.strokes!)
-        const best = Math.min(...scores)
+      // Putts with vs avg
+      if (rh.putts != null) {
+        const allPutts = holeData.map(h => h.putts).filter((p): p is number => p != null)
+        let puttsVal = `${rh.putts}`
+        if (allPutts.length > 0) {
+          const pAvg = allPutts.reduce((a, b) => a + b, 0) / allPutts.length
+          const pDiff = rh.putts - pAvg
+          puttsVal += ` (${pDiff >= 0 ? '+' : ''}${pDiff.toFixed(1)} avg)`
+        }
+        result.push({ label: 'Putts', value: puttsVal, cls: '' })
+      }
+
+      // Fairway
+      if (rh.fairway) result.push({ label: 'Fairway', value: rh.fairway, cls: rh.fairway === 'HIT' ? 'good' : 'warning' })
+
+      // GIR
+      if (rh.gir != null) result.push({ label: 'GIR', value: rh.gir ? 'Yes' : 'No', cls: rh.gir ? 'good' : 'danger' })
+
+      // Penalties
+      if ((rh.penalty_strokes ?? 0) > 0) result.push({ label: 'Penalties', value: `${rh.penalty_strokes}`, cls: 'danger' })
+
+      // SG from this round's shots
+      const catLabels: Record<string, string> = { off_the_tee: 'Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' }
+      let sgPga = 0
+      let sgPersonal = 0
+      let sgCount = 0
+      const sgByType: Record<string, number> = {}
+      for (const shot of rh.shots || []) {
+        if (shot.sg_pga != null) {
+          sgPga += shot.sg_pga
+          sgCount++
+          const cat = classifySgCategory(shot, par)
+          if (cat) sgByType[cat] = (sgByType[cat] || 0) + shot.sg_pga
+        }
+        if (shot.sg_personal != null) sgPersonal += shot.sg_personal
+      }
+      if (sgCount > 0) {
+        result.push({ label: 'SG vs PGA', value: sgPga.toFixed(2), cls: sgPga >= 0 ? 'good' : 'danger' })
+        result.push({ label: 'SG vs Personal', value: sgPersonal.toFixed(2), cls: sgPersonal >= 0 ? 'good' : 'danger' })
+      }
+
+      // Historic comparison
+      if (holeData.length > 0) {
+        const scores = holeData.map(h => h.strokes!)
         const avg = scores.reduce((a, b) => a + b, 0) / scores.length
-        const bestDiff = best - par
-        const avgDiff = avg - par
-        result.push({ label: 'Best', value: `${best} (${bestDiff >= 0 ? '+' : ''}${bestDiff})`, cls: bestDiff <= 0 ? 'good' : 'danger' })
-        result.push({ label: 'Average', value: `${avg.toFixed(1)} (${avgDiff >= 0 ? '+' : ''}${avgDiff.toFixed(1)})`, cls: avgDiff <= 0 ? 'good' : avgDiff <= 0.5 ? '' : 'danger' })
+        const best = Math.min(...scores)
+        result.push({ label: 'Hole Avg', value: avg.toFixed(1), cls: '' })
+        result.push({ label: 'Hole Best', value: `${best}`, cls: '' })
+      }
 
-        // Avg putts
-        const putts = holeData.map(rh => rh.putts).filter((p): p is number => p != null)
-        if (putts.length > 0) {
-          const avgPutts = (putts.reduce((a, b) => a + b, 0) / putts.length).toFixed(1)
-          result.push({ label: 'Avg Putts', value: avgPutts, cls: '' })
-        }
+      // SG breakdown
+      if (sgCount > 0) {
+        const sgStr = Object.entries(sgByType)
+          .map(([cat, v]) => `${catLabels[cat] || cat}: ${v >= 0 ? '+' : ''}${v.toFixed(2)}`)
+          .join('  ')
+        result.push({ label: 'SG Detail', value: sgStr, cls: '' })
+      }
 
-        // FW%
-        const fwResults = holeData.map(rh => rh.fairway).filter((f): f is string => f != null)
-        if (fwResults.length > 0) {
-          const fwHits = fwResults.filter(f => f === 'HIT').length
-          const fwPct = Math.round((fwHits / fwResults.length) * 100)
-          result.push({ label: 'Fairway', value: `${fwPct}% (${fwHits}/${fwResults.length})`, cls: fwPct >= 50 ? 'good' : 'warning' })
-        }
+    } else if (teeRounds.length > 0 && par > 0 && holeData.length > 0) {
+      // ── Historic hole history ──
+      result.push({ label: '', value: '', cls: '', header: `Hole ${currentHole} History (${holeData.length} rnd${holeData.length !== 1 ? 's' : ''})` })
 
-        // GIR%
-        const girResults = holeData.map(rh => rh.gir).filter((g): g is boolean => g != null)
-        if (girResults.length > 0) {
-          const girHits = girResults.filter(g => g).length
-          const girPct = Math.round((girHits / girResults.length) * 100)
-          result.push({ label: 'GIR', value: `${girPct}% (${girHits}/${girResults.length})`, cls: girPct >= 50 ? 'good' : 'warning' })
-        }
+      // Best / Avg score
+      const scores = holeData.map(rh2 => rh2.strokes!)
+      const best = Math.min(...scores)
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length
+      const bestDiff = best - par
+      const avgDiff = avg - par
+      result.push({ label: 'Best', value: `${best} (${bestDiff >= 0 ? '+' : ''}${bestDiff})`, cls: bestDiff <= 0 ? 'good' : 'danger' })
+      result.push({ label: 'Average', value: `${avg.toFixed(1)} (${avgDiff >= 0 ? '+' : ''}${avgDiff.toFixed(1)})`, cls: avgDiff <= 0 ? 'good' : avgDiff <= 0.5 ? '' : 'danger' })
 
-        // Top tee club
-        const teeShots = teeRounds.flatMap(r => (r.holes || []).find(h => h.hole_number === currentHole)?.shots || []).filter(sh => sh.shot_number === 1 && sh.club)
-        const clubCounts: Record<string, number> = {}
-        teeShots.forEach(sh => { if (sh.club) clubCounts[sh.club] = (clubCounts[sh.club] || 0) + 1 })
-        const topClub = Object.entries(clubCounts).sort((a, b) => b[1] - a[1])[0]
-        if (topClub) result.push({ label: 'Tee Club', value: `${topClub[0]} (${topClub[1]}x)`, cls: '' })
+      // Avg putts
+      const putts = holeData.map(rh2 => rh2.putts).filter((p): p is number => p != null)
+      if (putts.length > 0) {
+        const avgPutts = (putts.reduce((a, b) => a + b, 0) / putts.length).toFixed(1)
+        result.push({ label: 'Avg Putts', value: avgPutts, cls: '' })
+      }
 
-        // Avg drive
-        const driveYards = teeShots.filter(sh => sh.distance_yards).map(sh => sh.distance_yards!)
-        if (driveYards.length > 0) {
-          const avgDrive = Math.round(driveYards.reduce((a, b) => a + b, 0) / driveYards.length)
-          result.push({ label: 'Avg Drive', value: `${avgDrive}y`, cls: '' })
-        }
+      // FW%
+      const fwResults = holeData.map(rh2 => rh2.fairway).filter((f): f is string => f != null)
+      if (fwResults.length > 0) {
+        const fwHits = fwResults.filter(f => f === 'HIT').length
+        const fwPct = Math.round((fwHits / fwResults.length) * 100)
+        result.push({ label: 'Fairway', value: `${fwPct}% (${fwHits}/${fwResults.length})`, cls: fwPct >= 50 ? 'good' : 'warning' })
+      }
 
-        // SG averages by category
-        const allShots = teeRounds.flatMap(r => (r.holes || []).find(h => h.hole_number === currentHole)?.shots || [])
-        const sgByType: Record<string, { total: number }> = {}
-        const catLabels: Record<string, string> = { off_the_tee: 'Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' }
-        allShots.forEach(sh => {
-          if (sh.sg_pga != null) {
-            const cat = classifySgCategory(sh, par)
-            if (cat) {
-              if (!sgByType[cat]) sgByType[cat] = { total: 0 }
-              sgByType[cat].total += sh.sg_pga
-            }
+      // GIR%
+      const girResults = holeData.map(rh2 => rh2.gir).filter((g): g is boolean => g != null)
+      if (girResults.length > 0) {
+        const girHits = girResults.filter(g => g).length
+        const girPct = Math.round((girHits / girResults.length) * 100)
+        result.push({ label: 'GIR', value: `${girPct}% (${girHits}/${girResults.length})`, cls: girPct >= 50 ? 'good' : 'warning' })
+      }
+
+      // Top tee club
+      const teeShots = teeRounds.flatMap(r => (r.holes || []).find(h => h.hole_number === currentHole)?.shots || []).filter(sh => sh.shot_number === 1 && sh.club)
+      const clubCounts: Record<string, number> = {}
+      teeShots.forEach(sh => { if (sh.club) clubCounts[sh.club] = (clubCounts[sh.club] || 0) + 1 })
+      const topClub = Object.entries(clubCounts).sort((a, b) => b[1] - a[1])[0]
+      if (topClub) result.push({ label: 'Tee Club', value: `${topClub[0]} (${topClub[1]}x)`, cls: '' })
+
+      // Avg drive
+      const driveYards = teeShots.filter(sh => sh.distance_yards).map(sh => sh.distance_yards!)
+      if (driveYards.length > 0) {
+        const avgDrive = Math.round(driveYards.reduce((a, b) => a + b, 0) / driveYards.length)
+        result.push({ label: 'Avg Drive', value: `${avgDrive}y`, cls: '' })
+      }
+
+      // SG averages by category
+      const allShots = teeRounds.flatMap(r => (r.holes || []).find(h => h.hole_number === currentHole)?.shots || [])
+      const sgByType: Record<string, { total: number }> = {}
+      const catLabels: Record<string, string> = { off_the_tee: 'Tee', approach: 'Approach', short_game: 'Short Game', putting: 'Putting' }
+      allShots.forEach(sh => {
+        if (sh.sg_pga != null) {
+          const cat = classifySgCategory(sh, par)
+          if (cat) {
+            if (!sgByType[cat]) sgByType[cat] = { total: 0 }
+            sgByType[cat].total += sh.sg_pga
           }
-        })
-        const sgEntries = Object.entries(sgByType)
-        if (sgEntries.length > 0) {
-          const sgStr = sgEntries
-            .map(([cat, d]) => {
-              const avg = d.total / teeRounds.length
-              return `${catLabels[cat] || cat}: ${avg >= 0 ? '+' : ''}${avg.toFixed(2)}`
-            })
-            .join('  ')
-          result.push({ label: 'Avg SG', value: sgStr, cls: '' })
         }
+      })
+      const sgEntries = Object.entries(sgByType)
+      if (sgEntries.length > 0) {
+        const sgStr = sgEntries
+          .map(([cat, d]) => {
+            const avgSg = d.total / teeRounds.length
+            return `${catLabels[cat] || cat}: ${avgSg >= 0 ? '+' : ''}${avgSg.toFixed(2)}`
+          })
+          .join('  ')
+        result.push({ label: 'Avg SG', value: sgStr, cls: '' })
       }
     }
 
     return result
-  }, [player, yardage, par, gps.lat, gps.lng, teePos, greenPos, hazards, allRoundDetails, teeId, currentHole, course])
+  }, [player, yardage, par, gps.lat, gps.lng, teePos, greenPos, hazards, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail])
 
   const colorMap: Record<string, string> = {
     good: 'var(--accent)',
@@ -249,7 +336,11 @@ export function CaddieTab() {
           {it.header && <div className={s.insightHeader}>{it.header}</div>}
           <div className={s.insightRow}>
             <span className={s.insightLabel}>{it.label}</span>
-            <span className={s.insightValue} style={{ color: colorMap[it.cls] || 'var(--text)' }}>{it.value}</span>
+            <span className={s.insightValue}>
+              <span style={{ color: colorMap[it.cls] || 'var(--text)', fontWeight: 600 }}>{it.value}</span>
+              {it.sub && <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', marginLeft: 4 }}>{it.sub}</span>}
+              {it.tag && <span style={{ background: `${it.tagColor || '#3b82f6'}1a`, color: it.tagColor || '#3b82f6', padding: '1px 6px', borderRadius: 4, fontSize: '0.68rem', marginLeft: 5 }}>{it.tag}</span>}
+            </span>
           </div>
         </div>
       ))}

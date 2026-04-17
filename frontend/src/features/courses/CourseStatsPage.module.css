@@ -249,6 +249,44 @@
   border-color: var(--text-dim);
 }
 
+/* Handicap pager */
+.hcpPager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.hcpPagerBtn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.hcpPagerBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.hcpPagerBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.hcpPagerInfo {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
 /* Action buttons row */
 .actionRow {
   display: flex;

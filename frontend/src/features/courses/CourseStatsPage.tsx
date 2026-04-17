@@ -30,6 +30,8 @@ export function CourseStatsPage() {
 
   const [sgMode, setSgMode] = useState<SgMode>('pga')
   const [holeSort, setHoleSort] = useState<HoleSortMode>('difficulty')
+  const [hcpPage, setHcpPage] = useState(0)
+  const HCP_PER_PAGE = 5
 
   // ── Sorted holes ──
   const sortedHoles = useMemo(() => {
@@ -224,24 +226,39 @@ export function CourseStatsPage() {
                   </div>
                 </div>
               </div>
-              <table className={cs.hcpTable}>
-                <tbody>
-                  {stats.differentials.map((d) => (
-                    <tr key={d.round_id}>
-                      <td style={{ color: 'var(--text-muted)' }}>{formatDate(d.date)}</td>
-                      <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                        Score {d.score} &middot; Rating {d.rating} &middot; Slope {d.slope}
-                      </td>
-                      <td style={{
-                        color: stats.avg_differential != null && d.differential <= stats.avg_differential
-                          ? 'var(--accent)' : 'var(--warning)',
-                      }}>
-                        {formatNum(d.differential)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {(() => {
+                const totalPages = Math.ceil(stats.differentials.length / HCP_PER_PAGE)
+                const page = stats.differentials.slice(hcpPage * HCP_PER_PAGE, (hcpPage + 1) * HCP_PER_PAGE)
+                return (
+                  <>
+                    <table className={cs.hcpTable}>
+                      <tbody>
+                        {page.map((d) => (
+                          <tr key={d.round_id}>
+                            <td style={{ color: 'var(--text-muted)' }}>{formatDate(d.date)}</td>
+                            <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                              Score {d.score} &middot; Rating {d.rating} &middot; Slope {d.slope}
+                            </td>
+                            <td style={{
+                              color: stats.avg_differential != null && d.differential <= stats.avg_differential
+                                ? 'var(--accent)' : 'var(--warning)',
+                            }}>
+                              {formatNum(d.differential)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {totalPages > 1 && (
+                      <div className={cs.hcpPager}>
+                        <button className={cs.hcpPagerBtn} disabled={hcpPage === 0} onClick={() => setHcpPage(hcpPage - 1)}>&lsaquo; Prev</button>
+                        <span className={cs.hcpPagerInfo}>{hcpPage + 1} / {totalPages}</span>
+                        <button className={cs.hcpPagerBtn} disabled={hcpPage >= totalPages - 1} onClick={() => setHcpPage(hcpPage + 1)}>Next &rsaquo;</button>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </>
           ) : (
             <EmptyState message="No handicap data yet" />

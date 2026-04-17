@@ -251,7 +251,19 @@ _frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _frontend_dist.is_dir():
     app.mount("/app/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="spa-assets")
 
+    # Serve PWA manifest, icons, service worker, and other root static files
+    _static_exts = {".json", ".png", ".svg", ".ico", ".js", ".webmanifest"}
+
+    @app.get("/app/{filename:path}")
+    async def serve_spa(filename: str = ""):
+        # Serve actual static files (manifest.json, icons, sw.js, etc.)
+        if filename:
+            candidate = _frontend_dist / filename
+            if candidate.is_file() and candidate.suffix in _static_exts:
+                return FileResponse(str(candidate))
+        # Everything else → SPA index.html
+        return FileResponse(str(_frontend_dist / "index.html"))
+
     @app.get("/app")
-    @app.get("/app/{full_path:path}")
-    async def serve_spa(full_path: str = ""):
+    async def serve_spa_root():
         return FileResponse(str(_frontend_dist / "index.html"))

@@ -4,6 +4,7 @@ import styles from './RoundScorecard.module.css'
 interface Props {
   holes: RoundHole[]
   parMap: Record<number, number>
+  avgMap?: Record<number, number>
 }
 
 function scoreClass(strokes: number | null | undefined, par: number | undefined) {
@@ -16,9 +17,10 @@ function scoreClass(strokes: number | null | undefined, par: number | undefined)
   return ''
 }
 
-function HalfScorecard({ holes, parMap, startHole, label }: {
+function HalfScorecard({ holes, parMap, avgMap, startHole, label }: {
   holes: RoundHole[]
   parMap: Record<number, number>
+  avgMap?: Record<number, number>
   startHole: number
   label: string
 }) {
@@ -57,7 +59,7 @@ function HalfScorecard({ holes, parMap, startHole, label }: {
             </tr>
           )}
           <tr>
-            <td className={styles.rowLabel}>Score</td>
+            <td className={styles.rowLabel}>{avgMap ? 'Best' : 'Score'}</td>
             {nums.map((n) => {
               const h = holeMap.get(n)
               return (
@@ -68,6 +70,24 @@ function HalfScorecard({ holes, parMap, startHole, label }: {
             })}
             <td className={styles.totalCol}>{totalStrokes || ''}</td>
           </tr>
+          {avgMap && (
+            <tr>
+              <td className={styles.rowLabel}>Avg</td>
+              {nums.map((n) => {
+                const avg = avgMap[n]
+                return (
+                  <td key={n} className={styles.dim}>
+                    {avg != null ? avg.toFixed(1) : ''}
+                  </td>
+                )
+              })}
+              <td className={`${styles.totalCol} ${styles.dim}`}>
+                {nums.some((n) => avgMap[n] != null)
+                  ? nums.reduce((s, n) => s + (avgMap[n] ?? 0), 0).toFixed(1)
+                  : ''}
+              </td>
+            </tr>
+          )}
           {hasPar && (
             <tr>
               <td className={styles.rowLabel}>+/−</td>
@@ -129,11 +149,11 @@ function HalfScorecard({ holes, parMap, startHole, label }: {
   )
 }
 
-export function RoundScorecard({ holes, parMap }: Props) {
+export function RoundScorecard({ holes, parMap, avgMap }: Props) {
   return (
     <div>
-      <HalfScorecard holes={holes} parMap={parMap} startHole={1} label="OUT" />
-      <HalfScorecard holes={holes} parMap={parMap} startHole={10} label="IN" />
+      <HalfScorecard holes={holes} parMap={parMap} avgMap={avgMap} startHole={1} label="OUT" />
+      <HalfScorecard holes={holes} parMap={parMap} avgMap={avgMap} startHole={10} label="IN" />
     </div>
   )
 }

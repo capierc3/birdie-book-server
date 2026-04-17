@@ -15,6 +15,7 @@ import { RangefinderTab } from './tabs/RangefinderTab'
 import { CaddieTab } from './tabs/CaddieTab'
 import { ShotsTab } from './tabs/ShotsTab'
 import { NotesTab, loadNote, saveNote } from './tabs/NotesTab'
+import { ScorecardTab } from './tabs/ScorecardTab'
 import { EditTab } from './tabs/EditTab'
 import { HAZARD_COLORS, HAZARD_LABELS } from '../courseMapState'
 import s from './MobileHoleViewer.module.css'
@@ -120,7 +121,7 @@ const REVIEW_TABS: TabConfig[] = [
   { key: 'gps', label: 'Map Tools' },
   { key: 'caddie', label: 'Caddie' },
   { key: 'shots', label: 'Shots' },
-  { key: 'notes', label: 'Notes' },
+  { key: 'notes', label: 'Scorecard' },
   { key: 'edit', label: 'Edit' },
 ]
 
@@ -210,8 +211,8 @@ function MobileHoleViewerInner() {
           </div>
           <div className={s.peekMid}>
             <div className={s.peekFrontBack}>
-              <span>F: {rangefinderData.distToGreenFront ?? '—'}</span>
-              <span>B: {rangefinderData.distToGreenBack ?? '—'}</span>
+              <span>F: {rangefinderData.distToGreenFront != null ? Math.round(rangefinderData.distToGreenFront) : '—'}</span>
+              <span>B: {rangefinderData.distToGreenBack != null ? Math.round(rangefinderData.distToGreenBack) : '—'}</span>
             </div>
             <div className={s.peekHoleInfo}>
               Hole {currentHole} · Par {par}
@@ -385,7 +386,7 @@ function MobileHoleViewerInner() {
         {activeTab === 'gps' && <RangefinderTab data={rangefinderData} toolResult={toolResult} />}
         {activeTab === 'caddie' && <CaddieTab />}
         {activeTab === 'shots' && !playMode && <ShotsTab />}
-        {activeTab === 'notes' && <NotesTab />}
+        {activeTab === 'notes' && (playMode ? <NotesTab /> : <ScorecardTab />)}
         {activeTab === 'edit' && <EditTab />}
       </MobileBottomSheet>
     </div>

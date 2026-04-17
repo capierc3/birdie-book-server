@@ -64,7 +64,7 @@ export function ScoreTrendChart({ rounds }: Props) {
     <Card>
       <CardHeader title="Score Trend" />
 
-      <div style={{ display: 'flex', gap: 16, padding: '0 20px 8px', fontSize: '0.78rem' }}>
+      <div style={{ display: 'flex', gap: 16, padding: isMobile ? '0 8px 8px' : '0 20px 8px', fontSize: '0.78rem' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ width: 16, height: 2.5, background: AVG_COLOR, display: 'inline-block' }} />
           Cumulative Avg vs Par

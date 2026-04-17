@@ -28,6 +28,10 @@
   margin-bottom: 24px;
 }
 
+.grid2 > * {
+  overflow: hidden;
+}
+
 .section {
   margin-bottom: 24px;
 }

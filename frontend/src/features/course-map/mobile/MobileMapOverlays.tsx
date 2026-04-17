@@ -48,19 +48,21 @@ export function MobileMapOverlays() {
       if (pts.length >= 2) {
         L.polyline(pts, { color: '#FFD700', weight: 2, dashArray: '6,4', interactive: false }).addTo(lg)
 
-        // Segment distance labels
-        for (let i = 1; i < pts.length; i++) {
-          const d = Math.round(haversineYards(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]))
-          const midLat = (pts[i-1][0] + pts[i][0]) / 2
-          const midLng = (pts[i-1][1] + pts[i][1]) / 2
-          L.marker([midLat, midLng], {
-            icon: L.divIcon({
-              className: 'leaflet-seg-label',
-              html: `<div style="color:#FFD700;font-size:10px;font-weight:700;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;">${d}y</div>`,
-              iconSize: [0, 0], iconAnchor: [0, 6],
-            }),
-            interactive: false,
-          }).addTo(lg)
+        // Segment distance labels (only in edit mode)
+        if (editMode) {
+          for (let i = 1; i < pts.length; i++) {
+            const d = Math.round(haversineYards(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]))
+            const midLat = (pts[i-1][0] + pts[i][0]) / 2
+            const midLng = (pts[i-1][1] + pts[i][1]) / 2
+            L.marker([midLat, midLng], {
+              icon: L.divIcon({
+                className: 'leaflet-seg-label',
+                html: `<div style="color:#FFD700;font-size:10px;font-weight:700;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;">${d}y</div>`,
+                iconSize: [0, 0], iconAnchor: [0, 6],
+              }),
+              interactive: false,
+            }).addTo(lg)
+          }
         }
       }
     }

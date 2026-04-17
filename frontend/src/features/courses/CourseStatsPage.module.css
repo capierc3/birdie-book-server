@@ -255,3 +255,11 @@
   gap: 12px;
   margin-top: 24px;
 }
+
+@media (max-width: 768px) {
+  .sgLabel { width: 70px; font-size: 0.76rem; }
+  .sgValue { width: 40px; font-size: 0.76rem; }
+  .distLabel { width: 55px; font-size: 0.76rem; }
+  .distCount { width: 25px; font-size: 0.76rem; }
+  .distPct { width: 38px; font-size: 0.72rem; }
+}

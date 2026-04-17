@@ -295,6 +295,13 @@
   flex-shrink: 0;
 }
 
+.peekBallGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .peekScoreBtn {
   width: 28px;
   height: 28px;

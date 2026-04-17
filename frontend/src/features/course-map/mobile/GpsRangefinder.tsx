@@ -21,7 +21,7 @@ export interface RangefinderData {
 export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => void }) {
   const map = useMap()
   const ctx = useMobileMap()
-  const { gps, greenPos, greenBoundary, hazards, strategy } = ctx
+  const { gps, greenPos, greenBoundary, hazards, strategy, ballPos, playMode } = ctx
   const markerRef = useRef<L.CircleMarker | null>(null)
   const accuracyRef = useRef<L.Circle | null>(null)
   const onDataRef = useRef(onData)
@@ -72,9 +72,13 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
     }
   }, [map, gps.lat, gps.lng, gps.accuracy])
 
-  // Compute distances
+  // Compute distances — use GPS when available, fall back to ballPos in review mode
   useEffect(() => {
-    if (gps.lat == null || gps.lng == null) {
+    // Resolve origin: GPS position first, then ballPos (review mode)
+    const originLat = gps.lat ?? (!playMode ? ballPos?.lat : null) ?? null
+    const originLng = gps.lng ?? (!playMode ? ballPos?.lng : null) ?? null
+
+    if (originLat == null || originLng == null) {
       onDataRef.current({
         distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
         nearbyHazards: [], clubRec: [], gpsActive: false,
@@ -90,15 +94,15 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
       return
     }
 
-    const distCenter = Math.round(haversineYards(gps.lat, gps.lng, greenPos.lat, greenPos.lng))
+    const distCenter = Math.round(haversineYards(originLat, originLng, greenPos.lat, greenPos.lng))
 
-    const fb = computeGreenFrontBack(gps.lat, gps.lng, greenPos.lat, greenPos.lng, greenBoundary)
+    const fb = computeGreenFrontBack(originLat, originLng, greenPos.lat, greenPos.lng, greenBoundary)
 
     // Determine context for hazard detection
     const context = determineShotContext(distCenter, true)
 
     // Nearby hazards using shared function
-    const nearby = findNearbyHazards({ lat: gps.lat, lng: gps.lng }, hazards, context)
+    const nearby = findNearbyHazards({ lat: originLat, lng: originLng }, hazards, context)
 
     // Club recommendation using shared function
     const clubRec: RangefinderData['clubRec'] = []
@@ -121,7 +125,7 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
       clubRec,
       gpsActive: true,
     })
-  }, [gps.lat, gps.lng, greenPos, greenBoundary, hazards, strategy])
+  }, [gps.lat, gps.lng, greenPos, greenBoundary, hazards, strategy, ballPos, playMode])
 
   return null
 }

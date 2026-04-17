@@ -16,48 +16,62 @@ const TOOLS: { key: RangefinderTool; label: string; needsClub: boolean }[] = [
 
 export function RangefinderTab({ data, toolResult }: { data: RangefinderData; toolResult: ToolResult | null }) {
   const ctx = useMobileMap()
-  const { gps, strategy, activeRangefinderTool, selectedClubType } = ctx
+  const { gps, strategy, activeRangefinderTool, selectedClubType, playMode } = ctx
 
-  if (!gps.watching) {
-    return (
-      <div className={s.centered}>
-        <button className={s.primaryBtn} onClick={gps.startWatching}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          Enable GPS
-        </button>
-        <p className={s.hint}>Tap to start live distance tracking</p>
-      </div>
-    )
-  }
+  // ── Review mode: no GPS needed, tools work from ball position ──
+  if (!playMode) {
+    if (data.distToGreenCenter == null) {
+      return (
+        <div className={s.centered}>
+          <p className={s.hint}>No green position set for this hole.</p>
+          <p className={s.subHint}>Use the Edit tab to place the green.</p>
+        </div>
+      )
+    }
+    // Fall through to show tool content below
+  } else {
+    // ── Play mode: GPS-driven ──
+    if (!gps.watching) {
+      return (
+        <div className={s.centered}>
+          <button className={s.primaryBtn} onClick={gps.startWatching}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            Enable GPS
+          </button>
+          <p className={s.hint}>Tap to start live distance tracking</p>
+        </div>
+      )
+    }
 
-  if (gps.error) {
-    return (
-      <div className={s.centered}>
-        <p className={s.error}>{gps.error}</p>
-        <button className={s.ghostBtn} onClick={gps.startWatching}>Retry</button>
-      </div>
-    )
-  }
+    if (gps.error) {
+      return (
+        <div className={s.centered}>
+          <p className={s.error}>{gps.error}</p>
+          <button className={s.ghostBtn} onClick={gps.startWatching}>Retry</button>
+        </div>
+      )
+    }
 
-  if (data.distToGreenCenter == null && !data.gpsActive) {
-    return (
-      <div className={s.centered}>
-        <div className={s.pulse} />
-        <p className={s.hint}>Acquiring GPS signal...</p>
-      </div>
-    )
-  }
+    if (data.distToGreenCenter == null && !data.gpsActive) {
+      return (
+        <div className={s.centered}>
+          <div className={s.pulse} />
+          <p className={s.hint}>Acquiring GPS signal...</p>
+        </div>
+      )
+    }
 
-  if (data.distToGreenCenter == null && data.gpsActive) {
-    return (
-      <div className={s.centered}>
-        <p className={s.hint}>GPS is active but this hole has no green position set.</p>
-        <p className={s.subHint}>Use the Edit tab to place the green, or edit the course on desktop.</p>
-      </div>
-    )
+    if (data.distToGreenCenter == null && data.gpsActive) {
+      return (
+        <div className={s.centered}>
+          <p className={s.hint}>GPS is active but this hole has no green position set.</p>
+          <p className={s.subHint}>Use the Edit tab to place the green, or edit the course on desktop.</p>
+        </div>
+      )
+    }
   }
 
   const clubs = strategy?.player?.clubs || []
@@ -118,10 +132,12 @@ export function RangefinderTab({ data, toolResult }: { data: RangefinderData; to
         </div>
       )}
 
-      {/* GPS accuracy */}
-      <div className={s.gpsMeta}>
-        GPS accuracy: ±{Math.round(gps.accuracy ?? 0)}m
-      </div>
+      {/* GPS accuracy (play mode only) */}
+      {playMode && gps.watching && (
+        <div className={s.gpsMeta}>
+          GPS accuracy: ±{Math.round(gps.accuracy ?? 0)}m
+        </div>
+      )}
     </div>
   )
 }

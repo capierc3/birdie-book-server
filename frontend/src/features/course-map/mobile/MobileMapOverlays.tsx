@@ -115,6 +115,19 @@ export function MobileMapOverlays() {
       }).addTo(lg)
     }
 
+    // ── Ball position marker (review mode) ──
+    if (!ctx.playMode && ctx.ballPos) {
+      const bp = ctx.ballPos
+      L.circleMarker([bp.lat, bp.lng], {
+        radius: 7,
+        color: '#fff',
+        fillColor: '#FF9800',
+        fillOpacity: 0.95,
+        weight: 2,
+        interactive: false,
+      }).addTo(lg)
+    }
+
     // ── Hazards ──
     for (const h of hazards) {
       if (h._deleted || h.boundary.length < 3) continue
@@ -124,7 +137,7 @@ export function MobileMapOverlays() {
       }).addTo(lg)
       if (h.name) poly.bindTooltip(h.name, { permanent: false })
     }
-  }, [ctx.redrawKey, ctx.showOverlays, map])
+  }, [ctx.redrawKey, ctx.showOverlays, ctx.ballPos, ctx.playMode, map])
 
   // ── Edit mode: map click handler ──
   useEffect(() => {
@@ -150,6 +163,10 @@ export function MobileMapOverlays() {
           c.setFairwayPath([...c.fairwayPath, { lat, lng }])
           c.setDirty(true)
           c.triggerRedraw()
+          break
+        case 'ball':
+          c.setBallPos({ lat, lng })
+          c.setEditMode(null)
           break
       }
     }

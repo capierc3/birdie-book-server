@@ -53,11 +53,13 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     }
   }, [map, ctx.activeRangefinderTool])
 
-  // ── Cone: auto-render from GPS toward green ──
+  // ── Cone: auto-render from origin toward green ──
   useEffect(() => {
     if (ctx.activeRangefinderTool !== 'cone') return
-    const { gps, greenPos } = ctxRef.current
-    if (gps.lat == null || gps.lng == null || !greenPos) return
+    const c = ctxRef.current
+    const originLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? null
+    const originLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? null
+    if (originLat == null || originLng == null || !c.greenPos) return
 
     const club = getSelectedClub()
     if (!club) return
@@ -65,16 +67,18 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     const lg = layerRef.current
     lg.clearLayers()
 
-    const aimBear = bearing(gps.lat, gps.lng, greenPos.lat, greenPos.lng)
-    drawCone(lg, gps.lat, gps.lng, aimBear, club)
+    const aimBear = bearing(originLat, originLng, c.greenPos.lat, c.greenPos.lng)
+    drawCone(lg, originLat, originLng, aimBear, club)
     onToolResultRef.current({ type: 'cone' })
-  }, [ctx.activeRangefinderTool, ctx.selectedClubType, ctx.gps.lat, ctx.gps.lng, getSelectedClub])
+  }, [ctx.activeRangefinderTool, ctx.selectedClubType, ctx.gps.lat, ctx.gps.lng, ctx.ballPos, getSelectedClub])
 
-  // ── Landing: auto-render from GPS ──
+  // ── Landing: auto-render from origin ──
   useEffect(() => {
     if (ctx.activeRangefinderTool !== 'landing') return
-    const { gps, greenPos } = ctxRef.current
-    if (gps.lat == null || gps.lng == null) return
+    const c = ctxRef.current
+    const originLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? null
+    const originLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? null
+    if (originLat == null || originLng == null) return
 
     const club = getSelectedClub()
     if (!club) return
@@ -82,9 +86,9 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     const lg = layerRef.current
     lg.clearLayers()
 
-    drawLandingZone(lg, gps.lat, gps.lng, club, greenPos)
+    drawLandingZone(lg, originLat, originLng, club, c.greenPos)
     onToolResultRef.current({ type: 'landing' })
-  }, [ctx.activeRangefinderTool, ctx.selectedClubType, ctx.gps.lat, ctx.gps.lng, getSelectedClub])
+  }, [ctx.activeRangefinderTool, ctx.selectedClubType, ctx.gps.lat, ctx.gps.lng, ctx.ballPos, getSelectedClub])
 
   // ── Map tap handlers for interactive tools (ruler, carry, recommend) ──
   useEffect(() => {
@@ -97,8 +101,8 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
       if (c.editMode) return
 
       const gps = c.gps
-      const fromLat = gps.lat ?? c.teePos?.lat
-      const fromLng = gps.lng ?? c.teePos?.lng
+      const fromLat = gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? c.teePos?.lat
+      const fromLng = gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? c.teePos?.lng
       if (fromLat == null || fromLng == null) return
 
       const targetDist = Math.round(haversineYards(fromLat, fromLng, e.latlng.lat, e.latlng.lng))

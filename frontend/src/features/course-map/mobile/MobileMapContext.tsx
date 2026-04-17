@@ -38,6 +38,9 @@ export interface MobileMapState {
   // GPS
   gps: GpsState & { startWatching: () => void; stopWatching: () => void }
 
+  // Ball position (review mode: manual placement, defaults to tee)
+  ballPos: LatLng | null
+
   // Mode
   playMode: boolean
 
@@ -48,8 +51,8 @@ export interface MobileMapState {
   activeRangefinderTool: 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler'
   selectedClubType: string | null
 
-  // Edit state (minimal: tee, green, fairway line, par/yardage)
-  editMode: 'tee' | 'green' | 'fairway' | null
+  // Edit state (minimal: tee, green, fairway line, par/yardage, ball placement)
+  editMode: 'tee' | 'green' | 'fairway' | 'ball' | null
   dirty: boolean
   formValues: { par: string; yardage: string; handicap: string }
 }
@@ -70,8 +73,11 @@ export interface MobileMapActions {
   setActiveRangefinderTool: (tool: 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler') => void
   setSelectedClubType: (clubType: string | null) => void
 
+  // Ball position
+  setBallPos: (pos: LatLng | null) => void
+
   // Edit actions
-  setEditMode: (mode: 'tee' | 'green' | 'fairway' | null) => void
+  setEditMode: (mode: 'tee' | 'green' | 'fairway' | 'ball' | null) => void
   setTeePos: (pos: LatLng | null) => void
   setGreenPos: (pos: LatLng | null) => void
   setFairwayPath: (path: LatLng[]) => void
@@ -142,8 +148,11 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
   const [activeRangefinderTool, setActiveRangefinderTool] = useState<'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler'>('none')
   const [selectedClubType, setSelectedClubType] = useState<string | null>(null)
 
+  // Ball position (review mode only — defaults to tee)
+  const [ballPos, setBallPos] = useState<LatLng | null>(null)
+
   // Edit state
-  const [editMode, setEditMode] = useState<'tee' | 'green' | 'fairway' | null>(null)
+  const [editMode, setEditMode] = useState<'tee' | 'green' | 'fairway' | 'ball' | null>(null)
   const [dirty, setDirty] = useState(false)
   const dirtyRef = useRef(false)
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
@@ -242,6 +251,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     setHazards(parsed.hazards)
     setDirty(false)
     setEditMode(null)
+    if (!playMode) setBallPos(parsed.teePos)
     setRedrawKey(k => k + 1)
 
     if (parsed.hole) {
@@ -283,12 +293,14 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards,
     viewMode, roundDetail, allRoundDetails,
     gps,
+    ballPos,
     playMode,
     showOverlays,
     activeRangefinderTool, selectedClubType,
     editMode, dirty, formValues: formValuesRef.current,
     selectHole, prevHole, nextHole, setTeeId,
     setViewMode, setRoundDetail, setAllRoundDetails,
+    setBallPos,
     setShowOverlays,
     setActiveRangefinderTool, setSelectedClubType,
     setEditMode, setTeePos, setGreenPos, setFairwayPath,
@@ -299,6 +311,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards,
     viewMode, roundDetail, allRoundDetails,
     gps,
+    ballPos,
     playMode,
     showOverlays,
     activeRangefinderTool, selectedClubType,

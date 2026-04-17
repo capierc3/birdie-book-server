@@ -117,7 +117,7 @@ const PLAY_TABS: TabConfig[] = [
 ]
 
 const REVIEW_TABS: TabConfig[] = [
-  { key: 'gps', label: 'GPS' },
+  { key: 'gps', label: 'Map Tools' },
   { key: 'caddie', label: 'Caddie' },
   { key: 'shots', label: 'Shots' },
   { key: 'notes', label: 'Notes' },
@@ -127,7 +127,7 @@ const REVIEW_TABS: TabConfig[] = [
 function MobileHoleViewerInner() {
   const ctx = useMobileMap()
   const { course, gps, greenPos, strategy, formValues, playMode, activeRangefinderTool, selectedClubType } = ctx
-  const [activeTab, setActiveTab] = useState<MobileTab>(playMode ? 'gps' : 'gps')
+  const [activeTab, setActiveTab] = useState<MobileTab>(playMode ? 'gps' : 'caddie')
   const [rangefinderData, setRangefinderData] = useState<RangefinderData>({
     distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
     nearbyHazards: [], clubRec: [], gpsActive: false,
@@ -185,11 +185,142 @@ function MobileHoleViewerInner() {
     }
   }, [activeRangefinderTool, selectedClubType, strategy, ctx])
 
-  // Peek content: compact rangefinder summary
-  const peekContent = useMemo(() => {
+  const handlePlaceBall = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    ctx.setEditMode(ctx.editMode === 'ball' ? null : 'ball')
+  }, [ctx])
+
+  const handleResetBall = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    ctx.setBallPos(ctx.teePos)
+    ctx.setEditMode(null)
+  }, [ctx])
+
+  // Shared rangefinder peek content (distance, tools, club picker)
+  const rangefinderPeek = (showScore: boolean) => {
     const { currentHole } = ctx
     const par = formValues.par || '—'
+    const hazard = rangefinderData.nearbyHazards[0]
+    return (
+      <>
+        <div className={s.peekGrid}>
+          <div className={s.peekDistBlock}>
+            <span className={s.peekDist}>{rangefinderData.distToGreenCenter}</span>
+            <span className={s.peekDistLabel}>yds</span>
+          </div>
+          <div className={s.peekMid}>
+            <div className={s.peekFrontBack}>
+              <span>F: {rangefinderData.distToGreenFront ?? '—'}</span>
+              <span>B: {rangefinderData.distToGreenBack ?? '—'}</span>
+            </div>
+            <div className={s.peekHoleInfo}>
+              Hole {currentHole} · Par {par}
+            </div>
+          </div>
+          {rangefinderData.clubRec.length > 0 && (
+            <div className={s.peekClubs}>
+              {rangefinderData.clubRec.slice(0, 2).map(c => (
+                <span key={c.club} className={s.peekClubItem}>{c.club}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        {hazard && (
+          <div className={s.peekHazardRow}>
+            <span className={s.peekHazardDot} style={{ background: (HAZARD_COLORS[hazard.type] || ['#999'])[0] }} />
+            <span className={s.peekHazardText}>
+              {HAZARD_LABELS[hazard.type] || hazard.type}{hazard.name ? ` (${hazard.name})` : ''}
+            </span>
+            <span className={s.peekHazardDist}>{hazard.distance}y</span>
+          </div>
+        )}
+        <div className={s.peekTools}>
+          {PEEK_TOOLS.map(tool => (
+            <button
+              key={tool.key}
+              className={`${ts.toolBtn} ${activeRangefinderTool === tool.key ? ts.toolBtnActive : ''}`}
+              onClick={e => handlePeekToolToggle(tool.key, e)}
+            >
+              {tool.label}
+            </button>
+          ))}
+        </div>
+        <div className={s.peekQuickRow}>
+          <div className={s.peekQuickLeft}>
+            {(strategy?.player?.clubs?.length ?? 0) > 0 && (
+              <div className={s.clubPicker} onClick={e => e.stopPropagation()}>
+                <button
+                  className={s.clubPickerToggle}
+                  onClick={() => setClubPickerOpen(prev => !prev)}
+                >
+                  <span>{selectedClubType || 'Club'}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points={clubPickerOpen ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
+                  </svg>
+                </button>
+                {clubPickerOpen && (
+                  <div className={s.clubPickerDropdown}>
+                    {[...strategy!.player!.clubs!].filter(c => c.club_type !== 'Unknown').sort((a, b) => (BAG_ORDER[a.club_type] ?? 60) - (BAG_ORDER[b.club_type] ?? 60)).map(c => (
+                      <button
+                        key={c.club_type}
+                        className={`${s.clubPickerOption} ${selectedClubType === c.club_type ? s.clubPickerOptionActive : ''}`}
+                        onClick={() => { ctx.setSelectedClubType(c.club_type); setClubPickerOpen(false) }}
+                      >
+                        <span>{c.club_type}</span>
+                        <span className={s.clubPickerYards}>{Math.round(c.avg_yards)}y</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {showScore ? (
+            <div className={s.peekScoreGroup}>
+              <button className={s.peekScoreBtn} onClick={e => handlePeekScoreChange(-1, e)}>−</button>
+              <span className={s.peekScoreDisplay}>{peekScore ?? '—'}</span>
+              <button className={s.peekScoreBtn} onClick={e => handlePeekScoreChange(+1, e)}>+</button>
+              <button className={s.peekEndHoleBtn} onClick={handleEndHole} title="End hole">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="13 17 18 12 13 7" />
+                  <line x1="6" y1="7" x2="6" y2="17" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <div className={s.peekBallGroup}>
+              <button
+                className={`${s.peekGpsBtn} ${ctx.editMode === 'ball' ? ts.toolBtnActive : ''}`}
+                onClick={handlePlaceBall}
+              >
+                {ctx.editMode === 'ball' ? 'Tap Map' : 'Place Ball'}
+              </button>
+              <button className={s.peekGpsBtn} onClick={handleResetBall} title="Reset to tee">
+                Reset
+              </button>
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
 
+  // Peek content: compact rangefinder summary
+  const peekContent = useMemo(() => {
+    // ── Review mode: use ballPos-based rangefinder data, no GPS needed ──
+    if (!playMode) {
+      if (rangefinderData.distToGreenCenter != null) {
+        return rangefinderPeek(false)
+      }
+      // No green position set
+      return (
+        <div className={s.peekRow}>
+          <span className={s.peekLabel}>Hole {ctx.currentHole} · Par {formValues.par || '—'} · {formValues.yardage || '—'} yds</span>
+        </div>
+      )
+    }
+
+    // ── Play mode: GPS-driven ──
     if (!gps.watching) {
       return (
         <div className={s.peekRow}>
@@ -202,95 +333,7 @@ function MobileHoleViewerInner() {
     }
 
     if (rangefinderData.distToGreenCenter != null) {
-      const hazard = rangefinderData.nearbyHazards[0]
-      return (
-        <>
-          <div className={s.peekGrid}>
-            <div className={s.peekDistBlock}>
-              <span className={s.peekDist}>{rangefinderData.distToGreenCenter}</span>
-              <span className={s.peekDistLabel}>yds</span>
-            </div>
-            <div className={s.peekMid}>
-              <div className={s.peekFrontBack}>
-                <span>F: {rangefinderData.distToGreenFront ?? '—'}</span>
-                <span>B: {rangefinderData.distToGreenBack ?? '—'}</span>
-              </div>
-              <div className={s.peekHoleInfo}>
-                Hole {currentHole} · Par {par}
-              </div>
-            </div>
-            {rangefinderData.clubRec.length > 0 && (
-              <div className={s.peekClubs}>
-                {rangefinderData.clubRec.slice(0, 2).map(c => (
-                  <span key={c.club} className={s.peekClubItem}>{c.club}</span>
-                ))}
-              </div>
-            )}
-          </div>
-          {hazard && (
-            <div className={s.peekHazardRow}>
-              <span className={s.peekHazardDot} style={{ background: (HAZARD_COLORS[hazard.type] || ['#999'])[0] }} />
-              <span className={s.peekHazardText}>
-                {HAZARD_LABELS[hazard.type] || hazard.type}{hazard.name ? ` (${hazard.name})` : ''}
-              </span>
-              <span className={s.peekHazardDist}>{hazard.distance}y</span>
-            </div>
-          )}
-          <div className={s.peekTools}>
-            {PEEK_TOOLS.map(tool => (
-              <button
-                key={tool.key}
-                className={`${ts.toolBtn} ${activeRangefinderTool === tool.key ? ts.toolBtnActive : ''}`}
-                onClick={e => handlePeekToolToggle(tool.key, e)}
-              >
-                {tool.label}
-              </button>
-            ))}
-          </div>
-          <div className={s.peekQuickRow}>
-            <div className={s.peekQuickLeft}>
-              {(strategy?.player?.clubs?.length ?? 0) > 0 && (
-                <div className={s.clubPicker} onClick={e => e.stopPropagation()}>
-                  <button
-                    className={s.clubPickerToggle}
-                    onClick={() => setClubPickerOpen(prev => !prev)}
-                  >
-                    <span>{selectedClubType || 'Club'}</span>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points={clubPickerOpen ? '18 15 12 9 6 15' : '6 9 12 15 18 9'} />
-                    </svg>
-                  </button>
-                  {clubPickerOpen && (
-                    <div className={s.clubPickerDropdown}>
-                      {[...strategy!.player!.clubs!].filter(c => c.club_type !== 'Unknown').sort((a, b) => (BAG_ORDER[a.club_type] ?? 60) - (BAG_ORDER[b.club_type] ?? 60)).map(c => (
-                        <button
-                          key={c.club_type}
-                          className={`${s.clubPickerOption} ${selectedClubType === c.club_type ? s.clubPickerOptionActive : ''}`}
-                          onClick={() => { ctx.setSelectedClubType(c.club_type); setClubPickerOpen(false) }}
-                        >
-                          <span>{c.club_type}</span>
-                          <span className={s.clubPickerYards}>{Math.round(c.avg_yards)}y</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className={s.peekScoreGroup}>
-              <button className={s.peekScoreBtn} onClick={e => handlePeekScoreChange(-1, e)}>−</button>
-              <span className={s.peekScoreDisplay}>{peekScore ?? '—'}</span>
-              <button className={s.peekScoreBtn} onClick={e => handlePeekScoreChange(+1, e)}>+</button>
-              <button className={s.peekEndHoleBtn} onClick={handleEndHole} title="End hole">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="13 17 18 12 13 7" />
-                  <line x1="6" y1="7" x2="6" y2="17" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </>
-      )
+      return rangefinderPeek(true)
     }
 
     if (rangefinderData.gpsActive) {
@@ -306,7 +349,7 @@ function MobileHoleViewerInner() {
         <span className={s.peekLabel}>Acquiring GPS...</span>
       </div>
     )
-  }, [gps.watching, gps.lat, rangefinderData, ctx.currentHole, formValues.par, activeRangefinderTool, handlePeekToolToggle, selectedClubType, strategy, peekScore, handlePeekScoreChange, handleEndHole, clubPickerOpen])
+  }, [playMode, gps.watching, gps.lat, rangefinderData, ctx.currentHole, ctx.editMode, ctx.ballPos, formValues.par, formValues.yardage, activeRangefinderTool, handlePeekToolToggle, selectedClubType, strategy, peekScore, handlePeekScoreChange, handleEndHole, clubPickerOpen, handlePlaceBall, handleResetBall])
 
   return (
     <div className={s.layout}>

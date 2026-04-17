@@ -8,7 +8,6 @@ import type { RangefinderData } from './GpsRangefinder'
 import { MobileStrategyOverlays } from './MobileStrategyOverlays'
 import type { ToolResult } from './MobileStrategyOverlays'
 import { HoleInfoBar } from './HoleInfoBar'
-import { MobileHoleNav } from './MobileHoleNav'
 import { MobileBottomSheet } from './MobileBottomSheet'
 import type { MobileTab, TabConfig } from './MobileBottomSheet'
 import { RangefinderTab } from './tabs/RangefinderTab'
@@ -367,7 +366,6 @@ function MobileHoleViewerInner() {
       </div>
 
       <HoleInfoBar />
-      <MobileHoleNav />
 
       {/* Overlay toggle */}
       <button

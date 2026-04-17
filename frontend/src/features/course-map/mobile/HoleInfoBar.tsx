@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CircleDot } from 'lucide-react'
 import { useMobileMap } from './MobileMapContext'
 import s from './HoleInfoBar.module.css'
 
@@ -29,7 +28,7 @@ export function HoleInfoBar() {
   return (
     <div className={s.bar}>
       <button className={s.backBtn} onClick={() => navigate(courseId ? `/courses/${courseId}` : '/courses')}>
-        <CircleDot size={20} className={s.brandIcon} />
+        <img src="/app/logo-icon.png" alt="Birdie Book" width={20} height={20} className={s.brandIcon} />
       </button>
       <div className={s.info}>
         <div className={s.holePickerWrap} ref={menuRef}>

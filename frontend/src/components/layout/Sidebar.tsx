@@ -12,7 +12,6 @@ import {
   Upload,
   Settings,
   ExternalLink,
-  CircleDot,
 } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import styles from './Sidebar.module.css'
@@ -40,7 +39,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   return (
     <aside className={cn(styles.sidebar, isOpen && styles.open)}>
       <div className={styles.brand}>
-        <CircleDot className={styles.brandIcon} />
+        <img src="/app/logo-icon.png" alt="Birdie Book" className={styles.brandIcon} />
         <span className={styles.brandText}>Birdie Book</span>
       </div>
 

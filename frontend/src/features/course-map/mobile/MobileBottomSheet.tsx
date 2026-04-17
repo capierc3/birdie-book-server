@@ -94,7 +94,7 @@ export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = 
     <div
       ref={sheetRef}
       className={s.sheet}
-      style={{ transform: `translateY(${translateY}px)`, transition: dragRef.current.dragging ? 'none' : 'transform 0.3s ease-out' }}
+      style={{ transform: `translateY(${translateY}px)`, height: `${window.innerHeight - translateY}px`, transition: dragRef.current.dragging ? 'none' : 'transform 0.3s ease-out, height 0.3s ease-out' }}
     >
       {/* Drag handle */}
       <div

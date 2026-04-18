@@ -28,7 +28,7 @@ export function HoleInfoBar() {
   return (
     <div className={s.bar}>
       <button className={s.backBtn} onClick={() => navigate(courseId ? `/courses/${courseId}` : '/courses')}>
-        <img src="/app/logo-icon.png" alt="Birdie Book" width={20} height={20} className={s.brandIcon} />
+        <img src="/logo-icon.png" alt="Birdie Book" width={20} height={20} className={s.brandIcon} />
       </button>
       <div className={s.info}>
         <div className={s.holePickerWrap} ref={menuRef}>

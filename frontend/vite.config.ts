@@ -13,8 +13,7 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        navigateFallback: '/app/index.html',
-        navigateFallbackAllowlist: [/^\/app\//],
+        navigateFallback: '/index.html',
         runtimeCaching: [
           {
             urlPattern: /^\/api\//,
@@ -35,15 +34,11 @@ export default defineConfig({
       },
     }),
   ],
-  base: '/app/',
+  base: '/',
   server: {
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/static': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },

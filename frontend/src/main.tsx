@@ -28,7 +28,7 @@ createRoot(document.getElementById('root')!).render(
       client={queryClient}
       persistOptions={{ persister, maxAge: PERSIST_MAX_AGE }}
     >
-      <BrowserRouter basename="/app">
+      <BrowserRouter basename="/">
         <ToastProvider>
           <ConfirmProvider>
             <App />

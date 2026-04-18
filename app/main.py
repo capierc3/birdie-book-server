@@ -1,10 +1,9 @@
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills
@@ -64,12 +63,6 @@ from app.services.backup_service import run_backup_if_needed, start_backup_sched
 run_backup_if_needed()
 start_backup_scheduler()
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
-# Jinja2 templates for web UI
-templates = Jinja2Templates(directory="app/templates")
-
 # API routers
 app.include_router(rounds.router)
 app.include_router(courses.router)
@@ -80,11 +73,6 @@ app.include_router(stats.router)
 app.include_router(round_plans.router)
 app.include_router(practice_plans.router)
 app.include_router(drills.router)
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/health")
@@ -244,17 +232,26 @@ def delete_trackman_token():
         db.close()
 
 
-# --- React SPA (Feature 18) ---
-# Serves the built React app at /app/*. During dev, use Vite's dev server instead.
+# --- React SPA ---
+# Serves the built React app at /. During dev, use Vite's dev server instead.
 _frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 if _frontend_dist.is_dir():
-    app.mount("/app/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="spa-assets")
+    app.mount("/assets", StaticFiles(directory=str(_frontend_dist / "assets")), name="spa-assets")
+
+    # Redirect /app/* to / so old bookmarks and PWA installs keep working
+    @app.get("/app/{filename:path}")
+    async def redirect_app(filename: str = ""):
+        return RedirectResponse(url=f"/{filename}", status_code=301)
+
+    @app.get("/app")
+    async def redirect_app_root():
+        return RedirectResponse(url="/", status_code=301)
 
     # Serve PWA manifest, icons, service worker, and other root static files
-    _static_exts = {".json", ".png", ".svg", ".ico", ".js", ".webmanifest"}
+    _static_exts = {".json", ".png", ".svg", ".ico", ".js", ".webmanifest", ".jpg"}
 
-    @app.get("/app/{filename:path}")
+    @app.get("/{filename:path}")
     async def serve_spa(filename: str = ""):
         # Serve actual static files (manifest.json, icons, sw.js, etc.)
         if filename:
@@ -262,8 +259,4 @@ if _frontend_dist.is_dir():
             if candidate.is_file() and candidate.suffix in _static_exts:
                 return FileResponse(str(candidate))
         # Everything else → SPA index.html
-        return FileResponse(str(_frontend_dist / "index.html"))
-
-    @app.get("/app")
-    async def serve_spa_root():
         return FileResponse(str(_frontend_dist / "index.html"))

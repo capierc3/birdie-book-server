@@ -726,7 +726,7 @@
 - **Z-index stack**: FloatingPanel(200) > MoreMenu(195) > Overlay(190) > BottomNav(180) > MobileHeader(150)
 - Design tokens added: `--bottom-nav-height: 64px`, `--touch-target: 44px`, `--z-bottom-nav: 180`
 
-### 18h. GPS Rangefinder Integration `[ ]`
+### 18h. GPS Rangefinder Integration `[x]`
 - `navigator.geolocation.watchPosition()` for live GPS tracking
 - Display user position on the Leaflet hole map as a pulsing marker
 - Distance calculations using Haversine formula against cached course data:
@@ -737,20 +737,13 @@
 - Works on any device with GPS (phone browser, tablet) — no native app required
 - Requires connectivity only for initial map tile loading; distances computed from cached hole geometry
 
-### 18i. Legacy Cleanup `[ ]`
-- Remove Jinja2 templates (`app/templates/`)
-- Remove vanilla JS files (`app/static/js/`)
-- Remove old CSS (`app/static/css/style.css`)
-- Remove Chart.js and raw Leaflet CDN script tags from `base.html`
-- Update Dockerfile to include `npm run build` step
-- Update any documentation referencing the old frontend
-
-**Migration strategy — incremental, never broken:**
-- During migration, both old (Jinja2) and new (React) screens coexist
-- React app mounts at `/app/` initially; legacy stays at `/`
-- As screens are migrated, routes shift from legacy to React
-- Once all screens are migrated (18i), React takes over `/` and legacy is removed
-- At every phase, the app is fully functional — no "half-broken" intermediate states
+### 18i. Legacy Cleanup `[x]`
+- Removed Jinja2 templates (`app/templates/`), vanilla JS (`app/static/js/`), old CSS (`app/static/css/`), legacy images (`app/static/images/`)
+- Removed Chart.js and Leaflet CDN script tags (were in `base.html`)
+- React SPA now serves from `/` (root) instead of `/app/`
+- `/app/*` redirects 301 to `/` for backward compatibility (bookmarks, PWA installs)
+- Updated Vite base path, React Router basename, PWA manifest, and hardcoded asset paths
+- Dockerfile already handled frontend build — no changes needed
 
 ---
 

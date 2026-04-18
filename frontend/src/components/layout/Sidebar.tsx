@@ -39,7 +39,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   return (
     <aside className={cn(styles.sidebar, isOpen && styles.open)}>
       <div className={styles.brand}>
-        <img src="/app/logo-icon.png" alt="Birdie Book" className={styles.brandIcon} />
+        <img src="/logo-icon.png" alt="Birdie Book" className={styles.brandIcon} />
         <span className={styles.brandText}>Birdie Book</span>
       </div>
 

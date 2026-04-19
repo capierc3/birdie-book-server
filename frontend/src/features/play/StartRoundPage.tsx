@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGolfClubs, useCourse } from '../../api'
-import { Card, CardHeader, Button, Select, FormGroup, Input } from '../../components'
+import { Card, CardHeader, Button, FormGroup, Input, PickerTrigger, PickerSheet } from '../../components'
+import type { PickerOption } from '../../components'
+import { useGps } from '../../contexts/GpsContext'
+import { haversineYards } from '../../features/course-map/geoUtils'
+import { ClubSearchPicker } from '../golf-club/ClubSearchPicker'
 import pageStyles from '../../styles/pages.module.css'
 import s from './StartRoundPage.module.css'
 
@@ -16,22 +20,34 @@ const FORMATS = [
 export function StartRoundPage() {
   const navigate = useNavigate()
   const { data: clubs } = useGolfClubs()
+  const gps = useGps()
 
   const [selectedClubId, setSelectedClubId] = useState<number | null>(null)
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null)
   const [selectedTeeId, setSelectedTeeId] = useState<number | null>(null)
   const [format, setFormat] = useState('STROKE_PLAY')
   const [players, setPlayers] = useState([''])
-  const [mulligans, setMulligans] = useState(false)
-  const [gimmes, setGimmes] = useState(false)
+  const [clubPickerOpen, setClubPickerOpen] = useState(false)
+  const [coursePickerOpen, setCoursePickerOpen] = useState(false)
+  const [teePickerOpen, setTeePickerOpen] = useState(false)
+  const [formatPickerOpen, setFormatPickerOpen] = useState(false)
 
   const selectedClub = clubs?.find(c => c.id === selectedClubId)
   const { data: courseDetail } = useCourse(selectedCourseId ?? undefined)
 
-  const handleClubChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = Number(e.target.value)
-    setSelectedClubId(id || null)
-    const club = clubs?.find(c => c.id === id)
+  const selectedClubLabel = useMemo(() => {
+    if (!selectedClub) return undefined
+    const hasGps = gps.lat != null && gps.lng != null
+    const distanceMiles = (hasGps && selectedClub.lat != null && selectedClub.lng != null)
+      ? haversineYards(gps.lat!, gps.lng!, selectedClub.lat, selectedClub.lng) / 1760
+      : null
+    const dist = distanceMiles != null ? ` (${distanceMiles.toFixed(1)} mi)` : ''
+    return selectedClub.name + dist
+  }, [selectedClub, gps.lat, gps.lng])
+
+  const handleClubSelect = (clubId: number) => {
+    setSelectedClubId(clubId)
+    const club = clubs?.find(c => c.id === clubId)
     if (club?.courses?.length === 1) {
       setSelectedCourseId(club.courses[0].id)
     } else {
@@ -40,16 +56,35 @@ export function StartRoundPage() {
     setSelectedTeeId(null)
   }
 
-  const handleCourseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = Number(e.target.value)
-    setSelectedCourseId(id || null)
-    setSelectedTeeId(null)
-  }
+  const courseOptions: PickerOption[] = useMemo(() => {
+    if (!selectedClub?.courses) return []
+    return selectedClub.courses.map(c => ({
+      value: String(c.id),
+      label: c.name || `Course ${c.id}`,
+    }))
+  }, [selectedClub])
 
-  const handleTeeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const id = Number(e.target.value)
-    setSelectedTeeId(id || null)
-  }
+  const selectedCourseLabel = useMemo(() => {
+    if (!selectedCourseId || !selectedClub?.courses) return undefined
+    const c = selectedClub.courses.find(x => x.id === selectedCourseId)
+    return c ? (c.name || `Course ${c.id}`) : undefined
+  }, [selectedCourseId, selectedClub])
+
+  const teeOptions: PickerOption[] = useMemo(() => {
+    if (!courseDetail?.tees) return []
+    return courseDetail.tees.map(t => ({
+      value: String(t.id),
+      label: t.tee_name,
+      detail: t.total_yards ? `${t.total_yards} yds` : undefined,
+    }))
+  }, [courseDetail])
+
+  const selectedTeeLabel = useMemo(() => {
+    if (!selectedTeeId || !courseDetail?.tees) return undefined
+    const t = courseDetail.tees.find(x => x.id === selectedTeeId)
+    if (!t) return undefined
+    return t.total_yards ? `${t.tee_name} (${t.total_yards} yds)` : t.tee_name
+  }, [selectedTeeId, courseDetail])
 
   const handleAddPlayer = () => {
     if (players.length < 4) setPlayers([...players, ''])
@@ -86,35 +121,60 @@ export function StartRoundPage() {
         <CardHeader title="Course" />
         <div className={s.cardBody}>
           <FormGroup label="Golf Club">
-            <Select value={selectedClubId ? String(selectedClubId) : ''} onChange={handleClubChange}>
-              <option value="">Select a club...</option>
-              {clubs?.map(c => (
-                <option key={c.id} value={String(c.id)}>{c.name}</option>
-              ))}
-            </Select>
+            <PickerTrigger
+              value={selectedClubId ? String(selectedClubId) : null}
+              displayLabel={selectedClubLabel}
+              placeholder="Select a club..."
+              onClick={() => setClubPickerOpen(true)}
+            />
           </FormGroup>
+
+          <ClubSearchPicker
+            isOpen={clubPickerOpen}
+            onClose={() => setClubPickerOpen(false)}
+            onSelect={handleClubSelect}
+            selectedClubId={selectedClubId}
+          />
 
           {selectedClub && (selectedClub.courses?.length ?? 0) > 1 && (
             <FormGroup label="Course">
-              <Select value={selectedCourseId ? String(selectedCourseId) : ''} onChange={handleCourseChange}>
-                <option value="">Select a course...</option>
-                {selectedClub.courses.map(c => (
-                  <option key={c.id} value={String(c.id)}>{c.name || `Course ${c.id}`}</option>
-                ))}
-              </Select>
+              <PickerTrigger
+                value={selectedCourseId ? String(selectedCourseId) : null}
+                displayLabel={selectedCourseLabel}
+                placeholder="Select a course..."
+                onClick={() => setCoursePickerOpen(true)}
+              />
+              <PickerSheet
+                isOpen={coursePickerOpen}
+                onClose={() => setCoursePickerOpen(false)}
+                title="Select Course"
+                options={courseOptions}
+                selectedValue={selectedCourseId ? String(selectedCourseId) : null}
+                onSelect={val => {
+                  const id = Number(val)
+                  setSelectedCourseId(id || null)
+                  setSelectedTeeId(null)
+                }}
+              />
             </FormGroup>
           )}
 
           {selectedCourseId && courseDetail?.tees && courseDetail.tees.length > 0 && (
             <FormGroup label="Tees">
-              <Select value={selectedTeeId ? String(selectedTeeId) : ''} onChange={handleTeeChange}>
-                <option value="">Select tees...</option>
-                {courseDetail.tees.map(t => (
-                  <option key={t.id} value={String(t.id)}>
-                    {t.tee_name}{t.total_yards ? ` (${t.total_yards} yds)` : ''}
-                  </option>
-                ))}
-              </Select>
+              <PickerTrigger
+                value={selectedTeeId ? String(selectedTeeId) : null}
+                displayLabel={selectedTeeLabel}
+                placeholder="Select tees..."
+                onClick={() => setTeePickerOpen(true)}
+              />
+              <PickerSheet
+                isOpen={teePickerOpen}
+                onClose={() => setTeePickerOpen(false)}
+                title="Select Tees"
+                options={teeOptions}
+                selectedValue={selectedTeeId ? String(selectedTeeId) : null}
+                onSelect={val => setSelectedTeeId(Number(val) || null)}
+              />
             </FormGroup>
           )}
         </div>
@@ -125,11 +185,20 @@ export function StartRoundPage() {
         <CardHeader title="Format" />
         <div className={s.cardBody}>
           <FormGroup label="Game Format">
-            <Select value={format} onChange={e => setFormat(e.target.value)}>
-              {FORMATS.map(f => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </Select>
+            <PickerTrigger
+              value={format}
+              displayLabel={FORMATS.find(f => f.value === format)?.label}
+              placeholder="Select a format..."
+              onClick={() => setFormatPickerOpen(true)}
+            />
+            <PickerSheet
+              isOpen={formatPickerOpen}
+              onClose={() => setFormatPickerOpen(false)}
+              title="Select Format"
+              options={FORMATS.map(f => ({ value: f.value, label: f.label }))}
+              selectedValue={format}
+              onSelect={val => setFormat(val)}
+            />
           </FormGroup>
         </div>
       </Card>
@@ -159,21 +228,6 @@ export function StartRoundPage() {
               + Add Player
             </Button>
           )}
-        </div>
-      </Card>
-
-      {/* Rules */}
-      <Card>
-        <CardHeader title="Rules" />
-        <div className={s.cardBody}>
-          <label className={s.toggle}>
-            <input type="checkbox" checked={mulligans} onChange={e => setMulligans(e.target.checked)} />
-            <span>Mulligans Allowed</span>
-          </label>
-          <label className={s.toggle}>
-            <input type="checkbox" checked={gimmes} onChange={e => setGimmes(e.target.checked)} />
-            <span>Gimmes Allowed</span>
-          </label>
         </div>
       </Card>
 

@@ -103,6 +103,152 @@ def _do_places_search(search_text: str, lat: float = None, lng: float = None) ->
     return result
 
 
+def _do_places_text_search_all(search_text: str, lat: float = None, lng: float = None, max_results: int = 10) -> list[PlacesResult]:
+    """
+    Text Search variant that returns up to max_results matches (not just the top one).
+    Used by the club picker's search box so the user can pick among similarly-named courses.
+    """
+    api_key = settings.google_maps_api_key
+    if not api_key:
+        return []
+
+    body = {
+        "textQuery": search_text,
+        "includedType": "golf_course",
+        "maxResultCount": min(max_results, 20),
+    }
+
+    if lat and lng:
+        body["locationBias"] = {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": 50000.0,  # 50km bias, not a hard restriction
+            }
+        }
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": (
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.location,places.photos,places.googleMapsUri"
+        ),
+    }
+
+    from app.services.api_tracker import track_call, check_limit
+    if not check_limit("google_places"):
+        return []
+    track_call("google_places", "searchText")
+
+    try:
+        resp = httpx.post(
+            f"{PLACES_BASE}:searchText",
+            json=body,
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.warning("Places Text search failed: %s", e)
+        return []
+
+    results: list[PlacesResult] = []
+    for place in data.get("places", []):
+        r = PlacesResult()
+        r.place_id = place.get("id")
+        r.maps_uri = place.get("googleMapsUri")
+        display = place.get("displayName") or {}
+        r.display_name = display.get("text")
+        r.address = place.get("formattedAddress")
+        location = place.get("location") or {}
+        r.lat = location.get("latitude")
+        r.lng = location.get("longitude")
+        photos = place.get("photos", [])
+        if photos:
+            photo_name = photos[0].get("name")
+            if photo_name:
+                r.photo_url = photo_name
+        results.append(r)
+
+    return results
+
+
+def _do_places_nearby(lat: float, lng: float, radius_m: float = 16093.0, max_results: int = 20) -> list[PlacesResult]:
+    """
+    Search Google Places (New) Nearby Search API for golf courses within a radius.
+    Returns a list of PlacesResult sorted by distance from the given point.
+    """
+    api_key = settings.google_maps_api_key
+    if not api_key:
+        return []
+
+    body = {
+        "includedTypes": ["golf_course"],
+        "maxResultCount": min(max_results, 20),  # Google caps at 20
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": float(radius_m),
+            }
+        },
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": (
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.location,places.photos,places.googleMapsUri"
+        ),
+    }
+
+    from app.services.api_tracker import track_call, check_limit
+    if not check_limit("google_places"):
+        return []
+    track_call("google_places", "searchNearby")
+
+    try:
+        resp = httpx.post(
+            f"{PLACES_BASE}:searchNearby",
+            json=body,
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.warning("Places Nearby search failed: %s", e)
+        return []
+
+    results: list[PlacesResult] = []
+    for place in data.get("places", []):
+        r = PlacesResult()
+        r.place_id = place.get("id")
+        r.maps_uri = place.get("googleMapsUri")
+        display = place.get("displayName") or {}
+        r.display_name = display.get("text")
+        r.address = place.get("formattedAddress")
+        location = place.get("location") or {}
+        r.lat = location.get("latitude")
+        r.lng = location.get("longitude")
+        photos = place.get("photos", [])
+        if photos:
+            photo_name = photos[0].get("name")
+            if photo_name:
+                r.photo_url = photo_name
+        results.append(r)
+
+    # Sort by distance from the request point
+    def _dist(r: PlacesResult) -> float:
+        if r.lat is None or r.lng is None:
+            return float("inf")
+        return _haversine_miles(lat, lng, r.lat, r.lng)
+
+    results.sort(key=_dist)
+    return results
+
+
 def _haversine_miles(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Great-circle distance between two points in miles."""
     import math

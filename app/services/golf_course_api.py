@@ -662,13 +662,30 @@ def _find_or_create_course_by_name(db: Session, club: GolfClub, course_name: str
     if course:
         return course
 
-    # Fuzzy match against all courses at this club
     all_courses = db.query(Course).filter(Course.golf_club_id == club.id).all()
+
+    # Fuzzy match against named courses at this club
     for c in all_courses:
         if c.name and _fuzzy_course_match(course_name, c.name):
             log.info("Fuzzy matched API course '%s' to existing course '%s' (id=%d)",
                      course_name, c.name, c.id)
             return c
+
+    # Adopt an unnamed placeholder course (created by search-create) if one exists
+    # with no non-inferred tees yet — avoids leaving an orphan empty course.
+    for c in all_courses:
+        if c.name:
+            continue
+        has_api_tees = db.query(CourseTee).filter(
+            CourseTee.course_id == c.id, CourseTee.inferred == False
+        ).count() > 0
+        if has_api_tees:
+            continue
+        c.name = course_name
+        db.flush()
+        log.info("Adopted unnamed placeholder course (id=%d) as '%s' under club '%s'",
+                 c.id, course_name, club.name)
+        return c
 
     # No match — create new
     course = Course(golf_club_id=club.id, name=course_name, holes=9)

@@ -153,12 +153,14 @@ export function MobileMapOverlays() {
           const newPos = { lat, lng }
           c.setTeePos(newPos)
           c.setDirty(true)
+          c.setEditMode(null)
           c.triggerRedraw()
           break
         }
         case 'green':
           c.setGreenPos({ lat, lng })
           c.setDirty(true)
+          c.setEditMode(null)
           c.triggerRedraw()
           break
         case 'fairway':

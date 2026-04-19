@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, Round, RoundHole, Shot
 from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
-from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo
+from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo, _do_places_nearby, _do_places_text_search_all, _haversine_miles
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
 from app.services.course_calc_service import recalc_hole_shots, recalc_course_shots
 from app.services.strokes_gained import expected_strokes, personal_expected_strokes
@@ -181,6 +181,8 @@ class ClubSummary(BaseModel):
     name: str
     address: Optional[str] = None
     photo_url: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     course_count: int = 0
     total_rounds: int = 0
     courses: list[ClubCourseSummary] = []
@@ -230,11 +232,106 @@ def list_clubs(db: Session = Depends(get_db)):
             name=club.name,
             address=club.address,
             photo_url=club.photo_url,
+            lat=club.lat,
+            lng=club.lng,
             course_count=len(club.courses),
             total_rounds=total_rounds,
             courses=courses_data,
         ))
     return result
+
+
+# --- Places Search (discovery) ---
+
+class PlaceCandidate(BaseModel):
+    place_id: str
+    name: str
+    address: Optional[str] = None
+    lat: float
+    lng: float
+    photo_url: Optional[str] = None
+    distance_miles: Optional[float] = None
+
+
+class PlaceCandidatesResponse(BaseModel):
+    candidates: list[PlaceCandidate]
+
+
+# Module-level cache for nearby results. Keyed by rounded (lat, lng) ~1km grid.
+import time as _time
+_NEARBY_CACHE: dict[tuple, tuple[float, list[PlaceCandidate]]] = {}
+_NEARBY_TTL_SECONDS = 600  # 10 minutes
+
+
+def _nearby_cache_get(lat: float, lng: float) -> Optional[list[PlaceCandidate]]:
+    key = (round(lat, 2), round(lng, 2))
+    entry = _NEARBY_CACHE.get(key)
+    if not entry:
+        return None
+    cached_at, value = entry
+    if _time.time() - cached_at > _NEARBY_TTL_SECONDS:
+        _NEARBY_CACHE.pop(key, None)
+        return None
+    return value
+
+
+def _nearby_cache_set(lat: float, lng: float, value: list[PlaceCandidate]) -> None:
+    key = (round(lat, 2), round(lng, 2))
+    _NEARBY_CACHE[key] = (_time.time(), value)
+
+
+def _places_results_to_candidates(results, user_lat, user_lng, saved_place_ids: set) -> list[PlaceCandidate]:
+    out: list[PlaceCandidate] = []
+    for r in results:
+        if not r.place_id or not r.display_name or r.lat is None or r.lng is None:
+            continue
+        if r.place_id in saved_place_ids:
+            continue  # dedup against DB
+        dist = None
+        if user_lat is not None and user_lng is not None:
+            dist = _haversine_miles(user_lat, user_lng, r.lat, r.lng)
+        out.append(PlaceCandidate(
+            place_id=r.place_id,
+            name=r.display_name,
+            address=r.address,
+            lat=r.lat,
+            lng=r.lng,
+            photo_url=r.photo_url,
+            distance_miles=dist,
+        ))
+    return out
+
+
+@router.get("/places/nearby", response_model=PlaceCandidatesResponse)
+def places_nearby(lat: float, lng: float, radius_m: float = 16093.0, db: Session = Depends(get_db)):
+    """Return nearby golf course candidates from Google Places, dedup'd against saved clubs."""
+    cached = _nearby_cache_get(lat, lng)
+    saved_place_ids = {pid for (pid,) in db.query(GolfClub.google_place_id).filter(GolfClub.google_place_id.isnot(None)).all()}
+
+    if cached is not None:
+        # Re-filter cached results against current saved set (user may have added clubs since cache)
+        filtered = [c for c in cached if c.place_id not in saved_place_ids]
+        return PlaceCandidatesResponse(candidates=filtered)
+
+    results = _do_places_nearby(lat, lng, radius_m=radius_m)
+    candidates = _places_results_to_candidates(results, lat, lng, saved_place_ids=set())  # cache the full list
+    _nearby_cache_set(lat, lng, candidates)
+    # Then filter for this response
+    filtered = [c for c in candidates if c.place_id not in saved_place_ids]
+    return PlaceCandidatesResponse(candidates=filtered)
+
+
+@router.get("/places/search", response_model=PlaceCandidatesResponse)
+def places_search(q: str, lat: Optional[float] = None, lng: Optional[float] = None, db: Session = Depends(get_db)):
+    """Read-only text search for golf courses via Google Places, dedup'd against saved clubs."""
+    query = q.strip()
+    if len(query) < 3:
+        return PlaceCandidatesResponse(candidates=[])
+
+    saved_place_ids = {pid for (pid,) in db.query(GolfClub.google_place_id).filter(GolfClub.google_place_id.isnot(None)).all()}
+    results = _do_places_text_search_all(query, lat=lat, lng=lng, max_results=10)
+    candidates = _places_results_to_candidates(results, lat, lng, saved_place_ids)
+    return PlaceCandidatesResponse(candidates=candidates)
 
 
 # --- Course Search & Create ---
@@ -1183,6 +1280,95 @@ def delete_tee(course_id: int, tee_id: int, db: Session = Depends(get_db)):
     db.delete(tee)
     db.commit()
     return {"status": "ok"}
+
+
+# --- Club / Course deletion ---
+
+class ClubDeletePreview(BaseModel):
+    club_id: int
+    club_name: Optional[str] = None
+    course_count: int
+    round_count: int
+
+
+class CourseDeletePreview(BaseModel):
+    course_id: int
+    course_name: Optional[str] = None
+    round_count: int
+
+
+@router.get("/club/{club_id}/delete-preview", response_model=ClubDeletePreview)
+def club_delete_preview(club_id: int, db: Session = Depends(get_db)):
+    club = db.query(GolfClub).filter(GolfClub.id == club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club not found")
+    course_ids = [c.id for c in club.courses]
+    round_count = 0
+    if course_ids:
+        round_count = db.query(Round).filter(Round.course_id.in_(course_ids)).count()
+    return ClubDeletePreview(
+        club_id=club.id,
+        club_name=club.name,
+        course_count=len(course_ids),
+        round_count=round_count,
+    )
+
+
+@router.delete("/club/{club_id}")
+def delete_club(club_id: int, db: Session = Depends(get_db)):
+    """Delete a golf club and all its courses/rounds/shots."""
+    club = db.query(GolfClub).filter(GolfClub.id == club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="Club not found")
+    course_ids = [c.id for c in club.courses]
+    round_count = 0
+    if course_ids:
+        rounds = db.query(Round).filter(Round.course_id.in_(course_ids)).all()
+        round_count = len(rounds)
+        for r in rounds:
+            db.delete(r)
+    db.delete(club)
+    db.commit()
+    logger.info("Deleted club id=%d (%d courses, %d rounds)", club_id, len(course_ids), round_count)
+    return {
+        "status": "deleted",
+        "club_id": club_id,
+        "course_count": len(course_ids),
+        "round_count": round_count,
+    }
+
+
+@router.get("/{course_id}/delete-preview", response_model=CourseDeletePreview)
+def course_delete_preview(course_id: int, db: Session = Depends(get_db)):
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    round_count = db.query(Round).filter(Round.course_id == course_id).count()
+    return CourseDeletePreview(
+        course_id=course.id,
+        course_name=course.name,
+        round_count=round_count,
+    )
+
+
+@router.delete("/{course_id}")
+def delete_course(course_id: int, db: Session = Depends(get_db)):
+    """Delete a course and all its rounds/shots/tees/holes."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    rounds = db.query(Round).filter(Round.course_id == course_id).all()
+    round_count = len(rounds)
+    for r in rounds:
+        db.delete(r)
+    db.delete(course)
+    db.commit()
+    logger.info("Deleted course id=%d (%d rounds)", course_id, round_count)
+    return {
+        "status": "deleted",
+        "course_id": course_id,
+        "round_count": round_count,
+    }
 
 
 class RoundReassignRequest(BaseModel):

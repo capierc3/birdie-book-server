@@ -1,0 +1,169 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sheet {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  width: 100%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.closeBtn:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: background var(--transition);
+}
+
+.item:hover {
+  background: var(--bg-hover);
+}
+
+.itemSelected {
+  background: var(--accent-dim);
+}
+
+.itemName {
+  font-weight: 500;
+}
+
+.itemDist {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  margin-left: 12px;
+}
+
+.footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.addLink {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.addLink:hover {
+  text-decoration: underline;
+}
+
+.addRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.addRow > :first-child {
+  flex: 1;
+}
+
+.addError {
+  color: var(--danger, #ef4444);
+  font-size: 0.8rem;
+  margin: 6px 0 0;
+}
+
+/* Trigger button that replaces the native select */
+.trigger {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color var(--transition);
+  min-height: var(--touch-target);
+}
+
+.trigger:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.triggerPlaceholder {
+  color: var(--text-dim);
+}
+
+.triggerChevron {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}

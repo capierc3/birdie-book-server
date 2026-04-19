@@ -40,25 +40,98 @@
   color: var(--danger, #ef4444);
 }
 
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  color: var(--text);
-  font-size: 0.9rem;
-}
-
-.toggle input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
-}
-
 .startSection {
   padding: 8px 0 16px;
 }
 
 .startBtn {
   width: 100%;
+}
+
+.addCourseLink {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.addCourseLink:hover {
+  text-decoration: underline;
+}
+
+.createCourseRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.createCourseRow > :first-child {
+  flex: 1;
+}
+
+.createError {
+  color: var(--danger, #ef4444);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.gpsStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.gpsStatusError {
+  color: var(--danger, #ef4444);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.gpsStatusText {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.gpsRefreshBtn {
+  background: none;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  color: inherit;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.gpsRefreshBtn:hover:not(:disabled) {
+  background: var(--surface-3, rgba(255, 255, 255, 0.08));
+}
+
+.gpsRefreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spin {
+  animation: gpsSpin 1s linear infinite;
+}
+
+@keyframes gpsSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

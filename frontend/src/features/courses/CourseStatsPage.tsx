@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
-import { Card, CardHeader, DataTable, StatCard, Badge, Button, EmptyState } from '../../components'
+import { ArrowLeft, Trash2 } from 'lucide-react'
+import { Card, CardHeader, DataTable, StatCard, Badge, Button, EmptyState, useConfirm } from '../../components'
 import type { Column } from '../../components'
-import { useCourseStats } from '../../api'
+import { useCourseStats, useCourseDeletePreview, useDeleteCourse } from '../../api'
 import type { CourseHoleStats, CourseRoundStats, CourseSGCategory } from '../../api'
 import { formatDate, formatNum, formatPct, formatVsPar, vsParColor, formatSG, sgColor } from '../../utils/format'
 import { SG_COLORS, SG_LABELS, SG_CATEGORIES, SCORE_DIST_COLORS } from '../../utils/chartTheme'
@@ -27,6 +27,9 @@ export function CourseStatsPage() {
   const navigate = useNavigate()
   const courseId = id ? Number(id) : undefined
   const { data: stats, isLoading } = useCourseStats(courseId)
+  const { data: deletePreview } = useCourseDeletePreview(courseId)
+  const deleteCourse = useDeleteCourse()
+  const { confirm } = useConfirm()
 
   const [sgMode, setSgMode] = useState<SgMode>('pga')
   const [holeSort, setHoleSort] = useState<HoleSortMode>('difficulty')
@@ -352,6 +355,37 @@ export function CourseStatsPage() {
         </Button>
         <Button variant="secondary" onClick={() => navigate(`/courses/club/${stats.club_id}`)}>
           View Club
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={async () => {
+            if (!deletePreview || !courseId) return
+            const name = deletePreview.course_name || 'this course'
+            const roundWord = deletePreview.round_count === 1 ? 'round' : 'rounds'
+            const ok = await confirm({
+              title: 'Delete Course',
+              message:
+                `Delete ${name}?\n\n` +
+                `This will permanently delete the course and ${deletePreview.round_count} ${roundWord}. ` +
+                `This cannot be undone.`,
+              confirmLabel: 'Delete',
+              cancelLabel: 'Cancel',
+            })
+            if (!ok) return
+            try {
+              await deleteCourse.mutateAsync(courseId)
+              navigate(`/courses/club/${stats.club_id}`)
+            } catch {
+              // confirm dialog suffices; mutation error surfaces via query state
+            }
+          }}
+          disabled={!deletePreview || deleteCourse.isPending}
+          style={{ color: 'var(--red, #ef5350)' }}
+        >
+          <Trash2 size={14} />
+          {deletePreview
+            ? ` Delete (${deletePreview.round_count} ${deletePreview.round_count === 1 ? 'round' : 'rounds'})`
+            : ' Delete'}
         </Button>
       </div>
     </div>

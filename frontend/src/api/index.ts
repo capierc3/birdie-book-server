@@ -3,7 +3,19 @@ export { get, post, put, patch, del, postForm, ApiError } from './client'
 
 // Hooks
 export { useRounds, useRound } from './hooks/useRounds'
-export { useCourses, useCourse, useCourseStats, useGolfClubs, useSearchCreateCourse } from './hooks/useCourses'
+export {
+  useCourses,
+  useCourse,
+  useCourseStats,
+  useGolfClubs,
+  useSearchCreateCourse,
+  useClubDeletePreview,
+  useCourseDeletePreview,
+  useDeleteClub,
+  useDeleteCourse,
+} from './hooks/useCourses'
+export type { ClubDeletePreview, CourseDeletePreview, DeleteResult } from './hooks/useCourses'
+export { useNearbyPlaces, usePlacesSearch } from './hooks/usePlaces'
 export { useClubs, useClubDetail } from './hooks/useClubs'
 export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
 export { useRangeSessions, useRangeShots, useDeleteRangeSession, useImportCsvText, useImportCsvFile, useCreateManualSession, useOcrExtract, useTrackmanSyncSessions, useTrackmanSyncImport } from './hooks/useRange'
@@ -114,4 +126,6 @@ export type {
   TrackmanSyncImportResult,
   MergeSuggestion,
   MergeSuggestionCandidate,
+  PlaceCandidate,
+  PlaceCandidatesResponse,
 } from './types'

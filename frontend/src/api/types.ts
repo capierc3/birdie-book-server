@@ -225,6 +225,8 @@ export interface GolfClubSummary {
   name: string
   address?: string | null
   photo_url?: string | null
+  lat?: number | null
+  lng?: number | null
   course_count: number
   total_rounds: number
   courses: {
@@ -247,6 +249,23 @@ export interface SearchCreateResult {
   address?: string
   photo_url?: string
   courses?: { id: number; name: string; holes: number }[]
+  tees_synced?: number
+  holes_populated?: number
+  sync_result?: string
+}
+
+export interface PlaceCandidate {
+  place_id: string
+  name: string
+  address?: string | null
+  lat: number
+  lng: number
+  photo_url?: string | null
+  distance_miles?: number | null
+}
+
+export interface PlaceCandidatesResponse {
+  candidates: PlaceCandidate[]
 }
 
 // ============================================================

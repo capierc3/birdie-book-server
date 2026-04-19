@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import { MobileMapProvider, useMobileMap } from './MobileMapContext'
 import { MobileMapOverlays } from './MobileMapOverlays'
@@ -22,10 +22,11 @@ import ts from './tabs/tabs.module.css'
 import 'leaflet/dist/leaflet.css'
 
 /** Map auto-center (shared logic with desktop) */
-function MapController() {
+function MapController({ followingRef }: { followingRef: React.MutableRefObject<boolean> }) {
   const map = useMap()
   const ctx = useMobileMap()
-  const { course, currentHole, teeId, allRoundDetails } = ctx
+  const { course, currentHole, totalHoles, teeId, allRoundDetails, playMode, gps } = ctx
+  const prevHoleRef = useRef(currentHole)
 
   // Force Leaflet to recalculate size after mount (fixes blank map in fixed containers)
   useEffect(() => {
@@ -33,16 +34,37 @@ function MapController() {
     return () => clearTimeout(timer)
   }, [map])
 
+  // User-initiated drag turns off follow; re-enable via center-on-me FAB or hole change
+  useEffect(() => {
+    const onDragStart = () => { followingRef.current = false }
+    map.on('dragstart', onDragStart)
+    return () => { map.off('dragstart', onDragStart) }
+  }, [map, followingRef])
+
   useEffect(() => {
     if (!course) return
+    const holeChanged = prevHoleRef.current !== currentHole
+    prevHoleRef.current = currentHole
+    if (holeChanged) followingRef.current = true
+    if (!followingRef.current) return
+
     const tee = course.tees?.find(t => t.id === teeId) ?? course.tees?.[0]
     const hole = tee?.holes?.find(h => h.hole_number === currentHole)
 
     let lat: number | undefined, lng: number | undefined
 
-    if (hole?.tee_lat && hole?.tee_lng) {
+    // 1. Play mode — live GPS wins so the map follows the user around the course
+    if (playMode && gps.watching && gps.lat != null && gps.lng != null) {
+      lat = gps.lat; lng = gps.lng
+    }
+
+    // 2. Current hole's placed tee
+    if (!lat && hole?.tee_lat && hole?.tee_lng) {
       lat = hole.tee_lat; lng = hole.tee_lng
-    } else {
+    }
+
+    // 3. First shot from any round (historic data for this hole)
+    if (!lat) {
       for (const rd of allRoundDetails) {
         const rh = rd.holes?.find(h => h.hole_number === currentHole)
         const firstShot = rh?.shots?.find(s => s.shot_number === 1)
@@ -53,30 +75,55 @@ function MapController() {
       }
     }
 
+    // 4. Previous hole's green — usually close to the next tee
+    if (!lat && tee?.holes?.length) {
+      const prevNum = currentHole > 1 ? currentHole - 1 : totalHoles
+      const prevHole = tee.holes.find(h => h.hole_number === prevNum)
+      if (prevHole?.flag_lat && prevHole?.flag_lng) {
+        lat = prevHole.flag_lat; lng = prevHole.flag_lng
+      }
+    }
+
+    // 5. Course center
     if (!lat && course.lat && course.lng) {
       lat = course.lat; lng = course.lng
     }
 
     if (lat && lng) {
-      map.flyTo([lat, lng], map.getZoom() < 15 ? 17 : map.getZoom(), { duration: 0.5 })
+      // Hole changes get an animated flyTo; GPS ticks get a jitter-proof
+      // setView so the map smoothly follows without 0.5s wobble per fix.
+      if (holeChanged) {
+        map.flyTo([lat, lng], map.getZoom() < 15 ? 17 : map.getZoom(), { duration: 0.5 })
+      } else {
+        const distMeters = map.getCenter().distanceTo([lat, lng])
+        if (distMeters > 3) {
+          map.setView([lat, lng], map.getZoom() < 15 ? 17 : map.getZoom(), { animate: false })
+        }
+      }
     }
-  }, [map, course, currentHole, teeId, allRoundDetails])
+  }, [map, course, currentHole, totalHoles, teeId, allRoundDetails, playMode, gps.watching, gps.lat, gps.lng, followingRef])
 
   return null
 }
 
 /** Center on GPS FAB — renders a portal-style button that controls the map */
-function CenterOnMeButton() {
+function CenterOnMeButton({ followingRef }: { followingRef: React.MutableRefObject<boolean> }) {
   const map = useMap()
   const { gps } = useMobileMap()
 
   if (!gps.watching || gps.lat == null) return null
 
+  const handleClick = () => {
+    followingRef.current = true
+    map.flyTo([gps.lat!, gps.lng!], 18, { duration: 0.5 })
+    gps.refresh()
+  }
+
   // Render into a Leaflet control container so it's inside the map but positioned as overlay
   return (
     <div
       className={s.centerFab}
-      onClick={() => map.flyTo([gps.lat!, gps.lng!], 18, { duration: 0.5 })}
+      onClick={handleClick}
       title="Center on me"
       role="button"
       tabIndex={0}
@@ -126,7 +173,7 @@ const REVIEW_TABS: TabConfig[] = [
 
 function MobileHoleViewerInner() {
   const ctx = useMobileMap()
-  const { course, gps, greenPos, strategy, formValues, playMode, activeRangefinderTool, selectedClubType } = ctx
+  const { course, gps, teePos, greenPos, strategy, formValues, playMode, activeRangefinderTool, selectedClubType } = ctx
   const [activeTab, setActiveTab] = useState<MobileTab>(playMode ? 'gps' : 'caddie')
   const [rangefinderData, setRangefinderData] = useState<RangefinderData>({
     distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
@@ -134,6 +181,7 @@ function MobileHoleViewerInner() {
   })
   const [toolResult, setToolResult] = useState<ToolResult | null>(null)
   const [clubPickerOpen, setClubPickerOpen] = useState(false)
+  const followingRef = useRef(true)
 
   // Peek score state — syncs with localStorage (same store as NotesTab)
   const [peekScore, setPeekScore] = useState<number | null>(() => loadNote(ctx.courseId, ctx.currentHole).score)
@@ -164,6 +212,20 @@ function MobileHoleViewerInner() {
     return [42.7, -83.5]
   }, [course])
 
+  // Play-mode GPS heartbeat: force a fresh fix every 5s so moving from cart to
+  // ball is reflected without waiting for the watcher to fire. Pauses when the
+  // tab isn't visible to save battery.
+  const gpsSample = gps.sample
+  useEffect(() => {
+    if (!playMode) return
+    const tick = () => {
+      if (document.visibilityState === 'visible') gpsSample()
+    }
+    tick()
+    const id = window.setInterval(tick, 5000)
+    return () => window.clearInterval(id)
+  }, [playMode, gpsSample])
+
   // Auto-select the recommended club when club rec changes
   useEffect(() => {
     if (rangefinderData.clubRec.length > 0) {
@@ -188,6 +250,16 @@ function MobileHoleViewerInner() {
   const handlePlaceBall = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
     ctx.setEditMode(ctx.editMode === 'ball' ? null : 'ball')
+  }, [ctx])
+
+  const handlePlaceTee = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    ctx.setEditMode(ctx.editMode === 'tee' ? null : 'tee')
+  }, [ctx])
+
+  const handlePlaceGreen = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    ctx.setEditMode(ctx.editMode === 'green' ? null : 'green')
   }, [ctx])
 
   const handleResetBall = useCallback((e: React.MouseEvent) => {
@@ -305,6 +377,44 @@ function MobileHoleViewerInner() {
     )
   }
 
+  // Peek shown when the hole is missing tee or green — lets the user place them
+  // without digging into the Edit tab. Dirty state is saved on hole nav.
+  const placementPeek = () => {
+    const editingTee = ctx.editMode === 'tee'
+    const editingGreen = ctx.editMode === 'green'
+    return (
+      <>
+        <div className={s.peekRow}>
+          <span className={s.peekLabel}>
+            Hole {ctx.currentHole} · Par {formValues.par || '—'} — set tee & green to unlock tools
+          </span>
+        </div>
+        <div className={s.peekTools}>
+          <button
+            className={`${ts.toolBtn} ${editingTee ? ts.toolBtnActive : ''}`}
+            onClick={handlePlaceTee}
+          >
+            {editingTee ? 'Tap Map' : teePos ? 'Tee ✓' : 'Place Tee'}
+          </button>
+          <button
+            className={`${ts.toolBtn} ${editingGreen ? ts.toolBtnActive : ''}`}
+            onClick={handlePlaceGreen}
+          >
+            {editingGreen ? 'Tap Map' : greenPos ? 'Green ✓' : 'Place Green'}
+          </button>
+          {ctx.dirty && (
+            <button
+              className={ts.toolBtn}
+              onClick={e => { e.stopPropagation(); ctx.saveHole() }}
+            >
+              Save
+            </button>
+          )}
+        </div>
+      </>
+    )
+  }
+
   // Peek content: compact rangefinder summary
   const peekContent = useMemo(() => {
     // ── Review mode: use ballPos-based rangefinder data, no GPS needed ──
@@ -332,16 +442,13 @@ function MobileHoleViewerInner() {
       )
     }
 
-    if (rangefinderData.distToGreenCenter != null) {
-      return rangefinderPeek(true)
+    // Hole has no saved geometry yet — let the user place tee/green from here.
+    if (!teePos || !greenPos) {
+      return placementPeek()
     }
 
-    if (rangefinderData.gpsActive) {
-      return (
-        <div className={s.peekRow}>
-          <span className={s.peekLabel}>GPS active — add green position in Edit tab</span>
-        </div>
-      )
+    if (rangefinderData.distToGreenCenter != null) {
+      return rangefinderPeek(true)
     }
 
     return (
@@ -349,19 +456,19 @@ function MobileHoleViewerInner() {
         <span className={s.peekLabel}>Acquiring GPS...</span>
       </div>
     )
-  }, [playMode, gps.watching, gps.lat, rangefinderData, ctx.currentHole, ctx.editMode, ctx.ballPos, formValues.par, formValues.yardage, activeRangefinderTool, handlePeekToolToggle, selectedClubType, strategy, peekScore, handlePeekScoreChange, handleEndHole, clubPickerOpen, handlePlaceBall, handleResetBall])
+  }, [playMode, gps.watching, gps.lat, rangefinderData, ctx.currentHole, ctx.editMode, ctx.ballPos, ctx.dirty, teePos, greenPos, formValues.par, formValues.yardage, activeRangefinderTool, handlePeekToolToggle, selectedClubType, strategy, peekScore, handlePeekScoreChange, handleEndHole, clubPickerOpen, handlePlaceBall, handleResetBall, handlePlaceTee, handlePlaceGreen])
 
   return (
     <div className={s.layout}>
       <div className={s.mapContainer}>
         <MapContainer center={mapCenter} zoom={16} style={{ width: '100%', height: '100%' }} zoomControl={false} attributionControl={false}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-          <MapController />
+          <MapController followingRef={followingRef} />
           <MobileMapOverlays />
           <MobileShotOverlays />
           <GpsRangefinder onData={setRangefinderData} />
           <MobileStrategyOverlays onToolResult={setToolResult} />
-          <CenterOnMeButton />
+          <CenterOnMeButton followingRef={followingRef} />
         </MapContainer>
       </div>
 

@@ -10,8 +10,8 @@ import { parseHoleData } from '../courseMapState'
 import type { LatLng, EditorHazard } from '../courseMapState'
 import type { CourseStrategyData } from '../useCourseStrategy'
 import { setClubColorCache } from '../clubColors'
-import { useGpsPosition } from './useGpsPosition'
 import type { GpsState } from './useGpsPosition'
+import { useGps } from '../../../contexts/GpsContext'
 
 export interface MobileMapState {
   courseId: number | undefined
@@ -36,7 +36,7 @@ export interface MobileMapState {
   allRoundDetails: RoundDetail[]
 
   // GPS
-  gps: GpsState & { startWatching: () => void; stopWatching: () => void }
+  gps: GpsState & { startWatching: () => void; stopWatching: () => void; refresh: () => void; sample: () => void }
 
   // Ball position (review mode: manual placement, defaults to tee)
   ballPos: LatLng | null
@@ -108,7 +108,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
   const { data: strategy } = useCourseStrategy(courseId)
   const totalHoles = course?.holes ?? 18
 
-  const gps = useGpsPosition()
+  const gps = useGps()
 
   // Sync club colors
   useEffect(() => {

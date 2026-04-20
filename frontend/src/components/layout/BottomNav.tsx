@@ -11,7 +11,7 @@ import styles from './BottomNav.module.css'
 
 const tabs = [
   { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
-  { to: '/play/new', icon: Flag, label: 'Play', end: false },
+  { to: '/play', icon: Flag, label: 'Play', end: false },
   { to: '/scoring', icon: BarChart3, label: 'Stats', end: false },
   { to: '/clubs', icon: Briefcase, label: 'Bag', end: false },
 ]

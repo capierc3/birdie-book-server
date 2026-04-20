@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useGolfClubs, useCourse } from '../../api'
+import { useGolfClubs, useCourse, useCreatePlaySession } from '../../api'
 import { Card, CardHeader, Button, FormGroup, Input, PickerTrigger, PickerSheet } from '../../components'
 import type { PickerOption } from '../../components'
 import { useGps } from '../../contexts/GpsContext'
@@ -21,6 +21,8 @@ export function StartRoundPage() {
   const navigate = useNavigate()
   const { data: clubs } = useGolfClubs()
   const gps = useGps()
+  const createSession = useCreatePlaySession()
+  const [startError, setStartError] = useState<string>('')
 
   const [selectedClubId, setSelectedClubId] = useState<number | null>(null)
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null)
@@ -102,11 +104,24 @@ export function StartRoundPage() {
 
   const canStart = selectedCourseId != null && selectedTeeId != null
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!canStart) return
-    const params = new URLSearchParams({ mode: 'play' })
-    if (selectedTeeId) params.set('tee', String(selectedTeeId))
-    navigate(`/courses/${selectedCourseId}/map?${params.toString()}`)
+    setStartError('')
+    try {
+      const session = await createSession.mutateAsync({
+        course_id: selectedCourseId!,
+        tee_id: selectedTeeId!,
+        game_format: format,
+        holes_played: 18,
+        partners: players
+          .map((name) => name.trim())
+          .filter((name) => name.length > 0)
+          .map((name) => ({ player_name: name })),
+      })
+      navigate(`/play/sessions/${session.id}`)
+    } catch (e) {
+      setStartError(`Failed to start: ${(e as Error).message}`)
+    }
   }
 
   return (
@@ -233,8 +248,14 @@ export function StartRoundPage() {
 
       {/* Start Button */}
       <div className={s.startSection}>
-        <Button variant="primary" onClick={handleStart} disabled={!canStart} className={s.startBtn}>
-          Start Round
+        {startError && <p className={s.createError}>{startError}</p>}
+        <Button
+          variant="primary"
+          onClick={handleStart}
+          disabled={!canStart || createSession.isPending}
+          className={s.startBtn}
+        >
+          {createSession.isPending ? 'Starting…' : 'Start Round'}
         </Button>
       </div>
     </div>

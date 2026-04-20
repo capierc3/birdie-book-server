@@ -1,0 +1,74 @@
+.wrap {
+  position: fixed;
+  top: 62px;
+  right: 12px;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 6px;
+  background: rgba(28, 31, 38, 0.85);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  min-width: 58px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.arrowBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #60a5fa;
+  transition: transform 0.3s ease;
+}
+
+.speed {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.speedNum {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.speedUnit {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: lowercase;
+}
+
+.gust {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: #f59e0b;
+  letter-spacing: 0.02em;
+}
+
+.cardinal {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+}
+
+.cardinalDeg {
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}

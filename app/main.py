@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills
+from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills, play_sessions
 from app.config import settings
 from app.database import Base, engine, SessionLocal
 import app.models  # noqa: F401 — registers all models with Base.metadata
@@ -73,6 +73,7 @@ app.include_router(stats.router)
 app.include_router(round_plans.router)
 app.include_router(practice_plans.router)
 app.include_router(drills.router)
+app.include_router(play_sessions.router)
 
 
 @app.get("/health")

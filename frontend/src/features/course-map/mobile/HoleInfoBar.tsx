@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMobileMap } from './MobileMapContext'
 import s from './HoleInfoBar.module.css'
 
 export function HoleInfoBar() {
   const ctx = useMobileMap()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const sessionId = searchParams.get('session')
   const { course, courseId, currentHole, totalHoles, teeId, formValues, prevHole, nextHole, selectHole } = ctx
   const [holeMenuOpen, setHoleMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -80,6 +82,15 @@ export function HoleInfoBar() {
           </svg>
         </button>
       </div>
+      {sessionId && (
+        <button
+          className={s.endRoundBtn}
+          onClick={() => navigate(`/play/sessions/${sessionId}`)}
+          title="End round and go to post-round notes"
+        >
+          End Round
+        </button>
+      )}
     </div>
   )
 }

@@ -1,4 +1,110 @@
 // ============================================================
+// Play Sessions
+// ============================================================
+
+export type PlaySessionState = 'PRE' | 'ACTIVE' | 'COMPLETE' | 'ABANDONED'
+
+export interface PlaySessionPartner {
+  id: number
+  player_id?: number | null
+  player_name: string
+  is_teammate: boolean
+}
+
+export interface PlaySessionPartnerInput {
+  player_id?: number | null
+  player_name: string
+  is_teammate?: boolean
+}
+
+export interface PlaySessionWeatherSample {
+  id: number
+  hole_number?: number | null
+  sampled_at: string
+  temp_f?: number | null
+  wind_speed_mph?: number | null
+  wind_gust_mph?: number | null
+  wind_dir_deg?: number | null
+  wind_dir_cardinal?: string | null
+  precipitation_in?: number | null
+  weather_code?: number | null
+  weather_desc?: string | null
+  humidity_pct?: number | null
+  pressure_mb?: number | null
+}
+
+export interface PlaySessionSummary {
+  id: number
+  course_id?: number | null
+  course_name?: string | null
+  tee_id?: number | null
+  tee_name?: string | null
+  date: string
+  game_format?: string | null
+  holes_played?: number | null
+  state: PlaySessionState
+  score?: number | null
+  overall_rating?: number | null
+  garmin_round_id?: number | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface PlaySessionDetail extends PlaySessionSummary {
+  energy_rating?: number | null
+  focus_rating?: number | null
+  physical_rating?: number | null
+  pre_session_notes?: string | null
+  session_goals?: string | null
+  clubs_focused?: string | null
+  what_worked?: string | null
+  what_struggled?: string | null
+  key_takeaway?: string | null
+  next_focus?: string | null
+  post_session_notes?: string | null
+  partners: PlaySessionPartner[]
+  weather_samples: PlaySessionWeatherSample[]
+}
+
+export interface PlaySessionCreate {
+  course_id?: number | null
+  tee_id?: number | null
+  date?: string | null
+  game_format?: string | null
+  holes_played?: number | null
+  energy_rating?: number | null
+  focus_rating?: number | null
+  physical_rating?: number | null
+  pre_session_notes?: string | null
+  session_goals?: string | null
+  clubs_focused?: string | null
+  partners?: PlaySessionPartnerInput[]
+}
+
+export interface PlaySessionUpdate {
+  course_id?: number | null
+  tee_id?: number | null
+  date?: string | null
+  game_format?: string | null
+  holes_played?: number | null
+  state?: PlaySessionState
+  energy_rating?: number | null
+  focus_rating?: number | null
+  physical_rating?: number | null
+  pre_session_notes?: string | null
+  session_goals?: string | null
+  clubs_focused?: string | null
+  overall_rating?: number | null
+  what_worked?: string | null
+  what_struggled?: string | null
+  key_takeaway?: string | null
+  next_focus?: string | null
+  post_session_notes?: string | null
+  score?: number | null
+  garmin_round_id?: number | null
+}
+
+// ============================================================
 // Rounds
 // ============================================================
 

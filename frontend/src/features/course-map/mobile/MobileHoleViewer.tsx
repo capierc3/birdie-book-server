@@ -8,6 +8,7 @@ import type { RangefinderData } from './GpsRangefinder'
 import { MobileStrategyOverlays } from './MobileStrategyOverlays'
 import type { ToolResult } from './MobileStrategyOverlays'
 import { HoleInfoBar } from './HoleInfoBar'
+import { WindIndicator } from './WindIndicator'
 import { MobileBottomSheet } from './MobileBottomSheet'
 import type { MobileTab, TabConfig } from './MobileBottomSheet'
 import { RangefinderTab } from './tabs/RangefinderTab'
@@ -474,7 +475,9 @@ function MobileHoleViewerInner() {
 
       <HoleInfoBar />
 
-      {/* Overlay toggle */}
+      <WindIndicator />
+
+      {/* Overlay toggle — stacked near the GPS FAB */}
       <button
         className={`${s.overlayToggle} ${!ctx.showOverlays ? s.overlayToggleOff : ''}`}
         onClick={() => ctx.setShowOverlays(!ctx.showOverlays)}

@@ -143,6 +143,29 @@
 - Auto-tag rounds: "Windy", "Cold", "Rain"
 - Filter round history by conditions
 
+### 6d. Weather Capture — Open-Meteo Sampling `[~]`
+**Status:** API + service + manual "Sample now" button shipped. Map-mode `WindIndicator` (top-right of hole view) reads the latest sample from the active session and rotates a vane arrow by `wind_dir_deg`, plus cardinal + degrees label. UTC-from-SQLite timestamp parsing fixed (`formatSampledAt` appends `Z` when no tz present). Auto-sampling on state transition and throttled-on-hole-advance still pending.
+
+**Goal:** The *capture* side of weather data. Samples conditions throughout a play session so 6a/6b/6c have real data to analyze and so post-round reflection can speak to conditions (e.g. "wind picked up on the back nine").
+
+**Why a separate item:** 6a/6b/6c are analysis features that assume weather data already exists. Nothing in the roadmap currently captures it. This fills that gap and is a prerequisite for 6a/6b/6c.
+
+**API choice: Open-Meteo** — free, no API key, no practical rate limit. Same API the Android Golf Companion prototype used. Returns current conditions (temp, wind speed + gusts, wind direction, precipitation, weather code, humidity, pressure) in a single call.
+
+**Data model:** `play_session_weather_samples` table — time-series rather than flat fields on the session. Columns: `id`, `session_id` (FK → PlaySession), `hole_number` (nullable), `sampled_at`, `temp_f`, `wind_speed_mph`, `wind_gust_mph`, `wind_dir_deg`, `wind_dir_cardinal`, `precipitation_in`, `weather_code`, `weather_desc`, `humidity_pct`, `pressure_mb`.
+
+**Sampling cadence:**
+- Auto-sample at PlaySession `PRE → ACTIVE` transition (round start)
+- Auto-sample on hole advance, throttled to once per ~15–20 minutes (avoids 18 near-identical calls per round)
+- Manual "refresh weather" button in the play UI
+- Every sample stamps `hole_number` so later analysis can plot weather-by-hole
+
+**Endpoints:**
+- `POST /api/play-sessions/{id}/weather/sample` — fetch from Open-Meteo using session's course lat/lng, insert a sample, return it
+- `GET /api/play-sessions/{id}/weather` — list samples for a session
+
+**Display UI is deferred to 6a/6b/6c.** This item captures the data; the trend charts, per-hole overlays, and condition tags are separate items that consume it.
+
 ---
 
 ## 7. Course-Specific Insights
@@ -269,6 +292,12 @@
 
 **Goal:** A mobile-first Progressive Web App experience for use during a round. Installable on Android and iOS home screens, works offline with pre-cached course data. Three phases: pre-round prep, hole-by-hole during play, and post-round reflection.
 
+**Data model direction:** All pre/in/post-round capture writes to a new **`PlaySession`** entity, **not** the existing `rounds` table. `PlaySession` is a round journal — pre/post notes, mindset ratings, goals, weather — with **no shot data** of its own. Garmin-imported rounds remain in `rounds` and are matched to PlaySessions after the fact (see 11f). This lets the journal have full value even when no Garmin import ever happens, and keeps schemas clean (no nulled-out shot columns for app-only rounds).
+
+**Cross-references:**
+- Weather sampling during the session: see **6d Weather Capture**
+- Garmin round model: `app/models/round.py` (unchanged by this feature)
+
 ### 11a. PWA Foundation & Data Architecture `[ ]`
 - Add `manifest.json` for home screen install (app name, icon, theme color, standalone display)
 - Responsive CSS pass on all key views (or dedicated mobile layout)
@@ -294,13 +323,16 @@
 - Per-hole notes and tags
 - Range session plans and in-session notes
 
-### 11b. Pre-Round Questionnaire `[ ]`
+### 11b. Pre-Round Questionnaire `[~]`
+**Status:** Course/tee/format/partners selection creates a `PlaySession` in state `PRE`; energy/focus/physical 1-5 ratings, goals, clubs-focused, and pre-round notes editable on the session detail page. Still pending: data-driven goal suggestions from SG/scoring history, course-stats snapshot card.
+
 - Select course and tee box for today's round
-- **Mindset check-in** (uses existing `rounds` fields):
-  - Energy level (1-5 scale) → `energy_rating`
-  - Focus level (1-5 scale) → `focus_rating`
-  - Physical feeling (1-5 scale) → `physical_rating`
-  - Free-text: "How are you feeling today?" → `pre_session_notes`
+- Creates a **new `PlaySession` record** in state `PRE` (not a `rounds` row — see 11e for model)
+- **Mindset check-in** → `PlaySession` fields:
+  - Energy level (1-5) → `energy_rating`
+  - Focus level (1-5) → `focus_rating`
+  - Physical feeling (1-5) → `physical_rating`
+  - Free-text "How are you feeling today?" → `pre_session_notes`
 - **Goal setting:**
   - Pick 1-3 focus areas for the round → `session_goals`
   - Suggested goals based on recent SG data (e.g. "Last 5 rounds your approach play cost 2.1 strokes — focus on committed iron swings?")
@@ -309,9 +341,11 @@
   - Your scoring history at this course (if played before)
   - Current key stats snapshot (FW%, GIR%, putts/round)
   - Any course-specific notes from prior rounds
-- Creates a new round record (or links to Garmin round later) with pre-session data filled in
+- On "Start Round": `PlaySession` transitions `PRE → ACTIVE`; weather sample captured (see 6d); user routed into the hole-by-hole view (11c)
 
-### 11c. Hole-by-Hole On-Course Screen `[ ]`
+### 11c. Hole-by-Hole On-Course Screen `[~]`
+**Status:** Map-based hole view (`MobileHoleViewer`) is the on-course screen. Session context flows via `?session=:id` URL param: `HoleInfoBar` renders an **End Round** button when a session is attached, and `WindIndicator` shows live wind in the top-right. Per-hole par/yardage, hole-picker dropdown, tee switcher, and prev/next nav shipped. Still pending: historical per-hole data panel, approach helper using club distances, quick-tap tagging, running scorecard overlay.
+
 - Swipeable hole-by-hole view, large touch targets for on-course use
 - **Per-hole info panel:**
   - Hole number, par, yardage (from selected tee)
@@ -335,52 +369,105 @@
   - Cumulative score vs par visible at all times
   - Simple +/- indicator per completed hole
 
-### 11d. Post-Round Questionnaire `[ ]`
-- Triggered when round is complete (or manually after syncing Garmin data)
-- **Session reflection** (uses existing `rounds` fields):
+### 11d. Post-Round Questionnaire `[~]`
+**Status:** Post-round fields (overall rating 1-10, what worked/struggled, key takeaway, next focus, post-round notes, manual score entry) editable on the session detail page. "End Round" button transitions `ACTIVE → COMPLETE`. Still pending: auto-summary of what the round data shows (best/worst hole, SG categories), prompts driven by the pre-round goals.
+
+- Triggered from the Play landing screen's "End" action on an active PlaySession, or automatically on last-hole completion
+- Transitions `PlaySession` `ACTIVE → COMPLETE`
+- **Session reflection** → `PlaySession` fields:
   - Overall round rating (1-5) → `overall_rating`
   - "What worked well today?" → `what_worked`
   - "What did you struggle with?" → `what_struggled`
   - "Key takeaway from this round?" → `key_takeaway`
   - "What to focus on next time?" → `next_focus`
   - Free-text additional notes → `post_session_notes`
-- **Data-prompted reflection:**
-  - Show SG summary for the round (once Garmin data is synced)
+  - Manual score entry → `score` (optional; may be overwritten later if a Garmin round is linked via 11f)
+- **Data-prompted reflection** (shown if a Garmin round is already linked or auto-matched by course+date):
+  - SG summary for the round
   - "You gained 1.2 strokes putting today — best in 10 rounds"
   - "Approaches from 150+ cost you 2.1 strokes — matches your pre-round goal area"
   - Prompt user to reflect on whether goals were met
 - **Round journal entry:**
-  - Combined view of pre-round goals + post-round notes for a complete journal entry
-  - Viewable later from round detail as a "Round Journal" tab
+  - Combined view of pre-round goals + post-round notes + weather samples (from 6d) for a complete journal
+  - Accessible later from Play landing screen history and from linked-round detail as a "Round Journal" tab
 
-### 11e. Session Notes as Standalone Records `[ ]`
-- On-course notes (pre-round, hole notes, post-round) are saved as a **session journal** record
-  - Stored independently — not inside the `rounds` table directly
-  - New model: `session_journal` with fields for all pre/post data, plus per-hole notes
-  - Linked to a course + date, but NOT yet linked to a Garmin round
-- The journal has full value on its own even if Garmin data is never imported
-- If user also manually scores on mobile, that lives here too (separate from Garmin scoring)
+### 11e. PlaySession Model `[x]`
+**Shipped:** `play_sessions`, `play_session_partners`, `play_session_weather_samples` tables and full CRUD API at `/api/play-sessions`. Frontend types + react-query hooks in `frontend/src/api/hooks/usePlaySessions.ts`. `course_hole_notes` table still deferred — using existing `CourseHole.notes` for now.
 
-### 11f. Data Linking — Round Journal ↔ Garmin Round `[ ]`
+The core data model for everything in Feature 11. Fully decoupled from Garmin-imported `rounds`. Ported from the Android Golf Companion prototype's `Session` entity, adapted to this schema.
+
+**Rationale:** Journal-style reflection data (notes, ratings, weather) has a different shape than Garmin shot-by-shot data. Keeping them in separate tables avoids ~20 always-null columns per app round, avoids conditional logic in every rounds query, and lets either record exist without the other. A nullable FK links them after the fact when a Garmin round is matched (see 11f).
+
+**Primary table: `play_sessions`**
+- **Identity:** `id`, `player_id` (FK, nullable for now — foundation for multi-user), `created_at`, `updated_at`
+- **Round setup:** `course_id` (FK), `tee_id` (FK, nullable), `date`, `game_format` (enum — reuse existing), `holes_played` (9/18)
+- **State machine:** `state` enum — `PRE`, `ACTIVE`, `COMPLETE`, `ABANDONED`
+- **Pre-round:** `energy_rating` (1-5), `focus_rating` (1-5), `physical_rating` (1-5), `pre_session_notes`, `session_goals`, `clubs_focused`
+- **Post-round:** `overall_rating` (1-5), `what_worked`, `what_struggled`, `key_takeaway`, `next_focus`, `post_session_notes`, `score` (manual entry, optional)
+- **Garmin link:** `garmin_round_id` (nullable FK → `rounds.id`, see 11f)
+
+**Companion table: `play_session_partners`**
+- `id`, `session_id` (FK, cascade), `player_name`, `is_teammate` (bool)
+- Ported from Android `PlayingPartner` — kept denormalized name field for display; player-entity FK deferred until there's a `Players` table
+
+**Companion table: `play_session_weather_samples`**
+- Defined in 6d. Time-series weather data attached to each session.
+
+**Companion table: `course_hole_notes`** (course-scoped, not session-scoped)
+- `id`, `course_id` (FK), `hole_number`, `note`, `updated_at`
+- Ported from Android `VenueHoleNote` — per-hole strategy notes that persist across all rounds at a course. **Note:** overlaps with existing `CourseHole.notes` field from 17a; need to verify during implementation whether to use existing field or add a richer per-player variant. Default: reuse existing `CourseHole.notes`, skip this table unless multi-user forces a split.
+
+**API:**
+- `POST /api/play-sessions` — create session (state=`PRE`)
+- `GET /api/play-sessions` — list, filterable by `state`, `course_id`, `date`
+- `GET /api/play-sessions/{id}` — full detail including partners + weather samples
+- `PATCH /api/play-sessions/{id}` — update any journal field or transition state
+- `DELETE /api/play-sessions/{id}` — abandon/delete
+
+**Out of scope for this entity:** shot-by-shot data, per-hole scoring, GIR/fairway tracking. Those live in Garmin-imported `rounds` and `round_holes`. If the user manually scores on mobile, that goes into `PlaySession.score` as a single total or into notes — not per-hole.
+
+### 11f. Data Linking — Round Journal ↔ Garmin Round `[~]`
+**Status:** Link/unlink endpoints (`POST /{id}/link/{round_id}`, `DELETE /{id}/link`) plus `?unlinked=true` list filter shipped. Auto-suggestion UI and unlinked-journal badge still pending.
+
 - **Context:** Garmin data must be imported via PC (FIT file upload or full account data export). There is no way to auto-sync from the watch on mobile. So linking happens after the fact, typically from the desktop web UI.
 - **Linking flow (desktop UI):**
-  - After importing Garmin data, show unlinked session journals in a "Link Notes" panel
+  - After importing Garmin data, show unlinked PlaySessions in a "Link Notes" panel
   - Auto-suggest matches by course + date (most cases will be obvious 1:1 matches)
   - User confirms or manually picks the correct Garmin round to link
-  - On link: merge journal data (notes, ratings, goals) into the Garmin round record
-  - Hole-level notes merge into corresponding `round_holes` records by hole number
+  - On link: set `PlaySession.garmin_round_id` (journal and round stay in their own tables — no merge; views that show both join on the FK)
+  - Hole-level notes (from `course_hole_notes` or `CourseHole.notes`) are course-scoped and not merged per-round
 - **Linking flow (mobile UI):**
   - Same flow accessible from mobile — user may import on PC then link on phone later
   - "You have 3 unlinked journals" badge on the rounds section
   - Tap to review and confirm matches
 - **API:**
-  - `GET /api/journals/unlinked` — list session journals not yet linked to a round
-  - `POST /api/journals/{journal_id}/link/{round_id}` — merge journal into round
-  - `DELETE /api/journals/{journal_id}/unlink` — detach journal from round (keeps both records)
+  - `GET /api/play-sessions?unlinked=true` — list PlaySessions with no `garmin_round_id`
+  - `POST /api/play-sessions/{id}/link/{round_id}` — set FK
+  - `DELETE /api/play-sessions/{id}/link` — clear FK (both records remain)
 - **Edge cases:**
   - Multiple rounds same day/course: show both, let user pick
-  - No Garmin data ever imported: journal stands alone as reflection record
-  - Garmin round already has notes: prompt to overwrite or merge
+  - No Garmin data ever imported: PlaySession stands alone as reflection record
+  - Garmin round already linked to a different PlaySession: prevent double-link (FK is effectively 1:1 for a given Garmin round)
+
+### 11g. Play Landing Screen `[x]`
+**Shipped:** `/play` route is the new landing (Play tab now points here); "New Round" button → existing setup form at `/play/new`; "In Progress" list of `PRE`/`ACTIVE` sessions with tap-to-resume; "Recent" list of `COMPLETE`/`ABANDONED`. Session detail lives at `/play/sessions/:id` and handles resume + End Round + Abandon + Delete.
+
+**Goal:** The `/play/new` route (current bottom-nav Play tab) becomes a landing screen instead of jumping straight into the setup form. Solves the "close the app and lose the round" problem — in-progress PlaySessions are resumable.
+
+**Current state:** `/play/new` → `StartRoundPage` immediately renders the setup form. No backend record is created; closing the PWA loses everything.
+
+**New behavior:**
+- **Top**: big "New Round" button → navigates into the existing setup form (now 11b Pre-Round Questionnaire)
+- **"In Progress" section** (only shown if any): cards for every `PlaySession` with `state` in (`PRE`, `ACTIVE`)
+  - Each card: course name, date, hole X of Y (if `ACTIVE`), game format, last-updated timestamp
+  - **Resume** action → routes back into the setup form (`PRE`) or the hole-by-hole view (`ACTIVE`)
+  - **End** action → routes to 11d Post-Round Questionnaire to capture reflection + transition to `COMPLETE`
+  - **Discard** action (secondary, confirm) → transitions to `ABANDONED`
+- **Recent history section** (optional, small): last few `COMPLETE` PlaySessions for quick access to their journals
+
+**Depends on:** 11e (PlaySession model + API) must land first.
+
+**Sequencing note:** This is the user-visible entry point for everything else in Feature 11, but technically depends on 11e existing. Build 11e and 11g together as the first shippable slice — lets the user create, resume, and end sessions even before the richer 11b/11c/11d screens are built out.
 
 ---
 

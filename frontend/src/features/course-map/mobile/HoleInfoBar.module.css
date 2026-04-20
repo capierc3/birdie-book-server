@@ -160,3 +160,19 @@
 .navBtn:active {
   background: var(--bg-hover);
 }
+
+.endRoundBtn {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.endRoundBtn:active {
+  background: rgba(34, 197, 94, 0.3);
+}

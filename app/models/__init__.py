@@ -8,6 +8,7 @@ from app.models.round_plan import RoundPlan, RoundPlanHole, RoundPlanShot
 from app.models.practice_plan import PracticePlan, PracticeSession, PracticeActivity
 from app.models.drill import Drill
 from app.models.app_setting import AppSetting
+from app.models.play_session import PlaySession, PlaySessionPartner, PlaySessionWeatherSample
 
 __all__ = [
     "GolfClub", "Course", "CourseTee", "CourseHole", "CourseHazard", "OSMHole",
@@ -20,4 +21,5 @@ __all__ = [
     "PracticePlan", "PracticeSession", "PracticeActivity",
     "Drill",
     "AppSetting",
+    "PlaySession", "PlaySessionPartner", "PlaySessionWeatherSample",
 ]

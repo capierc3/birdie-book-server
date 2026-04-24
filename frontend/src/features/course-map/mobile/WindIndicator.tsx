@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePlaySession } from '../../../api'
+import { useMobileMap } from './MobileMapContext'
 import s from './WindIndicator.module.css'
 
 export function WindIndicator() {
@@ -8,6 +9,7 @@ export function WindIndicator() {
   const sessionParam = searchParams.get('session')
   const sessionId = sessionParam ? Number(sessionParam) : undefined
   const { data } = usePlaySession(sessionId)
+  const { mapBearing } = useMobileMap()
 
   const latest = useMemo(() => {
     const samples = data?.weather_samples
@@ -24,10 +26,12 @@ export function WindIndicator() {
 
   const dirDeg = latest.wind_dir_deg ?? 0
   // wind_dir_deg is the direction the wind comes FROM (meteorological). Our
-  // SVG arrow points up at 0°, so rotating by dirDeg makes it point toward
-  // the source — matching the cardinal label (N = arrow up). The golfer
-  // reads this as "wind from N, so it'll push the ball S".
-  const arrowRotation = dirDeg % 360
+  // SVG arrow points up at 0°, so the base rotation is dirDeg — arrow points
+  // toward the source. Subtracting the live map bearing keeps that direction
+  // geographically correct after the map rotates: when the map turns 90° CW,
+  // "north" is now on screen-left, so a wind-from-N arrow must rotate 90° CCW
+  // to keep pointing at the actual N. Without this, the indicator would lie.
+  const arrowRotation = ((dirDeg - mapBearing) % 360 + 360) % 360
 
   const speed = Math.round(latest.wind_speed_mph)
   const gust = latest.wind_gust_mph != null ? Math.round(latest.wind_gust_mph) : null

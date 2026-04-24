@@ -135,15 +135,22 @@ def _parse_iso_dt(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+    # Normalize to naive UTC — the ORM stores datetimes in naive columns, so keeping
+    # aware datetimes here causes "can't compare offset-naive and offset-aware" errors
+    # when upsert paths compare parsed values against values loaded from the DB.
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _parse_epoch_ms(ms: Optional[int]) -> Optional[datetime]:
     if not ms:
         return None
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    # Return naive UTC to match ORM column convention (see _parse_iso_dt comment).
+    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).replace(tzinfo=None)
 
 
 # --- Parsers ---

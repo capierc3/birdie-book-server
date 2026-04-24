@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
-import { useCourse, put, post, del, get } from '../../api'
+import { useCourse, put, post, del, get, linkOsmHole } from '../../api'
 import type { CourseDetail, RoundDetail } from '../../api'
 import { useToast } from '../../components'
 import { useIsMobile } from '../../hooks/useMediaQuery'
@@ -169,6 +169,9 @@ function DesktopCourseMapPage() {
   const [currentHazard, setCurrentHazard] = useState<LatLng[]>([])
   const [ballPos, setBallPos] = useState<LatLng | null>(null)
   const [redrawKey, setRedrawKey] = useState(0)
+
+  // OSM linking
+  const [showUnlinkedOsm, setShowUnlinkedOsm] = useState(false)
 
   // Strategy tools
   const [activeStrategyTool, setActiveStrategyTool] = useState('cone')
@@ -339,6 +342,42 @@ function DesktopCourseMapPage() {
     queryClient.invalidateQueries({ queryKey: ['courses', courseId] })
   }, [courseId, queryClient])
 
+  // ── Assign an OSM hole to a CourseHole (by hole number) ──
+  const assignOsmHoleToHole = useCallback(async (
+    osmHoleId: number, holeNum: number, applyGps = true,
+  ) => {
+    if (!course || !courseId) return
+    // Find any CourseHole with this hole_number — backend propagates to siblings
+    let holeId: number | undefined
+    for (const t of course.tees || []) {
+      const h = t.holes?.find((hh) => hh.hole_number === holeNum)
+      if (h) { holeId = h.id; break }
+    }
+    if (!holeId) {
+      toast(`No hole ${holeNum} found on this course`, 'error')
+      return
+    }
+    try {
+      await linkOsmHole({ courseId, holeId, osmHoleId, applyGps })
+      toast(`OSM hole linked to #${holeNum}`, 'success')
+      await queryClient.invalidateQueries({ queryKey: ['courses', courseId] })
+      if (applyGps) {
+        // Refetch and replace editor state — any unsaved geometry on this hole is lost
+        const updated = await get<CourseDetail>(`/courses/${courseId}`)
+        const parsed = parseHoleData(updated, currentHole, teeId)
+        setTeePos(parsed.teePos)
+        setGreenPos(parsed.greenPos)
+        setTeePositions(parsed.teePositions)
+        setFairwayPath(parsed.fairwayPath)
+        setFairwayBoundaries(parsed.fairwayBoundaries)
+        setGreenBoundary(parsed.greenBoundary)
+      }
+      setRedrawKey((k) => k + 1)
+    } catch (err) {
+      toast(`Link failed: ${(err as Error).message}`, 'error')
+    }
+  }, [course, courseId, queryClient, toast, currentHole, teeId])
+
   // ── Finish drawing helpers ──
   const finishHazard = useCallback(() => {
     if (currentHazard.length < 3) return
@@ -391,13 +430,14 @@ function DesktopCourseMapPage() {
   // ── Build context value ──
   const ctxValue: CourseMapContextType = useMemo(() => ({
     course, strategy, currentHole, teeId, dirty,
-    drawPanelOpen, activeTool, hazardType,
+    drawPanelOpen, activeTool, hazardType, showUnlinkedOsm,
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries,
     currentFwBoundary, greenBoundary, hazards, currentHazard, ballPos,
     activeStrategyTool, currentPlanId, planAiming, viewMode, roundDetail, allRoundDetails,
 
     setCurrentHole, setTeeId, setDirty,
-    setDrawPanelOpen, setActiveTool, setHazardType,
+    setDrawPanelOpen, setActiveTool, setHazardType, setShowUnlinkedOsm,
+    assignOsmHoleToHole,
     setTeePos, setGreenPos, setTeePositions, setFairwayPath, setFairwayBoundaries,
     setCurrentFwBoundary, setGreenBoundary, setHazards, setCurrentHazard, setBallPos,
     setActiveStrategyTool, setCurrentPlanId, setPlanAiming, setViewMode, setRoundDetail, setAllRoundDetails,
@@ -408,10 +448,11 @@ function DesktopCourseMapPage() {
     _formValues: formValuesRef.current,
   }), [
     course, strategy, currentHole, teeId, dirty,
-    drawPanelOpen, activeTool, hazardType,
+    drawPanelOpen, activeTool, hazardType, showUnlinkedOsm,
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries,
     currentFwBoundary, greenBoundary, hazards, currentHazard, ballPos,
     activeStrategyTool, currentPlanId, planAiming, viewMode, roundDetail, allRoundDetails,
+    assignOsmHoleToHole,
     selectHole, saveCurrentHole, reloadCourse, finishHazard, finishFwBoundary,
     redrawKey, triggerRedraw,
   ])

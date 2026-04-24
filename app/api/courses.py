@@ -62,6 +62,8 @@ class OSMHoleResponse(BaseModel):
     tee_lng: Optional[float] = None
     green_lat: Optional[float] = None
     green_lng: Optional[float] = None
+    waypoints: Optional[str] = None  # JSON [[lat, lng], ...] centerline
+    green_boundary: Optional[str] = None  # JSON [[lat, lng], ...] polygon
 
     class Config:
         from_attributes = True
@@ -2511,11 +2513,12 @@ def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
 
 def _auto_match_osm_holes(db: Session, course: Course) -> int:
     """
-    Auto-match OSM holes to course holes using yardage + GPS proximity.
-    Returns number of holes matched.
+    Auto-match OSM holes to course holes. Only links when shot GPS data validates
+    the match (within 50 yards of the OSM tee). Without shot GPS, leaves the hole
+    unlinked so the user can manually assign via the map editor — OSM tee/green
+    coords are unreliable (centerline start is not the actual tee box) and
+    yardage+par alone can link wrong holes.
     """
-    import math
-
     osm_holes = db.query(OSMHole).filter(
         OSMHole.golf_club_id == course.golf_club_id
     ).all()
@@ -2528,15 +2531,13 @@ def _auto_match_osm_holes(db: Session, course: Course) -> int:
         return 0
 
     matched = 0
-    num_holes = course.holes or 9
 
     # Get shot GPS for this course (first shots = tee positions)
-    from app.models.round import Round, Shot
+    from app.models.round import Round, Shot, RoundHole
     round_ids = [r.id for r in db.query(Round).filter(Round.course_id == course.id).all()]
 
     shot_tee_positions = {}  # hole_number -> (lat, lng)
     if round_ids:
-        from app.models.round import RoundHole
         for rh in db.query(RoundHole).filter(RoundHole.round_id.in_(round_ids)).all():
             if rh.hole_number in shot_tee_positions:
                 continue
@@ -2548,50 +2549,41 @@ def _auto_match_osm_holes(db: Session, course: Course) -> int:
             if s1:
                 shot_tee_positions[rh.hole_number] = (s1.start_lat, s1.start_lng)
 
+    # Nothing to auto-match if we have no shot GPS — user will link manually
+    if not shot_tee_positions:
+        return 0
+
+    GPS_MAX_YARDS = 50  # Require OSM tee within 50y of first shot
+
     for tee_obj in tees:
         holes = db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all()
 
         for hole in holes:
-            # Skip if already linked
             if hole.osm_hole_id:
                 continue
 
+            shot_pos = shot_tee_positions.get(hole.hole_number)
+            if not shot_pos:
+                continue  # No GPS — leave unlinked for manual assignment
+
             best_osm = None
-            best_score = 999
+            best_dist = GPS_MAX_YARDS + 1
 
             for oh in osm_holes:
                 if not oh.tee_lat:
                     continue
-
-                score = 0
-
-                # 1. GPS proximity match (best signal)
-                garmin_pos = shot_tee_positions.get(hole.hole_number)
-                if garmin_pos:
-                    dist = _haversine_yards_simple(garmin_pos[0], garmin_pos[1], oh.tee_lat, oh.tee_lng)
-                    if dist > 200:
-                        continue  # Too far — wrong hole
-                    score = dist / 200  # 0-1 normalized
-
-                # 2. Yardage match (secondary signal)
-                if hole.yardage and oh.tee_lat and oh.green_lat:
-                    osm_dist = _haversine_yards_simple(oh.tee_lat, oh.tee_lng, oh.green_lat, oh.green_lng)
-                    yard_diff = abs(osm_dist - hole.yardage)
-                    if yard_diff > 100:
-                        continue
-                    score += yard_diff / 100 * 0.5
-
-                # 3. Par match (weak signal)
+                dist = _haversine_yards_simple(shot_pos[0], shot_pos[1], oh.tee_lat, oh.tee_lng)
+                if dist > GPS_MAX_YARDS:
+                    continue
+                # Tie-break with par if available
                 if hole.par and oh.par and hole.par != oh.par:
-                    score += 1
-
-                if score < best_score:
-                    best_score = score
+                    dist += 10
+                if dist < best_dist:
+                    best_dist = dist
                     best_osm = oh
 
-            if best_osm and best_score < 2:
+            if best_osm:
                 hole.osm_hole_id = best_osm.id
-                # Apply GPS from OSM
                 if best_osm.tee_lat and not hole.tee_lat:
                     hole.tee_lat = best_osm.tee_lat
                     hole.tee_lng = best_osm.tee_lng

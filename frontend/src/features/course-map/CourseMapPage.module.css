@@ -212,3 +212,28 @@
     min-height: var(--touch-target);
   }
 }
+
+/* ── OSM assign popup: dark theme override for Leaflet chrome ── */
+:global(.leaflet-popup.osm-assign-popup .leaflet-popup-content-wrapper) {
+  background: var(--bg-card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+}
+:global(.leaflet-popup.osm-assign-popup .leaflet-popup-content) {
+  margin: 10px 12px;
+}
+:global(.leaflet-popup.osm-assign-popup .leaflet-popup-tip) {
+  background: var(--bg-card);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4);
+}
+:global(.leaflet-popup.osm-assign-popup a.leaflet-popup-close-button) {
+  color: var(--text-muted);
+}
+:global(.leaflet-popup.osm-assign-popup a.leaflet-popup-close-button:hover) {
+  color: var(--text);
+}
+:global(.leaflet-popup.osm-assign-popup button[data-osm-assign-btn]:hover) {
+  background: var(--accent-hover) !important;
+}

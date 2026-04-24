@@ -3,7 +3,22 @@ import { useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { useCourseMap, TEE_COLORS, HAZARD_COLORS } from './courseMapState'
 import type { LatLng } from './courseMapState'
+import type { CourseDetail, OSMHole } from '../../api'
 import { haversineYards, pointToSegmentDist } from './geoUtils'
+
+// Snap threshold: clicking within this distance of an unlinked OSM feature
+// with Place Tee / Place Green active snaps to it and auto-links.
+const OSM_SNAP_YARDS = 30
+
+function getUnlinkedOsmHoles(course: CourseDetail): OSMHole[] {
+  const linkedIds = new Set<number>()
+  for (const t of course.tees || []) {
+    for (const h of t.holes || []) {
+      if (h.osm_hole_id) linkedIds.add(h.osm_hole_id)
+    }
+  }
+  return (course.osm_holes || []).filter((oh) => !linkedIds.has(oh.id))
+}
 
 /**
  * MapOverlays: Renders all editor overlays on the Leaflet map.
@@ -294,8 +309,105 @@ export function MapOverlays() {
         L.circleMarker([p.lat, p.lng], { radius: 5, color: hColor, fillColor: hColor, fillOpacity: 1, interactive: false }).addTo(lg)
       })
     }
+
+    // ── Unlinked OSM features (for manual assignment) ──
+    if (ctx.showUnlinkedOsm && ctx.course?.osm_holes?.length) {
+      const unlinked = getUnlinkedOsmHoles(ctx.course)
+      const totalHoles = ctx.course.holes ?? 18
+      const OSM_COLOR = '#FF7043'  // orange — visually distinct from tees/greens/hazards
+
+      for (const oh of unlinked) {
+        // Centerline waypoints (dashed)
+        if (oh.waypoints) {
+          try {
+            const pts = (JSON.parse(oh.waypoints) as number[][]).map((p) => [p[0], p[1]] as [number, number])
+            if (pts.length >= 2) {
+              L.polyline(pts, { color: OSM_COLOR, weight: 2, dashArray: '3,6', opacity: 0.7, interactive: false }).addTo(lg)
+            }
+          } catch { /* ignore */ }
+        }
+
+        // Green boundary (dashed outline)
+        if (oh.green_boundary) {
+          try {
+            const pts = (JSON.parse(oh.green_boundary) as number[][]).map((p) => [p[0], p[1]] as [number, number])
+            if (pts.length >= 3) {
+              L.polygon(pts, { color: OSM_COLOR, weight: 1.5, fillColor: OSM_COLOR, fillOpacity: 0.1, dashArray: '3,5', interactive: false }).addTo(lg)
+            }
+          } catch { /* ignore */ }
+        }
+
+        const buildPopupHtml = (isTee: boolean) => {
+          const label = isTee ? 'Tee' : 'Green'
+          const holeNumLabel = oh.hole_number ? ` ${oh.hole_number}` : ''
+          const parLabel = oh.par ? ` · par ${oh.par}` : ''
+          const options = Array.from({ length: totalHoles }, (_, i) => {
+            const n = i + 1
+            const selected = oh.hole_number === n ? ' selected' : ''
+            return `<option value="${n}"${selected}>${n}</option>`
+          }).join('')
+          return `
+            <div style="min-width:180px;font-size:13px;color:var(--text);">
+              <div style="font-weight:600;margin-bottom:6px;color:var(--text);">OSM Hole${holeNumLabel} · ${label}${parLabel}</div>
+              <label style="display:block;margin-bottom:4px;font-size:11px;color:var(--text-muted);">Assign to course hole</label>
+              <div style="display:flex;gap:4px;">
+                <select data-osm-assign-select style="flex:1;font-size:13px;padding:4px 6px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;outline:none;">${options}</select>
+                <button data-osm-assign-btn style="font-size:12px;font-weight:600;padding:4px 10px;cursor:pointer;background:var(--accent);color:#fff;border:none;border-radius:4px;">Assign</button>
+              </div>
+            </div>
+          `
+        }
+
+        const attachPopupHandler = (popup: L.Popup) => {
+          const el = popup.getElement()
+          if (!el) return
+          const btn = el.querySelector('[data-osm-assign-btn]') as HTMLButtonElement | null
+          const sel = el.querySelector('[data-osm-assign-select]') as HTMLSelectElement | null
+          if (!btn || !sel) return
+          btn.onclick = () => {
+            const holeNum = Number(sel.value)
+            if (!holeNum) return
+            btn.disabled = true
+            btn.textContent = '…'
+            ctxRef.current.assignOsmHoleToHole(oh.id, holeNum, true)
+              .then(() => map.closePopup(popup))
+              .catch(() => { btn.disabled = false; btn.textContent = 'Assign' })
+          }
+        }
+
+        // Tee marker
+        if (oh.tee_lat != null && oh.tee_lng != null) {
+          const teeMarker = L.marker([oh.tee_lat, oh.tee_lng], {
+            icon: L.divIcon({
+              className: 'leaflet-osm-tee',
+              html: `<div style="width:20px;height:20px;border-radius:50%;background:${OSM_COLOR};border:2px dashed #fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:#fff;margin:-10px 0 0 -10px;opacity:0.85;">T</div>`,
+              iconSize: [0, 0],
+            }),
+            zIndexOffset: 700,
+          }).addTo(lg)
+          teeMarker.bindTooltip(`OSM Tee${oh.hole_number ? ` (hole ${oh.hole_number})` : ''} — click to assign`)
+          teeMarker.bindPopup(buildPopupHtml(true), { className: 'osm-assign-popup' })
+          teeMarker.on('popupopen', (e) => attachPopupHandler((e as L.PopupEvent).popup))
+        }
+
+        // Green marker
+        if (oh.green_lat != null && oh.green_lng != null) {
+          const greenMarker = L.marker([oh.green_lat, oh.green_lng], {
+            icon: L.divIcon({
+              className: 'leaflet-osm-green',
+              html: `<div style="width:18px;height:18px;border-radius:50%;background:${OSM_COLOR};border:2px dashed #fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:#fff;margin:-9px 0 0 -9px;opacity:0.85;">G</div>`,
+              iconSize: [0, 0],
+            }),
+            zIndexOffset: 700,
+          }).addTo(lg)
+          greenMarker.bindTooltip(`OSM Green${oh.hole_number ? ` (hole ${oh.hole_number})` : ''} — click to assign`)
+          greenMarker.bindPopup(buildPopupHtml(false), { className: 'osm-assign-popup' })
+          greenMarker.on('popupopen', (e) => attachPopupHandler((e as L.PopupEvent).popup))
+        }
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.redrawKey, map])
+  }, [ctx.redrawKey, ctx.showUnlinkedOsm, map])
 
   // ── Map click handler for drawing tools ──
   // Uses ctxRef to always read latest state (avoids stale closures in Leaflet callbacks)
@@ -307,17 +419,57 @@ export function MapOverlays() {
 
       switch (c.activeTool) {
         case 'tee': {
-          const newPos = { lat, lng }
+          let newPos = { lat, lng }
+          let snappedOsmId: number | null = null
+          if (c.course) {
+            const unlinked = getUnlinkedOsmHoles(c.course)
+            let best: OSMHole | null = null
+            let bestDist = OSM_SNAP_YARDS
+            for (const oh of unlinked) {
+              if (oh.tee_lat == null || oh.tee_lng == null) continue
+              const d = haversineYards(lat, lng, oh.tee_lat, oh.tee_lng)
+              if (d < bestDist) { best = oh; bestDist = d }
+            }
+            if (best && best.tee_lat != null && best.tee_lng != null) {
+              newPos = { lat: best.tee_lat, lng: best.tee_lng }
+              snappedOsmId = best.id
+            }
+          }
           c.setTeePos(newPos)
           const activeTee = c.course?.tees?.find((t) => t.id === c.teeId)
           if (activeTee) {
             c.teePositions[activeTee.tee_name] = newPos
           }
+          if (snappedOsmId != null) {
+            // Link without applying GPS server-side (we already set it locally);
+            // preserves any other unsaved edits on this hole.
+            c.assignOsmHoleToHole(snappedOsmId, c.currentHole, false)
+          }
           break
         }
-        case 'green':
-          c.setGreenPos({ lat, lng })
+        case 'green': {
+          let newPos = { lat, lng }
+          let snappedOsmId: number | null = null
+          if (c.course) {
+            const unlinked = getUnlinkedOsmHoles(c.course)
+            let best: OSMHole | null = null
+            let bestDist = OSM_SNAP_YARDS
+            for (const oh of unlinked) {
+              if (oh.green_lat == null || oh.green_lng == null) continue
+              const d = haversineYards(lat, lng, oh.green_lat, oh.green_lng)
+              if (d < bestDist) { best = oh; bestDist = d }
+            }
+            if (best && best.green_lat != null && best.green_lng != null) {
+              newPos = { lat: best.green_lat, lng: best.green_lng }
+              snappedOsmId = best.id
+            }
+          }
+          c.setGreenPos(newPos)
+          if (snappedOsmId != null) {
+            c.assignOsmHoleToHole(snappedOsmId, c.currentHole, false)
+          }
           break
+        }
         case 'fairway': {
           // Smart insertion at closest segment
           const path = c.fairwayPath

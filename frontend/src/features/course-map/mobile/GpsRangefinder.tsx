@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
-import { useMap } from 'react-leaflet'
-import L from 'leaflet'
+import { useEffect, useRef, useMemo } from 'react'
+import { Source, Layer, Marker } from 'react-map-gl/maplibre'
+import type { FeatureCollection, Feature, Polygon, Position } from 'geojson'
 import { useMobileMap } from './MobileMapContext'
-import { haversineYards } from '../geoUtils'
+import { haversineYards, destPoint } from '../geoUtils'
 import { rankClubs, findNearbyHazards, computeGreenFrontBack, determineShotContext } from '../caddieCalc'
 
 export interface RangefinderData {
@@ -14,67 +14,47 @@ export interface RangefinderData {
   gpsActive: boolean
 }
 
+const EMPTY_FC: FeatureCollection = { type: 'FeatureCollection', features: [] }
+const RING_SEGMENTS = 48
+
+/** Build a geodesic polygon ring around (lat,lng) of accuracyMeters radius. */
+function accuracyRingPolygon(lat: number, lng: number, accuracyMeters: number): FeatureCollection {
+  const yards = accuracyMeters * 1.09361
+  const ring: Position[] = []
+  for (let i = 0; i <= RING_SEGMENTS; i++) {
+    const bearingRad = (i / RING_SEGMENTS) * 2 * Math.PI
+    const p = destPoint(lat, lng, bearingRad, yards)
+    ring.push([p.lng, p.lat])
+  }
+  const feature: Feature<Polygon> = {
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [ring] },
+    properties: {},
+  }
+  return { type: 'FeatureCollection', features: [feature] }
+}
+
 /**
- * GpsRangefinder: headless Leaflet component.
- * Renders GPS marker + accuracy ring, computes distances.
+ * GpsRangefinder — Stage 20d MapLibre version.
+ *
+ * Renders the GPS dot + accuracy ring as JSX (Marker + GeoJSON polygon source)
+ * and emits computed distance/club-rec data via onData. Pure calc logic
+ * (`rankClubs`, `findNearbyHazards`, `computeGreenFrontBack`) is unchanged.
  */
 export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => void }) {
-  const map = useMap()
   const ctx = useMobileMap()
   const { gps, greenPos, greenBoundary, hazards, strategy, ballPos, playMode } = ctx
-  const markerRef = useRef<L.CircleMarker | null>(null)
-  const accuracyRef = useRef<L.Circle | null>(null)
   const onDataRef = useRef(onData)
   onDataRef.current = onData
 
-  // Create / update GPS marker imperatively
-  useEffect(() => {
-    if (gps.lat == null || gps.lng == null) {
-      if (markerRef.current) { map.removeLayer(markerRef.current); markerRef.current = null }
-      if (accuracyRef.current) { map.removeLayer(accuracyRef.current); accuracyRef.current = null }
-      return
-    }
-
-    const pos: [number, number] = [gps.lat, gps.lng]
-
-    if (!markerRef.current) {
-      markerRef.current = L.circleMarker(pos, {
-        radius: 8,
-        color: '#2196F3',
-        fillColor: '#2196F3',
-        fillOpacity: 0.9,
-        weight: 3,
-        className: 'gps-pulse-marker',
-      }).addTo(map)
-    } else {
-      markerRef.current.setLatLng(pos)
-    }
-
-    // Accuracy ring
-    const accMeters = gps.accuracy ?? 10
-    if (!accuracyRef.current) {
-      accuracyRef.current = L.circle(pos, {
-        radius: accMeters,
-        color: '#2196F3',
-        fillColor: '#2196F3',
-        fillOpacity: 0.1,
-        weight: 1,
-        interactive: false,
-      }).addTo(map)
-    } else {
-      accuracyRef.current.setLatLng(pos)
-      accuracyRef.current.setRadius(accMeters)
-    }
-
-    return () => {
-      if (markerRef.current) { map.removeLayer(markerRef.current); markerRef.current = null }
-      if (accuracyRef.current) { map.removeLayer(accuracyRef.current); accuracyRef.current = null }
-    }
-  }, [map, gps.lat, gps.lng, gps.accuracy])
+  const accuracyFC = useMemo<FeatureCollection>(() => {
+    if (gps.lat == null || gps.lng == null) return EMPTY_FC
+    const acc = gps.accuracy ?? 10
+    return accuracyRingPolygon(gps.lat, gps.lng, acc)
+  }, [gps.lat, gps.lng, gps.accuracy])
 
   // Compute distances — use GPS when available, fall back to ballPos in review mode
   useEffect(() => {
-    // Resolve origin: GPS position first, then ballPos (review mode)
     const originLat = gps.lat ?? (!playMode ? ballPos?.lat : null) ?? null
     const originLng = gps.lng ?? (!playMode ? ballPos?.lng : null) ?? null
 
@@ -95,16 +75,10 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
     }
 
     const distCenter = Math.round(haversineYards(originLat, originLng, greenPos.lat, greenPos.lng))
-
     const fb = computeGreenFrontBack(originLat, originLng, greenPos.lat, greenPos.lng, greenBoundary)
-
-    // Determine context for hazard detection
     const context = determineShotContext(distCenter, true)
-
-    // Nearby hazards using shared function
     const nearby = findNearbyHazards({ lat: originLat, lng: originLng }, hazards, context)
 
-    // Club recommendation using shared function
     const clubRec: RangefinderData['clubRec'] = []
     if (distCenter && strategy?.player?.clubs?.length) {
       const ranked = rankClubs(strategy.player.clubs, distCenter, {
@@ -127,5 +101,33 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
     })
   }, [gps.lat, gps.lng, greenPos, greenBoundary, hazards, strategy, ballPos, playMode])
 
-  return null
+  if (gps.lat == null || gps.lng == null) return null
+
+  return (
+    <>
+      <Source id="m-gps-acc" type="geojson" data={accuracyFC}>
+        <Layer
+          id="m-gps-acc-fill"
+          type="fill"
+          paint={{ 'fill-color': '#2196F3', 'fill-opacity': 0.1 }}
+        />
+        <Layer
+          id="m-gps-acc-line"
+          type="line"
+          paint={{ 'line-color': '#2196F3', 'line-width': 1, 'line-opacity': 0.5 }}
+        />
+      </Source>
+      <Marker longitude={gps.lng} latitude={gps.lat} anchor="center">
+        <div
+          className="gps-pulse-marker"
+          style={{
+            width: 16, height: 16, borderRadius: '50%',
+            background: '#2196F3', border: '3px solid #fff',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+            pointerEvents: 'none',
+          }}
+        />
+      </Marker>
+    </>
+  )
 }

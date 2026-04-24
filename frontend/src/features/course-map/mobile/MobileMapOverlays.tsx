@@ -1,183 +1,195 @@
-import { useEffect, useRef } from 'react'
-import { useMap } from 'react-leaflet'
-import L from 'leaflet'
+import { useMemo } from 'react'
+import { Source, Layer, Marker } from 'react-map-gl/maplibre'
+import type { FeatureCollection, Feature, Polygon, Position } from 'geojson'
 import { useMobileMap } from './MobileMapContext'
 import { TEE_COLORS, HAZARD_COLORS } from '../courseMapState'
+import type { LatLng } from '../courseMapState'
 import { haversineYards } from '../geoUtils'
 
 /**
- * MobileMapOverlays: Read-only version of MapOverlays.
- * Renders tee markers, fairway, green, hazards — no editing interactions.
- * When editMode is set, renders a tap target for placement.
+ * MobileMapOverlays — read-only MapLibre version (Stage 20d).
+ *
+ * Renders fairway centerline, fairway/green boundaries, hazards, tee markers,
+ * green flag, and review-mode ball position. Click-to-place editing is wired
+ * via the parent map's onClick handler in MobileHoleViewer.
  */
+
+const EMPTY_FC: FeatureCollection = { type: 'FeatureCollection', features: [] }
+
+function ringFromLatLng(pts: LatLng[]): Position[] {
+  const ring: Position[] = pts.map(p => [p.lng, p.lat])
+  if (ring.length >= 3) {
+    const f = ring[0]
+    const l = ring[ring.length - 1]
+    if (f[0] !== l[0] || f[1] !== l[1]) ring.push([f[0], f[1]])
+  }
+  return ring
+}
+
 export function MobileMapOverlays() {
-  const map = useMap()
   const ctx = useMobileMap()
-  const ctxRef = useRef(ctx)
-  ctxRef.current = ctx
-  const layerGroupRef = useRef<L.LayerGroup>(L.layerGroup())
+  const {
+    teePos, greenPos, fairwayPath, teePositions, fairwayBoundaries,
+    greenBoundary, hazards, course, teeId, showOverlays, editMode, ballPos, playMode,
+  } = ctx
 
-  useEffect(() => {
-    const lg = layerGroupRef.current
-    if (!map.hasLayer(lg)) lg.addTo(map)
-    return () => {
-      lg.clearLayers()
-      if (map.hasLayer(lg)) map.removeLayer(lg)
+  const activeTeeName = course?.tees?.find(t => t.id === teeId)?.tee_name ?? ''
+  // When overlays are off, hide lines/boundaries but keep markers + hazards. Force on while editing.
+  const showLines = showOverlays || !!editMode
+
+  const fairwayBoundaryFC = useMemo<FeatureCollection>(() => {
+    if (!showLines) return EMPTY_FC
+    const features: Feature<Polygon>[] = fairwayBoundaries
+      .filter(p => p.length >= 3)
+      .map(p => ({
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [ringFromLatLng(p)] },
+        properties: {},
+      }))
+    return { type: 'FeatureCollection', features }
+  }, [fairwayBoundaries, showLines])
+
+  const greenBoundaryFC = useMemo<FeatureCollection>(() => {
+    if (!showLines || greenBoundary.length < 3) return EMPTY_FC
+    return {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [ringFromLatLng(greenBoundary)] },
+        properties: {},
+      }],
     }
-  }, [map])
+  }, [greenBoundary, showLines])
 
-  // Redraw on key change
-  useEffect(() => {
-    const lg = layerGroupRef.current
-    lg.clearLayers()
-
-    const { teePos, greenPos, fairwayPath, teePositions, fairwayBoundaries, greenBoundary, hazards, course, teeId, showOverlays, editMode } = ctx
-    const activeTee = course?.tees?.find(t => t.id === teeId)
-    const activeTeeName = activeTee?.tee_name ?? ''
-    // When overlays are hidden, only show tee marker, green/flag, and hazards (no lines/boundaries)
-    const showLines = showOverlays || !!editMode
-
-    // ── Fairway centerline ──
-    const hasFairwayData = fairwayPath.length >= 1 || (teePos && greenPos)
-    if (showLines && hasFairwayData) {
-      const pts: [number, number][] = []
-      if (teePos) pts.push([teePos.lat, teePos.lng])
-      fairwayPath.forEach(p => pts.push([p.lat, p.lng]))
-      if (greenPos) pts.push([greenPos.lat, greenPos.lng])
-
-      if (pts.length >= 2) {
-        L.polyline(pts, { color: '#FFD700', weight: 2, dashArray: '6,4', interactive: false }).addTo(lg)
-
-        // Segment distance labels (only in edit mode)
-        if (editMode) {
-          for (let i = 1; i < pts.length; i++) {
-            const d = Math.round(haversineYards(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1]))
-            const midLat = (pts[i-1][0] + pts[i][0]) / 2
-            const midLng = (pts[i-1][1] + pts[i][1]) / 2
-            L.marker([midLat, midLng], {
-              icon: L.divIcon({
-                className: 'leaflet-seg-label',
-                html: `<div style="color:#FFD700;font-size:10px;font-weight:700;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;">${d}y</div>`,
-                iconSize: [0, 0], iconAnchor: [0, 6],
-              }),
-              interactive: false,
-            }).addTo(lg)
-          }
+  const hazardsFC = useMemo<FeatureCollection>(() => {
+    const features: Feature<Polygon>[] = hazards
+      .filter(h => !h._deleted && h.boundary.length >= 3)
+      .map(h => {
+        const [fill, stroke] = HAZARD_COLORS[h.hazard_type] ?? ['#999', '#666']
+        return {
+          type: 'Feature',
+          geometry: { type: 'Polygon', coordinates: [ringFromLatLng(h.boundary)] },
+          properties: { fill, stroke, hazard_type: h.hazard_type, name: h.name ?? '' },
         }
-      }
+      })
+    return { type: 'FeatureCollection', features }
+  }, [hazards])
+
+  const centerlineFC = useMemo<FeatureCollection>(() => {
+    if (!showLines) return EMPTY_FC
+    const pts: Position[] = []
+    if (teePos) pts.push([teePos.lng, teePos.lat])
+    fairwayPath.forEach(p => pts.push([p.lng, p.lat]))
+    if (greenPos) pts.push([greenPos.lng, greenPos.lat])
+    if (pts.length < 2) return EMPTY_FC
+    return {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: pts },
+        properties: {},
+      }],
     }
+  }, [teePos, greenPos, fairwayPath, showLines])
 
-    // ── Fairway boundaries ──
-    if (showLines) {
-      for (const poly of fairwayBoundaries) {
-        if (poly.length >= 3) {
-          L.polygon(poly.map(p => [p.lat, p.lng] as [number, number]), {
-            color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.15, interactive: false,
-          }).addTo(lg)
-        }
-      }
+  // Segment distance labels — only shown while editing the fairway
+  const segLabels = useMemo(() => {
+    if (!editMode) return []
+    const pts: LatLng[] = []
+    if (teePos) pts.push(teePos)
+    pts.push(...fairwayPath)
+    if (greenPos) pts.push(greenPos)
+    if (pts.length < 2) return []
+    const labels: { lat: number; lng: number; yards: number }[] = []
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i]
+      labels.push({
+        lat: (a.lat + b.lat) / 2,
+        lng: (a.lng + b.lng) / 2,
+        yards: Math.round(haversineYards(a.lat, a.lng, b.lat, b.lng)),
+      })
     }
+    return labels
+  }, [teePos, greenPos, fairwayPath, editMode])
 
-    // ── Tee markers ──
-    for (const [name, pos] of Object.entries(teePositions)) {
-      const isActive = name === activeTeeName
-      const color = TEE_COLORS[name.split(' ')[0]] || '#999'
-      const size = isActive ? 24 : 18
-      const textColor = color === '#fff' ? '#333' : '#fff'
-      L.marker([pos.lat, pos.lng], {
-        interactive: false,
-        icon: L.divIcon({
-          className: 'leaflet-edit-tee',
-          html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:bold;color:${textColor};opacity:${isActive ? 1 : 0.6};margin:-${size/2}px 0 0 -${size/2}px;">T</div>`,
-          iconSize: [0, 0],
-        }),
-        zIndexOffset: isActive ? 1000 : 500,
-      }).addTo(lg)
-    }
+  return (
+    <>
+      <Source id="m-fw-bnd" type="geojson" data={fairwayBoundaryFC}>
+        <Layer id="m-fw-bnd-fill" type="fill" paint={{ 'fill-color': '#4CAF50', 'fill-opacity': 0.15 }} />
+        <Layer id="m-fw-bnd-line" type="line" paint={{ 'line-color': '#4CAF50', 'line-width': 2 }} />
+      </Source>
+      <Source id="m-green-bnd" type="geojson" data={greenBoundaryFC}>
+        <Layer id="m-green-bnd-fill" type="fill" paint={{ 'fill-color': '#4CAF50', 'fill-opacity': 0.25 }} />
+        <Layer id="m-green-bnd-line" type="line" paint={{ 'line-color': '#4CAF50', 'line-width': 2 }} />
+      </Source>
+      <Source id="m-hazards" type="geojson" data={hazardsFC}>
+        <Layer id="m-hazards-fill" type="fill" paint={{ 'fill-color': ['get', 'fill'], 'fill-opacity': 0.3 }} />
+        <Layer id="m-hazards-line" type="line" paint={{ 'line-color': ['get', 'stroke'], 'line-width': 1.5 }} />
+      </Source>
+      <Source id="m-centerline" type="geojson" data={centerlineFC}>
+        <Layer
+          id="m-centerline-line"
+          type="line"
+          paint={{ 'line-color': '#FFD700', 'line-width': 2, 'line-dasharray': [3, 2] }}
+        />
+      </Source>
 
-    // ── Green/flag marker ──
-    if (greenPos) {
-      const flagSvg = '<svg width="20" height="24" viewBox="0 0 20 24"><line x1="4" y1="2" x2="4" y2="22" stroke="#fff" stroke-width="2"/><polygon points="5,2 18,7 5,12" fill="#ef5350"/><circle cx="4" cy="22" r="2.5" fill="#fff" stroke="#333"/></svg>'
-      L.marker([greenPos.lat, greenPos.lng], {
-        interactive: false,
-        icon: L.divIcon({
-          className: 'leaflet-edit-flag',
-          html: flagSvg,
-          iconSize: [20, 24],
-          iconAnchor: [4, 22],
-        }),
-        zIndexOffset: 900,
-      }).addTo(lg)
-    }
+      {Object.entries(teePositions).map(([name, pos]) => {
+        const isActive = name === activeTeeName
+        const color = TEE_COLORS[name.split(' ')[0]] || '#999'
+        const size = isActive ? 24 : 18
+        const textColor = color === '#fff' ? '#333' : '#fff'
+        return (
+          <Marker key={name} longitude={pos.lng} latitude={pos.lat} anchor="center">
+            <div
+              style={{
+                width: size, height: size, borderRadius: '50%',
+                background: color, border: '2px solid #fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 9, fontWeight: 'bold', color: textColor,
+                opacity: isActive ? 1 : 0.6,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                pointerEvents: 'none',
+              }}
+            >T</div>
+          </Marker>
+        )
+      })}
 
-    // ── Green boundary ──
-    if (showLines && greenBoundary.length >= 3) {
-      L.polygon(greenBoundary.map(p => [p.lat, p.lng] as [number, number]), {
-        color: '#4CAF50', weight: 2, fillColor: '#4CAF50', fillOpacity: 0.25, interactive: false,
-      }).addTo(lg)
-    }
+      {greenPos && (
+        <Marker longitude={greenPos.lng} latitude={greenPos.lat} anchor="bottom">
+          <svg width="20" height="24" viewBox="0 0 20 24" style={{ pointerEvents: 'none' }}>
+            <line x1="4" y1="2" x2="4" y2="22" stroke="#fff" strokeWidth="2" />
+            <polygon points="5,2 18,7 5,12" fill="#ef5350" />
+            <circle cx="4" cy="22" r="2.5" fill="#fff" stroke="#333" />
+          </svg>
+        </Marker>
+      )}
 
-    // ── Ball position marker (review mode) ──
-    if (!ctx.playMode && ctx.ballPos) {
-      const bp = ctx.ballPos
-      L.circleMarker([bp.lat, bp.lng], {
-        radius: 7,
-        color: '#fff',
-        fillColor: '#FF9800',
-        fillOpacity: 0.95,
-        weight: 2,
-        interactive: false,
-      }).addTo(lg)
-    }
+      {!playMode && ballPos && (
+        <Marker longitude={ballPos.lng} latitude={ballPos.lat} anchor="center">
+          <div
+            style={{
+              width: 14, height: 14, borderRadius: '50%',
+              background: '#FF9800', border: '2px solid #fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.5)',
+              pointerEvents: 'none',
+            }}
+          />
+        </Marker>
+      )}
 
-    // ── Hazards ──
-    for (const h of hazards) {
-      if (h._deleted || h.boundary.length < 3) continue
-      const [fill, stroke] = HAZARD_COLORS[h.hazard_type] || ['#999', '#666']
-      const poly = L.polygon(h.boundary.map(p => [p.lat, p.lng] as [number, number]), {
-        color: stroke, weight: 1.5, fillColor: fill, fillOpacity: 0.3, interactive: false,
-      }).addTo(lg)
-      if (h.name) poly.bindTooltip(h.name, { permanent: false })
-    }
-  }, [ctx.redrawKey, ctx.showOverlays, ctx.ballPos, ctx.playMode, map])
-
-  // ── Edit mode: map click handler ──
-  useEffect(() => {
-    const handleClick = (e: L.LeafletMouseEvent) => {
-      const c = ctxRef.current
-      if (!c.editMode) return
-      const { lat, lng } = e.latlng
-
-      switch (c.editMode) {
-        case 'tee': {
-          const newPos = { lat, lng }
-          c.setTeePos(newPos)
-          c.setDirty(true)
-          c.setEditMode(null)
-          c.triggerRedraw()
-          break
-        }
-        case 'green':
-          c.setGreenPos({ lat, lng })
-          c.setDirty(true)
-          c.setEditMode(null)
-          c.triggerRedraw()
-          break
-        case 'fairway':
-          c.setFairwayPath([...c.fairwayPath, { lat, lng }])
-          c.setDirty(true)
-          c.triggerRedraw()
-          break
-        case 'ball':
-          c.setBallPos({ lat, lng })
-          c.setEditMode(null)
-          break
-      }
-    }
-
-    map.on('click', handleClick)
-    return () => { map.off('click', handleClick) }
-  }, [map])
-
-  return null
+      {segLabels.map((l, i) => (
+        <Marker key={i} longitude={l.lng} latitude={l.lat} anchor="center">
+          <div
+            style={{
+              color: '#FFD700', fontSize: 10, fontWeight: 700,
+              textShadow: '0 0 3px #000, 0 0 3px #000',
+              whiteSpace: 'nowrap', pointerEvents: 'none',
+            }}
+          >{l.yards}y</div>
+        </Marker>
+      ))}
+    </>
+  )
 }

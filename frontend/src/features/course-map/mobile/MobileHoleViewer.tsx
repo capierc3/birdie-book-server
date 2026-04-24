@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import { Map } from 'react-map-gl/maplibre'
+import type { MapRef, MapLayerMouseEvent } from 'react-map-gl/maplibre'
+import type { StyleSpecification } from 'maplibre-gl'
 import { MobileMapProvider, useMobileMap } from './MobileMapContext'
 import { MobileMapOverlays } from './MobileMapOverlays'
 import { MobileShotOverlays } from './MobileShotOverlays'
@@ -18,123 +20,25 @@ import { NotesTab, loadNote, saveNote } from './tabs/NotesTab'
 import { ScorecardTab } from './tabs/ScorecardTab'
 import { EditTab } from './tabs/EditTab'
 import { HAZARD_COLORS, HAZARD_LABELS } from '../courseMapState'
+import { bearing as computeBearing, haversineYards, destPoint } from '../geoUtils'
 import s from './MobileHoleViewer.module.css'
 import ts from './tabs/tabs.module.css'
-import 'leaflet/dist/leaflet.css'
+import 'maplibre-gl/dist/maplibre-gl.css'
 
-/** Map auto-center (shared logic with desktop) */
-function MapController({ followingRef }: { followingRef: React.MutableRefObject<boolean> }) {
-  const map = useMap()
-  const ctx = useMobileMap()
-  const { course, currentHole, totalHoles, teeId, allRoundDetails, playMode, gps } = ctx
-  const prevHoleRef = useRef(currentHole)
+const PERSPECTIVE_PITCH = 70
 
-  // Force Leaflet to recalculate size after mount (fixes blank map in fixed containers)
-  useEffect(() => {
-    const timer = setTimeout(() => map.invalidateSize(), 100)
-    return () => clearTimeout(timer)
-  }, [map])
-
-  // User-initiated drag turns off follow; re-enable via center-on-me FAB or hole change
-  useEffect(() => {
-    const onDragStart = () => { followingRef.current = false }
-    map.on('dragstart', onDragStart)
-    return () => { map.off('dragstart', onDragStart) }
-  }, [map, followingRef])
-
-  useEffect(() => {
-    if (!course) return
-    const holeChanged = prevHoleRef.current !== currentHole
-    prevHoleRef.current = currentHole
-    if (holeChanged) followingRef.current = true
-    if (!followingRef.current) return
-
-    const tee = course.tees?.find(t => t.id === teeId) ?? course.tees?.[0]
-    const hole = tee?.holes?.find(h => h.hole_number === currentHole)
-
-    let lat: number | undefined, lng: number | undefined
-
-    // 1. Play mode — live GPS wins so the map follows the user around the course
-    if (playMode && gps.watching && gps.lat != null && gps.lng != null) {
-      lat = gps.lat; lng = gps.lng
-    }
-
-    // 2. Current hole's placed tee
-    if (!lat && hole?.tee_lat && hole?.tee_lng) {
-      lat = hole.tee_lat; lng = hole.tee_lng
-    }
-
-    // 3. First shot from any round (historic data for this hole)
-    if (!lat) {
-      for (const rd of allRoundDetails) {
-        const rh = rd.holes?.find(h => h.hole_number === currentHole)
-        const firstShot = rh?.shots?.find(s => s.shot_number === 1)
-        if (firstShot?.start_lat && firstShot?.start_lng) {
-          lat = firstShot.start_lat; lng = firstShot.start_lng
-          break
-        }
-      }
-    }
-
-    // 4. Previous hole's green — usually close to the next tee
-    if (!lat && tee?.holes?.length) {
-      const prevNum = currentHole > 1 ? currentHole - 1 : totalHoles
-      const prevHole = tee.holes.find(h => h.hole_number === prevNum)
-      if (prevHole?.flag_lat && prevHole?.flag_lng) {
-        lat = prevHole.flag_lat; lng = prevHole.flag_lng
-      }
-    }
-
-    // 5. Course center
-    if (!lat && course.lat && course.lng) {
-      lat = course.lat; lng = course.lng
-    }
-
-    if (lat && lng) {
-      // Hole changes get an animated flyTo; GPS ticks get a jitter-proof
-      // setView so the map smoothly follows without 0.5s wobble per fix.
-      if (holeChanged) {
-        map.flyTo([lat, lng], map.getZoom() < 15 ? 17 : map.getZoom(), { duration: 0.5 })
-      } else {
-        const distMeters = map.getCenter().distanceTo([lat, lng])
-        if (distMeters > 3) {
-          map.setView([lat, lng], map.getZoom() < 15 ? 17 : map.getZoom(), { animate: false })
-        }
-      }
-    }
-  }, [map, course, currentHole, totalHoles, teeId, allRoundDetails, playMode, gps.watching, gps.lat, gps.lng, followingRef])
-
-  return null
-}
-
-/** Center on GPS FAB — renders a portal-style button that controls the map */
-function CenterOnMeButton({ followingRef }: { followingRef: React.MutableRefObject<boolean> }) {
-  const map = useMap()
-  const { gps } = useMobileMap()
-
-  if (!gps.watching || gps.lat == null) return null
-
-  const handleClick = () => {
-    followingRef.current = true
-    map.flyTo([gps.lat!, gps.lng!], 18, { duration: 0.5 })
-    gps.refresh()
-  }
-
-  // Render into a Leaflet control container so it's inside the map but positioned as overlay
-  return (
-    <div
-      className={s.centerFab}
-      onClick={handleClick}
-      title="Center on me"
-      role="button"
-      tabIndex={0}
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-      </svg>
-    </div>
-  )
+const SATELLITE_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    satellite: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Tiles © Esri',
+    },
+  },
+  layers: [{ id: 'satellite', type: 'raster', source: 'satellite' }],
 }
 
 const BAG_ORDER: Record<string, number> = {
@@ -174,7 +78,8 @@ const REVIEW_TABS: TabConfig[] = [
 
 function MobileHoleViewerInner() {
   const ctx = useMobileMap()
-  const { course, gps, teePos, greenPos, strategy, formValues, playMode, activeRangefinderTool, selectedClubType } = ctx
+  const { course, gps, teePos, greenPos, strategy, formValues, playMode, activeRangefinderTool, selectedClubType,
+    currentHole, totalHoles, teeId, allRoundDetails, cameraMode, setMapBearing, setCameraMode } = ctx
   const [activeTab, setActiveTab] = useState<MobileTab>(playMode ? 'gps' : 'caddie')
   const [rangefinderData, setRangefinderData] = useState<RangefinderData>({
     distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
@@ -183,6 +88,10 @@ function MobileHoleViewerInner() {
   const [toolResult, setToolResult] = useState<ToolResult | null>(null)
   const [clubPickerOpen, setClubPickerOpen] = useState(false)
   const followingRef = useRef(true)
+  const mapRef = useRef<MapRef>(null)
+  const prevHoleRef = useRef<number | null>(null)
+  const prevCameraModeRef = useRef(cameraMode)
+  const [debugCam, setDebugCam] = useState<{ zoom: number; pitch: number; bearing: number }>({ zoom: 0, pitch: 0, bearing: 0 })
 
   // Peek score state — syncs with localStorage (same store as NotesTab)
   const [peekScore, setPeekScore] = useState<number | null>(() => loadNote(ctx.courseId, ctx.currentHole).score)
@@ -208,10 +117,213 @@ function MobileHoleViewerInner() {
     ctx.nextHole()
   }, [ctx])
 
-  const mapCenter = useMemo<[number, number]>(() => {
-    if (course?.lat && course?.lng) return [course.lat, course.lng]
-    return [42.7, -83.5]
+  const initialCenter = useMemo<{ lng: number; lat: number }>(() => {
+    if (course?.lat && course?.lng) return { lng: course.lng, lat: course.lat }
+    return { lng: -83.5, lat: 42.7 }
   }, [course])
+
+  // Resolve target center using the same fallback chain as legacy MapController.
+  const resolvedCenter = useMemo<{ lng: number; lat: number } | null>(() => {
+    if (!course) return null
+    const tee = course.tees?.find(t => t.id === teeId) ?? course.tees?.[0]
+    const hole = tee?.holes?.find(h => h.hole_number === currentHole)
+
+    // 1. Play mode + live GPS wins so map follows the user
+    if (playMode && gps.watching && gps.lat != null && gps.lng != null) {
+      return { lng: gps.lng, lat: gps.lat }
+    }
+    // 2. Current hole's placed tee
+    if (hole?.tee_lat && hole?.tee_lng) return { lng: hole.tee_lng, lat: hole.tee_lat }
+    // 3. First shot from any round (historic data for this hole)
+    for (const rd of allRoundDetails) {
+      const rh = rd.holes?.find(h => h.hole_number === currentHole)
+      const firstShot = rh?.shots?.find(sh => sh.shot_number === 1)
+      if (firstShot?.start_lat && firstShot?.start_lng) {
+        return { lng: firstShot.start_lng, lat: firstShot.start_lat }
+      }
+    }
+    // 4. Previous hole's green — usually close to the next tee
+    if (tee?.holes?.length) {
+      const prevNum = currentHole > 1 ? currentHole - 1 : totalHoles
+      const prevHole = tee.holes.find(h => h.hole_number === prevNum)
+      if (prevHole?.flag_lat && prevHole?.flag_lng) {
+        return { lng: prevHole.flag_lng, lat: prevHole.flag_lat }
+      }
+    }
+    // 5. Course center
+    if (course.lat && course.lng) return { lng: course.lng, lat: course.lat }
+    return null
+  }, [course, currentHole, totalHoles, teeId, allRoundDetails, playMode, gps.watching, gps.lat, gps.lng])
+
+  // Tee-to-green framing for perspective mode: centers between tee and green
+  // and picks a zoom that fits the hole with tee near bottom / green near top.
+  // Empirical zoom curve tuned for ~70° pitch: 170yd ≈ 17.5, 350yd ≈ 16.5, 550yd ≈ 15.8.
+  const holeFraming = useMemo<{ center: { lng: number; lat: number }; zoom: number } | null>(() => {
+    if (!course) return null
+    const tee = course.tees?.find(t => t.id === teeId) ?? course.tees?.[0]
+    const hole = tee?.holes?.find(h => h.hole_number === currentHole)
+    if (!hole?.flag_lat || !hole?.flag_lng) return null
+
+    // Primary: real tee + green GPS.
+    let originLat = hole.tee_lat ?? null
+    let originLng = hole.tee_lng ?? null
+    let distYards: number | null = null
+    if (originLat != null && originLng != null) {
+      distYards = haversineYards(originLat, originLng, hole.flag_lat, hole.flag_lng)
+    } else if (hole.yardage && hole.yardage > 0) {
+      // Fallback: no tee GPS. Approximate by walking back from the flag along
+      // the prev-green → flag bearing (same heuristic as teeUpBearingDeg)
+      // for `yardage` yards. Keeps framing reasonable when tee isn't placed.
+      const prevNum = currentHole > 1 ? currentHole - 1 : totalHoles
+      const prev = tee?.holes?.find(h => h.hole_number === prevNum)
+      if (prev?.flag_lat != null && prev?.flag_lng != null) {
+        const rad = computeBearing(prev.flag_lat, prev.flag_lng, hole.flag_lat, hole.flag_lng)
+        const synth = destPoint(hole.flag_lat, hole.flag_lng, rad + Math.PI, hole.yardage)
+        originLat = synth.lat
+        originLng = synth.lng
+        distYards = hole.yardage
+      }
+    }
+    if (originLat == null || originLng == null || distYards == null) return null
+
+    const D = Math.max(distYards, 80)
+    // Empirical zoom curve for ~70° pitch: 170yd ≈ 18.8, 334yd ≈ 17.86, 500yd ≈ 17.26, 600yd ≈ 17.0.
+    const zoom = Math.max(16.2, Math.min(19, 18.8 - Math.log2(D / 170)))
+    return {
+      center: {
+        lat: (originLat + hole.flag_lat) / 2,
+        lng: (originLng + hole.flag_lng) / 2,
+      },
+      zoom,
+    }
+  }, [course, currentHole, totalHoles, teeId])
+
+  // Bearing from effective tee → green for the current hole; null if either
+  // endpoint is missing. Used for perspective auto-orient.
+  const teeUpBearingDeg = useMemo<number | null>(() => {
+    if (!course) return null
+    const tee = course.tees?.find(t => t.id === teeId) ?? course.tees?.[0]
+    const hole = tee?.holes?.find(h => h.hole_number === currentHole)
+    let originLat = hole?.tee_lat ?? null
+    let originLng = hole?.tee_lng ?? null
+    if (originLat == null || originLng == null) {
+      // Fallback: previous hole green → tee→green bearing approximation
+      const prevNum = currentHole > 1 ? currentHole - 1 : totalHoles
+      const prev = tee?.holes?.find(h => h.hole_number === prevNum)
+      if (prev?.flag_lat && prev?.flag_lng) {
+        originLat = prev.flag_lat; originLng = prev.flag_lng
+      }
+    }
+    if (originLat == null || originLng == null || hole?.flag_lat == null || hole?.flag_lng == null) return null
+    const rad = computeBearing(originLat, originLng, hole.flag_lat, hole.flag_lng)
+    return (rad * 180) / Math.PI
+  }, [course, currentHole, totalHoles, teeId])
+
+  // Auto-center + auto-orient: hole change always re-applies; GPS ticks only
+  // when in following mode; camera mode flips snap immediately. Skips while
+  // the user is actively dragging.
+  useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map || !resolvedCenter) return
+
+    const holeChanged = prevHoleRef.current !== currentHole
+    const cameraChanged = prevCameraModeRef.current !== cameraMode
+    prevHoleRef.current = currentHole
+    prevCameraModeRef.current = cameraMode
+    if (holeChanged) followingRef.current = true
+    if (!followingRef.current && !holeChanged && !cameraChanged) return
+
+    const targetBearing = cameraMode === 'perspective' ? (teeUpBearingDeg ?? 0) : 0
+    const targetPitch = cameraMode === 'perspective' && teeUpBearingDeg != null ? PERSPECTIVE_PITCH : 0
+    const currentZoom = map.getZoom()
+    const targetZoom = currentZoom < 15 ? 17 : currentZoom
+
+    if (holeChanged || cameraChanged) {
+      // Use tee-to-green framing when we have full hole geometry and aren't
+      // actively GPS-following in play mode (then the user's position wins).
+      const gpsFollowing = playMode && gps.watching && gps.lat != null && gps.lng != null
+      const useFraming = holeFraming && !gpsFollowing
+      map.flyTo({
+        center: useFraming
+          ? [holeFraming.center.lng, holeFraming.center.lat]
+          : [resolvedCenter.lng, resolvedCenter.lat],
+        zoom: useFraming ? holeFraming.zoom : targetZoom,
+        bearing: targetBearing,
+        pitch: targetPitch,
+        duration: 500,
+      })
+    } else if (playMode && gps.watching) {
+      // Drift correction only runs while actively GPS-following in play mode.
+      // In review mode, running this would fight the framing flyTo — resolvedCenter
+      // is the tee but framing targets the midpoint, so the drift check sees
+      // >3m delta mid-animation and snaps the camera back with interpolated zoom.
+      const cur = map.getCenter()
+      const dx = (cur.lng - resolvedCenter.lng) * Math.cos(resolvedCenter.lat * Math.PI / 180)
+      const dy = cur.lat - resolvedCenter.lat
+      const distMeters = Math.sqrt(dx * dx + dy * dy) * 111320
+      if (distMeters > 3) {
+        map.easeTo({
+          center: [resolvedCenter.lng, resolvedCenter.lat],
+          zoom: targetZoom,
+          duration: 0,
+        })
+      }
+    }
+  }, [resolvedCenter, currentHole, cameraMode, teeUpBearingDeg, holeFraming, playMode, gps.watching, gps.lat, gps.lng])
+
+  // User drag turns off auto-follow until next hole change or center FAB tap
+  const handleDragStart = useCallback(() => {
+    followingRef.current = false
+  }, [])
+
+  // Push live bearing to context so WindIndicator can counter-rotate
+  const handleMove = useCallback(() => {
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    setMapBearing(map.getBearing())
+    setDebugCam({ zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() })
+  }, [setMapBearing])
+
+  const handleMapClick = useCallback((evt: MapLayerMouseEvent) => {
+    const c = ctx
+    if (!c.editMode) return
+    const { lat, lng } = evt.lngLat
+    switch (c.editMode) {
+      case 'tee':
+        c.setTeePos({ lat, lng })
+        c.setDirty(true)
+        c.setEditMode(null)
+        c.triggerRedraw()
+        break
+      case 'green':
+        c.setGreenPos({ lat, lng })
+        c.setDirty(true)
+        c.setEditMode(null)
+        c.triggerRedraw()
+        break
+      case 'fairway':
+        c.setFairwayPath([...c.fairwayPath, { lat, lng }])
+        c.setDirty(true)
+        c.triggerRedraw()
+        break
+      case 'ball':
+        c.setBallPos({ lat, lng })
+        c.setEditMode(null)
+        break
+    }
+  }, [ctx])
+
+  const handleCenterOnMe = useCallback(() => {
+    const map = mapRef.current?.getMap()
+    if (!map || gps.lat == null || gps.lng == null) return
+    followingRef.current = true
+    map.flyTo({ center: [gps.lng, gps.lat], zoom: 18, duration: 500 })
+    gps.refresh()
+  }, [gps])
+
+  const handleToggleCamera = useCallback(() => {
+    setCameraMode(cameraMode === 'top-down' ? 'perspective' : 'top-down')
+  }, [cameraMode, setCameraMode])
 
   // Play-mode GPS heartbeat: force a fresh fix every 5s so moving from cart to
   // ball is reflected without waiting for the watcher to fire. Pauses when the
@@ -462,20 +574,57 @@ function MobileHoleViewerInner() {
   return (
     <div className={s.layout}>
       <div className={s.mapContainer}>
-        <MapContainer center={mapCenter} zoom={16} style={{ width: '100%', height: '100%' }} zoomControl={false} attributionControl={false}>
-          <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-          <MapController followingRef={followingRef} />
+        <Map
+          ref={mapRef}
+          initialViewState={{ longitude: initialCenter.lng, latitude: initialCenter.lat, zoom: 16, bearing: 0, pitch: 0 }}
+          mapStyle={SATELLITE_STYLE}
+          maxPitch={85}
+          style={{ width: '100%', height: '100%' }}
+          attributionControl={false}
+          onDragStart={handleDragStart}
+          onMove={handleMove}
+          onClick={handleMapClick}
+          cursor={ctx.editMode ? 'crosshair' : undefined}
+        >
           <MobileMapOverlays />
           <MobileShotOverlays />
           <GpsRangefinder onData={setRangefinderData} />
           <MobileStrategyOverlays onToolResult={setToolResult} />
-          <CenterOnMeButton followingRef={followingRef} />
-        </MapContainer>
+        </Map>
       </div>
 
       <HoleInfoBar />
 
+      <div className={s.debugBadge}>
+        z {debugCam.zoom.toFixed(2)}<br />
+        p {debugCam.pitch.toFixed(0)}°<br />
+        b {debugCam.bearing.toFixed(0)}°<br />
+        frame {holeFraming ? `z=${holeFraming.zoom.toFixed(2)}` : 'null'}
+      </div>
+
       <WindIndicator />
+
+      {/* Camera mode toggle — stacked above overlay toggle */}
+      <button
+        className={`${s.cameraToggle} ${cameraMode === 'top-down' ? s.cameraToggleOff : ''}`}
+        onClick={handleToggleCamera}
+        title={cameraMode === 'perspective' ? 'Switch to top-down view' : 'Switch to perspective view'}
+      >
+        {cameraMode === 'perspective' ? (
+          // 3D perspective icon (tilted square)
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 17 L12 21 L21 17 L21 7 L12 3 L3 7 Z" />
+            <path d="M3 7 L12 11 L21 7" />
+            <path d="M12 11 L12 21" />
+          </svg>
+        ) : (
+          // Top-down compass-style icon
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <polygon points="12 6 15 14 12 12 9 14 12 6" fill="currentColor" />
+          </svg>
+        )}
+      </button>
 
       {/* Overlay toggle — stacked near the GPS FAB */}
       <button
@@ -489,6 +638,22 @@ function MobileHoleViewerInner() {
           <polyline points="22 8.5 12 15.5 2 8.5" />
         </svg>
       </button>
+
+      {/* Center on me FAB — only when GPS active */}
+      {gps.watching && gps.lat != null && (
+        <div
+          className={s.centerFab}
+          onClick={handleCenterOnMe}
+          title="Center on me"
+          role="button"
+          tabIndex={0}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+          </svg>
+        </div>
+      )}
 
       <MobileBottomSheet peekContent={peekContent} activeTab={activeTab} onTabChange={setActiveTab} tabs={playMode ? PLAY_TABS : REVIEW_TABS}>
         {activeTab === 'gps' && <RangefinderTab data={rangefinderData} toolResult={toolResult} />}

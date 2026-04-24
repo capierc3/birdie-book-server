@@ -47,6 +47,12 @@ export interface MobileMapState {
   // Display toggles
   showOverlays: boolean
 
+  // Camera (Stage 20d) — 'top-down' = north-up flat, 'perspective' = tee→green-up + tilt
+  cameraMode: 'top-down' | 'perspective'
+  // Live map bearing in degrees (0-360). Used by WindIndicator to counter-rotate
+  // so the wind arrow stays geographically correct after the map rotates.
+  mapBearing: number
+
   // Rangefinder tools
   activeRangefinderTool: 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler'
   selectedClubType: string | null
@@ -68,6 +74,10 @@ export interface MobileMapActions {
 
   // Display toggles
   setShowOverlays: (show: boolean) => void
+
+  // Camera (Stage 20d)
+  setCameraMode: (mode: 'top-down' | 'perspective') => void
+  setMapBearing: (bearing: number) => void
 
   // Rangefinder tool actions
   setActiveRangefinderTool: (tool: 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler') => void
@@ -143,6 +153,17 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
 
   // Display toggles
   const [showOverlays, setShowOverlays] = useState(!playMode)
+
+  // Camera mode — persisted across sessions; defaults to perspective for play, top-down for review
+  const [cameraMode, setCameraMode] = useState<'top-down' | 'perspective'>(() => {
+    const saved = localStorage.getItem('birdie_book_camera_mode')
+    if (saved === 'top-down' || saved === 'perspective') return saved
+    return playMode ? 'perspective' : 'top-down'
+  })
+  useEffect(() => {
+    localStorage.setItem('birdie_book_camera_mode', cameraMode)
+  }, [cameraMode])
+  const [mapBearing, setMapBearing] = useState(0)
 
   // Rangefinder tool state
   const [activeRangefinderTool, setActiveRangefinderTool] = useState<'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ruler'>('none')
@@ -296,12 +317,14 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     ballPos,
     playMode,
     showOverlays,
+    cameraMode, mapBearing,
     activeRangefinderTool, selectedClubType,
     editMode, dirty, formValues: formValuesRef.current,
     selectHole, prevHole, nextHole, setTeeId,
     setViewMode, setRoundDetail, setAllRoundDetails,
     setBallPos,
     setShowOverlays,
+    setCameraMode, setMapBearing,
     setActiveRangefinderTool, setSelectedClubType,
     setEditMode, setTeePos, setGreenPos, setFairwayPath,
     setFormValues, setDirty, saveHole,
@@ -314,6 +337,7 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     ballPos,
     playMode,
     showOverlays,
+    cameraMode, mapBearing,
     activeRangefinderTool, selectedClubType,
     editMode, dirty, formValues,
     selectHole, prevHole, nextHole,

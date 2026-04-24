@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from 'react'
-import { useMap } from 'react-leaflet'
-import L from 'leaflet'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
+import { Source, Layer, Marker, useMap } from 'react-map-gl/maplibre'
+import type { FeatureCollection, Feature, Polygon, LineString, Point, Position } from 'geojson'
+import type { MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import { useMobileMap } from './MobileMapContext'
 import { haversineYards, destPoint, bearing } from '../geoUtils'
 import { getClubStats, rankClubs, computeCarryProbabilities } from '../caddieCalc'
@@ -17,227 +18,358 @@ interface Props {
   onToolResult: (result: ToolResult | null) => void
 }
 
+const ARC_STEPS = 24
+const CONE_STEPS = 20
+
+function tapToolColor(tool: 'ruler' | 'carry' | 'recommend'): string {
+  return tool === 'carry' ? '#f44336' : tool === 'recommend' ? '#2196F3' : '#FF5722'
+}
+
 /**
- * MobileStrategyOverlays: headless Leaflet component.
- * Renders strategy tool overlays on the mobile map using GPS as origin.
+ * MobileStrategyOverlays — Stage 20d/e MapLibre version.
+ *
+ * Renders cone, landing-zone arcs, and tap-target overlays (ruler, carry,
+ * recommend) as GeoJSON sources + layers. Pure calc helpers (rankClubs,
+ * computeCarryProbabilities, getClubStats) are unchanged.
  */
 export function MobileStrategyOverlays({ onToolResult }: Props) {
-  const map = useMap()
   const ctx = useMobileMap()
-  const ctxRef = useRef(ctx)
-  ctxRef.current = ctx
+  const { current: defaultMap } = useMap()
+  const map = defaultMap?.getMap()
   const onToolResultRef = useRef(onToolResult)
   onToolResultRef.current = onToolResult
 
-  const layerRef = useRef<L.LayerGroup>(L.layerGroup())
+  const [tapTarget, setTapTarget] = useState<{ lat: number; lng: number; distance: number } | null>(null)
 
   const getSelectedClub = useCallback((): ClubStats | null => {
-    const c = ctxRef.current
+    const c = ctx
     const clubType = c.selectedClubType
     if (!clubType) return null
     const player = c.strategy?.player
     const club = player?.clubs?.find(cl => cl.club_type === clubType)
     if (!club) return null
     return getClubStats(club, player?.lateral_dispersion?.[clubType], player?.miss_tendencies?.[clubType])
-  }, [])
+  }, [ctx])
 
-  // Clear overlays when tool changes
+  const tool = ctx.activeRangefinderTool
+
+  // Reset tap target & emitted tool result when tool changes
   useEffect(() => {
-    const lg = layerRef.current
-    lg.clearLayers()
-    if (ctx.activeRangefinderTool === 'none') {
-      if (map.hasLayer(lg)) map.removeLayer(lg)
-      onToolResultRef.current(null)
-    } else {
-      if (!map.hasLayer(lg)) lg.addTo(map)
+    setTapTarget(null)
+    if (tool === 'none') onToolResultRef.current(null)
+  }, [tool])
+
+  const originLL = useMemo<{ lat: number; lng: number } | null>(() => {
+    const c = ctx
+    const lat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? null
+    const lng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? null
+    if (lat == null || lng == null) return null
+    return { lat, lng }
+  }, [ctx])
+
+  // ── Cone (auto: origin → green) ─────────────────────────────────────────
+  const coneShapes = useMemo(() => {
+    if (tool !== 'cone' || !originLL || !ctx.greenPos) return null
+    const club = getSelectedClub()
+    if (!club) return null
+
+    const aimBear = bearing(originLL.lat, originLL.lng, ctx.greenPos.lat, ctx.greenPos.lng)
+    const spreadInner = Math.atan2(club.lateralStd, club.avg)
+    const spreadOuter = Math.atan2(club.lateralStd * 2, club.avg)
+    const biasAngle = ((club.missRight - club.missLeft) / 100) * spreadOuter * 0.5
+    const coneBearing = aimBear + biasAngle
+
+    const buildRing = (spread: number, dist: number): Position[] => {
+      const ring: Position[] = [[originLL.lng, originLL.lat]]
+      for (let i = 0; i <= CONE_STEPS; i++) {
+        const angle = coneBearing - spread + (i / CONE_STEPS) * spread * 2
+        const pt = destPoint(originLL.lat, originLL.lng, angle, dist)
+        ring.push([pt.lng, pt.lat])
+      }
+      ring.push([originLL.lng, originLL.lat])
+      return ring
     }
-  }, [map, ctx.activeRangefinderTool])
 
-  // ── Cone: auto-render from origin toward green ──
-  useEffect(() => {
-    if (ctx.activeRangefinderTool !== 'cone') return
-    const c = ctxRef.current
-    const originLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? null
-    const originLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? null
-    if (originLat == null || originLng == null || !c.greenPos) return
+    const aimEnd = destPoint(originLL.lat, originLL.lng, aimBear, club.avg)
+    const labelPt = destPoint(originLL.lat, originLL.lng, coneBearing, club.avg)
 
+    const outer: Feature<Polygon> = {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [buildRing(spreadOuter, club.p90)] },
+      properties: { color: club.color, opacity: 0.1 },
+    }
+    const inner: Feature<Polygon> = {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [buildRing(spreadInner, club.avg)] },
+      properties: { color: club.color, opacity: 0.18 },
+    }
+    const aimLine: Feature<LineString> = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [[originLL.lng, originLL.lat], [aimEnd.lng, aimEnd.lat]] },
+      properties: {},
+    }
+    const originPoint: Feature<Point> = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [originLL.lng, originLL.lat] },
+      properties: { color: club.color },
+    }
+
+    return {
+      polys: { type: 'FeatureCollection', features: [outer, inner] } as FeatureCollection,
+      aim: { type: 'FeatureCollection', features: [aimLine] } as FeatureCollection,
+      origin: { type: 'FeatureCollection', features: [originPoint] } as FeatureCollection,
+      label: { lat: labelPt.lat, lng: labelPt.lng, color: club.color, text: `${club.type} ${Math.round(club.avg)}y` },
+    }
+  }, [tool, originLL, ctx.greenPos, getSelectedClub])
+
+  // ── Landing-zone arcs (auto: from origin) ───────────────────────────────
+  const landingShapes = useMemo(() => {
+    if (tool !== 'landing' || !originLL) return null
     const club = getSelectedClub()
-    if (!club) return
+    if (!club) return null
 
-    const lg = layerRef.current
-    lg.clearLayers()
+    const aimBear = ctx.greenPos
+      ? bearing(originLL.lat, originLL.lng, ctx.greenPos.lat, ctx.greenPos.lng)
+      : 0
 
-    const aimBear = bearing(originLat, originLng, c.greenPos.lat, c.greenPos.lng)
-    drawCone(lg, originLat, originLng, aimBear, club)
-    onToolResultRef.current({ type: 'cone' })
-  }, [ctx.activeRangefinderTool, ctx.selectedClubType, ctx.gps.lat, ctx.gps.lng, ctx.ballPos, getSelectedClub])
+    const arcRing = (dist: number): Position[] => {
+      const pts: Position[] = []
+      for (let i = 0; i <= ARC_STEPS; i++) {
+        const angle = aimBear - Math.PI / 2 + (i / ARC_STEPS) * Math.PI
+        const p = destPoint(originLL.lat, originLL.lng, angle, dist)
+        pts.push([p.lng, p.lat])
+      }
+      return pts
+    }
+    const arcLine = (dist: number): Feature<LineString> => ({
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: arcRing(dist) },
+      properties: { color: club.color },
+    })
 
-  // ── Landing: auto-render from origin ──
+    // Outer band (p10 → p90) as a polygon (outer arc + reversed inner arc)
+    const outerArc = arcRing(club.p90)
+    const innerArcRev = [...arcRing(club.p10)].reverse()
+    const outerBand: Feature<Polygon> = {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[...outerArc, ...innerArcRev, outerArc[0]]] },
+      properties: { color: club.color, opacity: 0.08 },
+    }
+
+    const innerNear = arcRing(Math.max(club.avg - club.std * 0.5, club.p10))
+    const innerFarRev = [...arcRing(club.avg + club.std * 0.5)].reverse()
+    const innerBand: Feature<Polygon> = {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[...innerFarRev, ...innerNear, innerFarRev[0]]] },
+      properties: { color: club.color, opacity: 0.15 },
+    }
+
+    const labelPt = destPoint(originLL.lat, originLL.lng, aimBear, club.avg)
+    const originPoint: Feature<Point> = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [originLL.lng, originLL.lat] },
+      properties: { color: club.color },
+    }
+
+    return {
+      polys: { type: 'FeatureCollection', features: [outerBand, innerBand] } as FeatureCollection,
+      avgArc: { type: 'FeatureCollection', features: [arcLine(club.avg)] } as FeatureCollection,
+      sideArcs: { type: 'FeatureCollection', features: [arcLine(club.p10), arcLine(club.p90)] } as FeatureCollection,
+      origin: { type: 'FeatureCollection', features: [originPoint] } as FeatureCollection,
+      label: { lat: labelPt.lat, lng: labelPt.lng, color: club.color, text: `${club.type} ${Math.round(club.p10)}-${Math.round(club.p90)}y` },
+    }
+  }, [tool, originLL, ctx.greenPos, getSelectedClub])
+
+  // ── Ruler / carry / recommend: tap target overlay ───────────────────────
+  const tapShapes = useMemo(() => {
+    if (!tapTarget || (tool !== 'ruler' && tool !== 'carry' && tool !== 'recommend')) return null
+    const c = ctx
+    const fromLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? c.teePos?.lat
+    const fromLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? c.teePos?.lng
+    if (fromLat == null || fromLng == null) return null
+
+    const color = tapToolColor(tool)
+    const line: Feature<LineString> = {
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [[fromLng, fromLat], [tapTarget.lng, tapTarget.lat]] },
+      properties: {},
+    }
+    const target: Feature<Point> = {
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [tapTarget.lng, tapTarget.lat] },
+      properties: {},
+    }
+    return {
+      line: { type: 'FeatureCollection', features: [line] } as FeatureCollection,
+      target: { type: 'FeatureCollection', features: [target] } as FeatureCollection,
+      color,
+      label: { lat: tapTarget.lat, lng: tapTarget.lng, distance: tapTarget.distance },
+    }
+  }, [tapTarget, tool, ctx])
+
+  // ── Emit tool results when shapes change ────────────────────────────────
   useEffect(() => {
-    if (ctx.activeRangefinderTool !== 'landing') return
-    const c = ctxRef.current
-    const originLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? null
-    const originLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? null
-    if (originLat == null || originLng == null) return
+    if (tool === 'cone' && coneShapes) {
+      onToolResultRef.current({ type: 'cone' })
+    } else if (tool === 'landing' && landingShapes) {
+      onToolResultRef.current({ type: 'landing' })
+    }
+  }, [tool, coneShapes, landingShapes])
 
-    const club = getSelectedClub()
-    if (!club) return
-
-    const lg = layerRef.current
-    lg.clearLayers()
-
-    drawLandingZone(lg, originLat, originLng, club, c.greenPos)
-    onToolResultRef.current({ type: 'landing' })
-  }, [ctx.activeRangefinderTool, ctx.selectedClubType, ctx.gps.lat, ctx.gps.lng, ctx.ballPos, getSelectedClub])
-
-  // ── Map tap handlers for interactive tools (ruler, carry, recommend) ──
+  // ── Map tap handler for ruler / carry / recommend ──────────────────────
   useEffect(() => {
-    const tool = ctx.activeRangefinderTool
+    if (!map) return
     if (tool !== 'ruler' && tool !== 'carry' && tool !== 'recommend') return
 
-    const onClick = (e: L.LeafletMouseEvent) => {
-      const c = ctxRef.current
-      // Don't handle taps when edit mode is active
+    const onClick = (e: MapLayerMouseEvent) => {
+      const c = ctx
       if (c.editMode) return
-
-      const gps = c.gps
-      const fromLat = gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? c.teePos?.lat
-      const fromLng = gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? c.teePos?.lng
+      const fromLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? c.teePos?.lat
+      const fromLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? c.teePos?.lng
       if (fromLat == null || fromLng == null) return
 
-      const targetDist = Math.round(haversineYards(fromLat, fromLng, e.latlng.lat, e.latlng.lng))
-
-      const lg = layerRef.current
-      lg.clearLayers()
-
-      // Draw line from origin to tap
-      L.polyline([[fromLat, fromLng], [e.latlng.lat, e.latlng.lng]], {
-        color: tool === 'carry' ? '#f44336' : tool === 'recommend' ? '#2196F3' : '#FF5722',
-        weight: 2, dashArray: '4,4', interactive: false,
-      }).addTo(lg)
-
-      // Target marker
-      const color = tool === 'carry' ? '#f44336' : tool === 'recommend' ? '#2196F3' : '#FF5722'
-      L.circleMarker([e.latlng.lat, e.latlng.lng], {
-        radius: 6, color, fillColor: color, fillOpacity: 0.5, weight: 2, interactive: false,
-      }).addTo(lg)
-
-      // Distance label
-      L.marker([e.latlng.lat, e.latlng.lng], {
-        icon: L.divIcon({
-          className: '',
-          html: `<div style="display:inline-block;background:rgba(0,0,0,0.8);color:#fff;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700;white-space:nowrap;">${targetDist}y</div>`,
-          iconSize: [0, 0], iconAnchor: [0, -10],
-        }),
-        interactive: false,
-      }).addTo(lg)
+      const distance = Math.round(haversineYards(fromLat, fromLng, e.lngLat.lat, e.lngLat.lng))
+      setTapTarget({ lat: e.lngLat.lat, lng: e.lngLat.lng, distance })
 
       if (tool === 'ruler') {
-        onToolResultRef.current({ type: 'ruler', distance: targetDist })
+        onToolResultRef.current({ type: 'ruler', distance })
       } else if (tool === 'carry') {
         const clubs = c.strategy?.player?.clubs || []
-        const carryResults = computeCarryProbabilities(clubs, targetDist)
-        onToolResultRef.current({ type: 'carry', distance: targetDist, carryResults })
+        onToolResultRef.current({ type: 'carry', distance, carryResults: computeCarryProbabilities(clubs, distance) })
       } else if (tool === 'recommend') {
         const clubs = c.strategy?.player?.clubs || []
-        const clubResults = rankClubs(clubs, targetDist, { count: 5 })
-        onToolResultRef.current({ type: 'recommend', distance: targetDist, clubResults })
+        onToolResultRef.current({ type: 'recommend', distance, clubResults: rankClubs(clubs, distance, { count: 5 }) })
       }
     }
 
     map.on('click', onClick)
     return () => { map.off('click', onClick) }
-  }, [map, ctx.activeRangefinderTool])
+  }, [map, tool, ctx])
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      const lg = layerRef.current
-      lg.clearLayers()
-      if (map.hasLayer(lg)) map.removeLayer(lg)
-    }
-  }, [map])
+  // Don't render anything when tool is off
+  if (tool === 'none') return null
 
-  return null
-}
+  return (
+    <>
+      {coneShapes && (
+        <>
+          <Source id="m-cone-polys" type="geojson" data={coneShapes.polys}>
+            <Layer
+              id="m-cone-polys-fill"
+              type="fill"
+              paint={{ 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] }}
+            />
+            <Layer
+              id="m-cone-polys-line"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 1 }}
+            />
+          </Source>
+          <Source id="m-cone-aim" type="geojson" data={coneShapes.aim}>
+            <Layer
+              id="m-cone-aim-line"
+              type="line"
+              paint={{ 'line-color': '#fff', 'line-width': 1.5, 'line-dasharray': [4, 2.5], 'line-opacity': 0.7 }}
+            />
+          </Source>
+          <Source id="m-cone-origin" type="geojson" data={coneShapes.origin}>
+            <Layer
+              id="m-cone-origin-circle"
+              type="circle"
+              paint={{ 'circle-color': ['get', 'color'], 'circle-radius': 4, 'circle-opacity': 1 }}
+            />
+          </Source>
+          <Marker longitude={coneShapes.label.lng} latitude={coneShapes.label.lat} anchor="center">
+            <div style={{
+              display: 'inline-block', background: 'rgba(0,0,0,0.8)', color: coneShapes.label.color,
+              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+            }}>{coneShapes.label.text}</div>
+          </Marker>
+        </>
+      )}
 
-// ── Drawing helpers (Leaflet-specific, not shared) ──
+      {landingShapes && (
+        <>
+          <Source id="m-land-polys" type="geojson" data={landingShapes.polys}>
+            <Layer
+              id="m-land-polys-fill"
+              type="fill"
+              paint={{ 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] }}
+            />
+            <Layer
+              id="m-land-polys-line"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 1 }}
+            />
+          </Source>
+          <Source id="m-land-avg" type="geojson" data={landingShapes.avgArc}>
+            <Layer
+              id="m-land-avg-line"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [3, 2] }}
+            />
+          </Source>
+          <Source id="m-land-side" type="geojson" data={landingShapes.sideArcs}>
+            <Layer
+              id="m-land-side-line"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.4 }}
+            />
+          </Source>
+          <Source id="m-land-origin" type="geojson" data={landingShapes.origin}>
+            <Layer
+              id="m-land-origin-circle"
+              type="circle"
+              paint={{
+                'circle-color': ['get', 'color'],
+                'circle-stroke-color': '#fff',
+                'circle-stroke-width': 2,
+                'circle-radius': 4,
+              }}
+            />
+          </Source>
+          <Marker longitude={landingShapes.label.lng} latitude={landingShapes.label.lat} anchor="center">
+            <div style={{
+              display: 'inline-block', background: 'rgba(0,0,0,0.8)', color: landingShapes.label.color,
+              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+            }}>{landingShapes.label.text}</div>
+          </Marker>
+        </>
+      )}
 
-function drawCone(lg: L.LayerGroup, originLat: number, originLng: number, aimBearing: number, club: ClubStats) {
-  const spreadInner = Math.atan2(club.lateralStd, club.avg)
-  const spreadOuter = Math.atan2(club.lateralStd * 2, club.avg)
-  const biasAngle = ((club.missRight - club.missLeft) / 100) * spreadOuter * 0.5
-  const coneBearing = aimBearing + biasAngle
-  const steps = 20
-
-  // Outer cone (±2σ, p90)
-  const outerPts: [number, number][] = [[originLat, originLng]]
-  for (let i = 0; i <= steps; i++) {
-    const angle = coneBearing - spreadOuter + (i / steps) * spreadOuter * 2
-    const pt = destPoint(originLat, originLng, angle, club.p90)
-    outerPts.push([pt.lat, pt.lng])
-  }
-  L.polygon(outerPts, { color: club.color, weight: 1, fillColor: club.color, fillOpacity: 0.1, interactive: false }).addTo(lg)
-
-  // Inner cone (±1σ, avg)
-  const innerPts: [number, number][] = [[originLat, originLng]]
-  for (let i = 0; i <= steps; i++) {
-    const angle = coneBearing - spreadInner + (i / steps) * spreadInner * 2
-    const pt = destPoint(originLat, originLng, angle, club.avg)
-    innerPts.push([pt.lat, pt.lng])
-  }
-  L.polygon(innerPts, { color: club.color, weight: 1, fillColor: club.color, fillOpacity: 0.18, interactive: false }).addTo(lg)
-
-  // Aim line (white dashed)
-  const aimPt = destPoint(originLat, originLng, aimBearing, club.avg)
-  L.polyline([[originLat, originLng], [aimPt.lat, aimPt.lng]], { color: '#fff', weight: 1.5, dashArray: '6,4', interactive: false, opacity: 0.7 }).addTo(lg)
-
-  // Label
-  const labelPt = destPoint(originLat, originLng, coneBearing, club.avg)
-  L.marker([labelPt.lat, labelPt.lng], {
-    icon: L.divIcon({ className: '', html: `<div style="display:inline-block;background:rgba(0,0,0,0.8);color:${club.color};padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${club.type} ${Math.round(club.avg)}y</div>`, iconSize: [0, 0] }),
-    interactive: false,
-  }).addTo(lg)
-
-  // Origin dot
-  L.circleMarker([originLat, originLng], { radius: 4, color: club.color, fillColor: club.color, fillOpacity: 1, interactive: false }).addTo(lg)
-}
-
-function drawLandingZone(lg: L.LayerGroup, clickLat: number, clickLng: number, club: ClubStats, greenPos: { lat: number; lng: number } | null) {
-  let aimBear = 0
-  if (greenPos) aimBear = bearing(clickLat, clickLng, greenPos.lat, greenPos.lng)
-
-  const steps = 24
-  const arcPoints = (dist: number) => {
-    const pts: [number, number][] = []
-    for (let i = 0; i <= steps; i++) {
-      const angle = aimBear - Math.PI / 2 + (i / steps) * Math.PI
-      const pt = destPoint(clickLat, clickLng, angle, dist)
-      pts.push([pt.lat, pt.lng])
-    }
-    return pts
-  }
-
-  // Outer band (p10 to p90)
-  const outerArc = arcPoints(club.p90)
-  const innerArcRev = arcPoints(club.p10).reverse()
-  L.polygon([...outerArc, ...innerArcRev], { color: club.color, weight: 1, fillColor: club.color, fillOpacity: 0.08, interactive: false }).addTo(lg)
-
-  // Inner band (avg ± 0.5σ)
-  const innerNear = arcPoints(Math.max(club.avg - club.std * 0.5, club.p10))
-  const innerFarRev = arcPoints(club.avg + club.std * 0.5).reverse()
-  L.polygon([...innerFarRev, ...innerNear], { color: club.color, weight: 1, fillColor: club.color, fillOpacity: 0.15, interactive: false }).addTo(lg)
-
-  // Avg arc (dashed)
-  L.polyline(arcPoints(club.avg), { color: club.color, weight: 2, dashArray: '6,4', interactive: false }).addTo(lg)
-  L.polyline(arcPoints(club.p10), { color: club.color, weight: 1, opacity: 0.4, interactive: false }).addTo(lg)
-  L.polyline(outerArc, { color: club.color, weight: 1, opacity: 0.4, interactive: false }).addTo(lg)
-
-  // Label + origin
-  const labelPt = destPoint(clickLat, clickLng, aimBear, club.avg)
-  L.marker([labelPt.lat, labelPt.lng], {
-    icon: L.divIcon({ className: '', html: `<div style="display:inline-block;background:rgba(0,0,0,0.8);color:${club.color};padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;white-space:nowrap;">${club.type} ${Math.round(club.p10)}-${Math.round(club.p90)}y</div>`, iconSize: [0, 0] }),
-    interactive: false,
-  }).addTo(lg)
-  L.circleMarker([clickLat, clickLng], { radius: 4, color: '#fff', fillColor: club.color, fillOpacity: 1, weight: 2, interactive: false }).addTo(lg)
+      {tapShapes && (
+        <>
+          <Source id="m-tap-line" type="geojson" data={tapShapes.line}>
+            <Layer
+              id="m-tap-line-line"
+              type="line"
+              paint={{ 'line-color': tapShapes.color, 'line-width': 2, 'line-dasharray': [2, 2] }}
+            />
+          </Source>
+          <Source id="m-tap-target" type="geojson" data={tapShapes.target}>
+            <Layer
+              id="m-tap-target-circle"
+              type="circle"
+              paint={{
+                'circle-color': tapShapes.color,
+                'circle-stroke-color': tapShapes.color,
+                'circle-stroke-width': 2,
+                'circle-radius': 6,
+                'circle-opacity': 0.5,
+              }}
+            />
+          </Source>
+          <Marker longitude={tapShapes.label.lng} latitude={tapShapes.label.lat} anchor="bottom" offset={[0, -10]}>
+            <div style={{
+              display: 'inline-block', background: 'rgba(0,0,0,0.8)', color: '#fff',
+              padding: '3px 8px', borderRadius: 4, fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+            }}>{tapShapes.label.distance}y</div>
+          </Marker>
+        </>
+      )}
+    </>
+  )
 }

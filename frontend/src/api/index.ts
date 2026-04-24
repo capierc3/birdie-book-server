@@ -13,6 +13,7 @@ export {
   useCourseDeletePreview,
   useDeleteClub,
   useDeleteCourse,
+  linkOsmHole,
 } from './hooks/useCourses'
 export type { ClubDeletePreview, CourseDeletePreview, DeleteResult } from './hooks/useCourses'
 export { useNearbyPlaces, usePlacesSearch } from './hooks/usePlaces'
@@ -80,6 +81,7 @@ export type {
   CourseTee,
   CourseHole,
   CourseHazard,
+  OSMHole,
   CourseStats,
   CourseHoleStats,
   CourseRoundStats,

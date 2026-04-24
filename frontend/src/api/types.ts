@@ -239,19 +239,23 @@ export interface CourseHazard {
   data_source?: string | null
 }
 
+export interface OSMHole {
+  id: number
+  osm_id?: number | null
+  hole_number?: number | null
+  par?: number | null
+  tee_lat?: number | null
+  tee_lng?: number | null
+  green_lat?: number | null
+  green_lng?: number | null
+  waypoints?: string | null  // JSON [[lat, lng], ...] centerline
+  green_boundary?: string | null  // JSON [[lat, lng], ...] polygon
+}
+
 export interface CourseDetail extends Course {
   tees: CourseTee[]
   hazards: CourseHazard[]
-  osm_holes: {
-    id: number
-    osm_id?: number | null
-    hole_number?: number | null
-    par?: number | null
-    tee_lat?: number | null
-    tee_lng?: number | null
-    green_lat?: number | null
-    green_lng?: number | null
-  }[]
+  osm_holes: OSMHole[]
 }
 
 export interface CourseHoleStats {

@@ -14,6 +14,7 @@ import { CoursesPage } from './features/courses/CoursesPage'
 import { ClubDetailPage as GolfClubDetailPage } from './features/courses/ClubDetailPage'
 import { CourseStatsPage } from './features/courses/CourseStatsPage'
 import { CourseMapPage } from './features/course-map/CourseMapPage'
+import { MapLibreTestPage } from './features/course-map/maplibre/MapLibreTestPage'
 import { PracticePage } from './features/practice/PracticePage'
 import { NewPracticePage } from './features/practice/NewPracticePage'
 import { PracticeDetailPage } from './features/practice/PracticeDetailPage'
@@ -42,6 +43,7 @@ function App() {
         <Route path="/courses/club/:id" element={<GolfClubDetailPage />} />
         <Route path="/courses/:id" element={<CourseStatsPage />} />
         <Route path="/courses/:id/map" element={<CourseMapPage />} />
+        <Route path="/maplibre-test/:courseId/:hole" element={<MapLibreTestPage />} />
         <Route path="/practice" element={<PracticePage />} />
         <Route path="/practice/new" element={<NewPracticePage />} />
         <Route path="/practice/new/round-plan/:roundPlanId" element={<NewPracticePage />} />

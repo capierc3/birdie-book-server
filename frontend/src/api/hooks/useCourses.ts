@@ -104,6 +104,20 @@ export function useDeleteClub() {
   })
 }
 
+export interface LinkOsmHoleArgs {
+  courseId: number
+  holeId: number
+  osmHoleId: number | null  // null = unlink
+  applyGps?: boolean
+}
+
+export function linkOsmHole(args: LinkOsmHoleArgs) {
+  return post<{ status: string; hole_id?: number }>(
+    `/courses/${args.courseId}/holes/${args.holeId}/link-osm`,
+    { osm_hole_id: args.osmHoleId, apply_gps: args.applyGps ?? true },
+  )
+}
+
 export function useDeleteCourse() {
   const qc = useQueryClient()
   return useMutation({

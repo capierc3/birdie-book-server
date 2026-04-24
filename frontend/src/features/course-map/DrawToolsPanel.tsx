@@ -24,7 +24,19 @@ const HAZARD_OPTIONS: { value: HazardType; label: string }[] = [
 
 export function DrawToolsPanel({ onClose }: { onClose: () => void }) {
   const ctx = useCourseMap()
-  const { activeTool, hazardType, currentFwBoundary, currentHazard, fairwayBoundaries, greenBoundary, hazards, fairwayPath, teePos, greenPos } = ctx
+  const { activeTool, hazardType, currentFwBoundary, currentHazard, fairwayBoundaries, greenBoundary, hazards, fairwayPath, teePos, greenPos, showUnlinkedOsm, course } = ctx
+
+  // Count unlinked OSM holes (osm_holes not referenced by any CourseHole.osm_hole_id)
+  const unlinkedOsmCount = useMemo(() => {
+    if (!course?.osm_holes?.length) return 0
+    const linked = new Set<number>()
+    for (const t of course.tees || []) {
+      for (const h of t.holes || []) {
+        if (h.osm_hole_id) linked.add(h.osm_hole_id)
+      }
+    }
+    return course.osm_holes.filter((oh) => !linked.has(oh.id)).length
+  }, [course])
 
   // Fairway guide: recommended nodes + gap warning
   const fairwayGuide = useMemo(() => {
@@ -182,6 +194,28 @@ export function DrawToolsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <FloatingPanel title="Drawing Tools" onClose={onClose} width={280}>
+      {/* Unlinked OSM features toggle */}
+      {unlinkedOsmCount > 0 && (
+        <div className={s.section}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={showUnlinkedOsm}
+              onChange={(e) => ctx.setShowUnlinkedOsm(e.target.checked)}
+            />
+            <span>
+              Show unlinked OSM features
+              <span style={{ color: '#FF7043', fontWeight: 600, marginLeft: 4 }}>({unlinkedOsmCount})</span>
+            </span>
+          </label>
+          {showUnlinkedOsm && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary, #aaa)', marginTop: 4 }}>
+              Click a marker to assign a hole. Place Tee / Place Green will snap to nearby features.
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tool buttons */}
       <div className={s.section}>
         <div className={s.toolGrid}>

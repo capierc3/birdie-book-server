@@ -75,6 +75,9 @@ export interface CourseMapState {
   activeTool: DrawTool | null
   hazardType: HazardType
 
+  // OSM linking
+  showUnlinkedOsm: boolean
+
   // Hole geometry (mutable during editing)
   teePos: LatLng | null
   greenPos: LatLng | null
@@ -110,6 +113,14 @@ export interface CourseMapActions {
   setDrawPanelOpen: (open: boolean) => void
   setActiveTool: (tool: DrawTool | null) => void
   setHazardType: (type: HazardType) => void
+  setShowUnlinkedOsm: (show: boolean) => void
+
+  // Assign an OSMHole to the CourseHole at holeNum.
+  // applyGps=true (default): backend applies OSM tee/green/fairway coords + local editor state
+  //   reloads from DB (overwrites any unsaved geometry).
+  // applyGps=false: only records the link (osm_hole_id); caller handles coord updates. Used by
+  //   the snap-from-drawtool flow to preserve unsaved edits to other fields.
+  assignOsmHoleToHole: (osmHoleId: number, holeNum: number, applyGps?: boolean) => Promise<void>
 
   // Geometry setters
   setTeePos: (pos: LatLng | null) => void

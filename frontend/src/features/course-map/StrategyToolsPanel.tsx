@@ -44,6 +44,25 @@ export function StrategyToolsPanel({ onClose }: { onClose: () => void }) {
     ctx.triggerRedraw()
   }
 
+  // Stage 20f: strategy tools (ruler, cone, landing, carry, recommend) all rely
+  // on Leaflet map mousemove/click events. They return in Stage 20g alongside
+  // drawing tools. The implementation below stays intact for restoration.
+  return (
+    <FloatingPanel title="Strategy" onClose={onClose} width={300}>
+      <div style={{ padding: '12px 4px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)' }}>
+          Strategy tools are migrating
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted, #aaa)' }}>
+          The ruler, dispersion cone, landing zone, carry check, and club recommend
+          tools depend on map cursor events that are being rebuilt for MapLibre. They
+          return in the next release.
+        </div>
+      </div>
+    </FloatingPanel>
+  )
+
+  // eslint-disable-next-line no-unreachable
   return (
     <FloatingPanel title="Strategy" onClose={onClose} width={300}>
       {/* Tool buttons */}

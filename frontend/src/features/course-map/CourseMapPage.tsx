@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import { Map } from 'react-map-gl/maplibre'
+import type { StyleSpecification } from 'maplibre-gl'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useCourse, put, post, del, get, linkOsmHole } from '../../api'
@@ -11,24 +12,46 @@ import { useCourseStrategy } from './useCourseStrategy'
 import { CourseMapContext, parseHoleData } from './courseMapState'
 import type { CourseMapContextType, LatLng, DrawTool, HazardType, EditorHazard, PanelId } from './courseMapState'
 import { setClubColorCache } from './clubColors'
-import { MapOverlays } from './MapOverlays'
+import { DesktopMapLibreOverlays } from './DesktopMapLibreOverlays'
 import { EditHolePanel } from './EditHolePanel'
 import { DrawToolsPanel } from './DrawToolsPanel'
 import { ScorecardPanel } from './ScorecardPanel'
 import { OverviewPanel } from './OverviewPanel'
 import { ShotsPanel } from './ShotsPanel'
-import { ShotOverlays } from './ShotOverlays'
+import { DesktopShotOverlays } from './DesktopShotOverlays'
 import { InsightsPanel } from './InsightsPanel'
 import { StrategyToolsPanel } from './StrategyToolsPanel'
-import { StrategyOverlays } from './StrategyOverlays'
-import type { StrategyTool } from './StrategyToolsPanel'
 import { PlanningPanel } from './PlanningPanel'
-import { PlanOverlays } from './PlanOverlays'
-import { PlanAimOverlay } from './PlanAimOverlay'
+import { DesktopPlanOverlays } from './DesktopPlanOverlays'
 import { DataImportPanel } from './DataImportPanel'
 import { MobileHoleViewer } from './mobile/MobileHoleViewer'
+import { bearing as computeBearing } from './geoUtils'
 import s from './CourseMapPage.module.css'
-import 'leaflet/dist/leaflet.css'
+import 'maplibre-gl/dist/maplibre-gl.css'
+
+// MapLibre satellite style — same ArcGIS tiles we used with Leaflet, just
+// declared as a MapLibre StyleSpecification.
+const SATELLITE_STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    satellite: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Tiles © Esri',
+    },
+  },
+  layers: [{ id: 'satellite', type: 'raster', source: 'satellite' }],
+}
+
+const DEFAULT_PITCH = 60  // perspective tilt when "Player view" is on
+
+// User-toggled view orientation, persisted to localStorage so the choice
+// survives page reloads. North-up + flat is the safe default; the toggle
+// flips to tee→green-up + tilted on demand.
+type CameraOrient = 'north-up' | 'green-up'
+type CameraTilt = 'flat' | 'perspective'
 
 // Re-export PanelId for external use
 export type { PanelId }
@@ -78,45 +101,64 @@ const EDITING_PANELS: PanelId[] = ['hole', 'draw', 'data']
 const MUTUALLY_EXCLUSIVE: [PanelId, PanelId][] = [['draw', 'strategy']]
 
 // ── Map auto-center ──
-function MapController({ course, currentHole, teeId, allRoundDetails }: { course: CourseDetail | undefined; currentHole: number; teeId: number | undefined; allRoundDetails: RoundDetail[] }) {
-  const map = useMap()
-  const initialRef = useRef(false)
+/**
+ * Resolve the best center/bearing for a hole using the tee-fallback chain:
+ *   1. Course tee GPS for the active tee
+ *   2. First-shot GPS from any played round on this hole
+ *   3. Previous hole's green (lets the camera align loosely with hole flow)
+ *   4. Course center
+ *
+ * Returns the chosen center plus a bearing tee→green when both are known
+ * (used when the user has Green-up orientation enabled).
+ */
+function resolveHoleCamera(
+  course: CourseDetail | undefined,
+  currentHole: number,
+  teeId: number | undefined,
+  allRoundDetails: RoundDetail[],
+): { center: { lat: number; lng: number } | null; bearingDeg: number | null; greenLat: number | null; greenLng: number | null } {
+  if (!course) return { center: null, bearingDeg: null, greenLat: null, greenLng: null }
 
-  useEffect(() => {
-    if (!course) return
-    const tee = course.tees?.find((t) => t.id === teeId) ?? course.tees?.[0]
-    const hole = tee?.holes?.find((h) => h.hole_number === currentHole)
+  const activeTee = course.tees?.find(t => t.id === teeId) ?? course.tees?.[0]
+  const hole = activeTee?.holes?.find(h => h.hole_number === currentHole)
 
-    let lat: number | undefined, lng: number | undefined
+  const greenLat = hole?.flag_lat ?? null
+  const greenLng = hole?.flag_lng ?? null
 
-    // 1. Tee GPS from course data
-    if (hole?.tee_lat && hole?.tee_lng) {
-      lat = hole.tee_lat; lng = hole.tee_lng
-    } else {
-      // 2. First shot GPS from Garmin round data
-      for (const rd of allRoundDetails) {
-        const rh = rd.holes?.find((h) => h.hole_number === currentHole)
-        const firstShot = rh?.shots?.find((s) => s.shot_number === 1)
-        if (firstShot?.start_lat && firstShot?.start_lng) {
-          lat = firstShot.start_lat; lng = firstShot.start_lng
-          break
-        }
+  // 1. Course tee GPS
+  if (hole?.tee_lat && hole?.tee_lng) {
+    let bearingDeg: number | null = null
+    if (greenLat != null && greenLng != null) {
+      bearingDeg = (computeBearing(hole.tee_lat, hole.tee_lng, greenLat, greenLng) * 180) / Math.PI
+    }
+    return { center: { lat: hole.tee_lat, lng: hole.tee_lng }, bearingDeg, greenLat, greenLng }
+  }
+
+  // 2. First-shot GPS from played rounds
+  for (const rd of allRoundDetails) {
+    const rh = rd.holes?.find(h => h.hole_number === currentHole)
+    const firstShot = rh?.shots?.find(s => s.shot_number === 1)
+    if (firstShot?.start_lat && firstShot?.start_lng) {
+      let bearingDeg: number | null = null
+      if (greenLat != null && greenLng != null) {
+        bearingDeg = (computeBearing(firstShot.start_lat, firstShot.start_lng, greenLat, greenLng) * 180) / Math.PI
       }
+      return { center: { lat: firstShot.start_lat, lng: firstShot.start_lng }, bearingDeg, greenLat, greenLng }
     }
+  }
 
-    // 3. Initial load only: fall back to course center
-    if (!lat && !initialRef.current && course.lat && course.lng) {
-      lat = course.lat; lng = course.lng
-    }
-    // If still no GPS, stay where we are
+  // 3. Previous hole's green
+  const prevHole = activeTee?.holes?.find(h => h.hole_number === currentHole - 1)
+  if (prevHole?.flag_lat && prevHole?.flag_lng) {
+    return { center: { lat: prevHole.flag_lat, lng: prevHole.flag_lng }, bearingDeg: null, greenLat, greenLng }
+  }
 
-    if (lat && lng) {
-      if (!initialRef.current) { map.setView([lat, lng], 17); initialRef.current = true }
-      else map.flyTo([lat, lng], map.getZoom(), { duration: 0.5 })
-    }
-  }, [map, course, currentHole, teeId, allRoundDetails])
+  // 4. Course center
+  if (course.lat && course.lng) {
+    return { center: { lat: course.lat, lng: course.lng }, bearingDeg: null, greenLat, greenLng }
+  }
 
-  return null
+  return { center: null, bearingDeg: null, greenLat, greenLng }
 }
 
 // ── Main page (routes mobile vs desktop) ──
@@ -187,6 +229,47 @@ function DesktopCourseMapPage() {
 
   // Form values ref (shared with EditHolePanel via context)
   const formValuesRef = useRef({ par: '', yardage: '', handicap: '' })
+
+  // ── MapLibre camera state (Stage 20f) ──
+  const [orient, setOrient] = useState<CameraOrient>(() =>
+    (localStorage.getItem('birdie_book_camera_orient') as CameraOrient | null) ?? 'north-up'
+  )
+  const [tilt, setTilt] = useState<CameraTilt>(() =>
+    (localStorage.getItem('birdie_book_camera_tilt') as CameraTilt | null) ?? 'flat'
+  )
+  useEffect(() => { localStorage.setItem('birdie_book_camera_orient', orient) }, [orient])
+  useEffect(() => { localStorage.setItem('birdie_book_camera_tilt', tilt) }, [tilt])
+
+  const [viewState, setViewState] = useState({
+    longitude: -83.5,
+    latitude: 42.7,
+    zoom: 17,
+    bearing: 0,
+    pitch: 0,
+  })
+
+  const cameraResolved = useMemo(
+    () => resolveHoleCamera(course, currentHole, teeId, allRoundDetails),
+    [course, currentHole, teeId, allRoundDetails],
+  )
+
+  // Apply camera prefs whenever the resolved hole camera or user toggles change.
+  // Pan/zoom from the user is preserved between hole changes since we only
+  // overwrite the lng/lat/bearing/pitch fields here, not zoom.
+  useEffect(() => {
+    if (!cameraResolved.center) return
+    const wantBearing = orient === 'green-up' && cameraResolved.bearingDeg != null
+      ? cameraResolved.bearingDeg
+      : 0
+    const wantPitch = tilt === 'perspective' ? DEFAULT_PITCH : 0
+    setViewState(v => ({
+      ...v,
+      longitude: cameraResolved.center!.lng,
+      latitude: cameraResolved.center!.lat,
+      bearing: wantBearing,
+      pitch: wantPitch,
+    }))
+  }, [cameraResolved, orient, tilt])
 
   // Tee default + persistence
   useEffect(() => {
@@ -425,11 +508,6 @@ function DesktopCourseMapPage() {
   const prevHole = useCallback(() => selectHole(currentHole > 1 ? currentHole - 1 : totalHoles), [currentHole, totalHoles, selectHole])
   const nextHole = useCallback(() => selectHole(currentHole < totalHoles ? currentHole + 1 : 1), [currentHole, totalHoles, selectHole])
 
-  const mapCenter = useMemo<[number, number]>(() => {
-    if (course?.lat && course?.lng) return [course.lat, course.lng]
-    return [42.7, -83.5]
-  }, [course])
-
   // ── Build context value ──
   const ctxValue: CourseMapContextType = useMemo(() => ({
     course, strategy, currentHole, teeId, dirty,
@@ -465,15 +543,20 @@ function DesktopCourseMapPage() {
       <div className={s.layout}>
         {/* Map */}
         <div className={s.mapContainer}>
-          <MapContainer center={mapCenter} zoom={16} style={{ width: '100%', height: '100%' }} zoomControl={false} attributionControl={false}>
-            <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-            <MapController course={course} currentHole={currentHole} teeId={teeId} allRoundDetails={allRoundDetails} />
-            <MapOverlays />
-            <ShotOverlays visible={openPanels.has('shots')} />
-            <StrategyOverlays visible={openPanels.has('strategy')} activeTool={activeStrategyTool as StrategyTool} />
-            <PlanOverlays visible={openPanels.has('planning')} planId={currentPlanId} />
-            <PlanAimOverlay />
-          </MapContainer>
+          <Map
+            {...viewState}
+            onMove={evt => setViewState(evt.viewState)}
+            mapStyle={SATELLITE_STYLE}
+            maxPitch={85}
+            style={{ width: '100%', height: '100%' }}
+            attributionControl={false}
+            // 20f: editing/click handlers come back in 20g
+            interactiveLayerIds={[]}
+          >
+            <DesktopMapLibreOverlays />
+            <DesktopShotOverlays visible={openPanels.has('shots')} />
+            <DesktopPlanOverlays visible={openPanels.has('planning')} planId={currentPlanId} />
+          </Map>
         </div>
 
         {/* Back button */}
@@ -490,6 +573,47 @@ function DesktopCourseMapPage() {
             <button className={s.holeQuickBtn} onClick={nextHole}>&gt;</button>
           </div>
           <div className={s.toolbarIcons}>
+            {/* Camera orientation toggles (Stage 20f) */}
+            <button
+              className={`${s.toolbarIcon}${orient === 'green-up' ? ` ${s.active}` : ''}`}
+              title={orient === 'green-up' ? 'Tee → green up (click to switch to north up)' : 'North up (click to switch to tee → green up)'}
+              onClick={() => setOrient(o => o === 'green-up' ? 'north-up' : 'green-up')}
+              disabled={cameraResolved.bearingDeg == null && orient !== 'green-up'}
+            >
+              {orient === 'green-up' ? (
+                /* compass with arrow pointing up the hole */
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M12 4l3 8h-6z" fill="currentColor" />
+                  <line x1="12" y1="14" x2="12" y2="20" />
+                </svg>
+              ) : (
+                /* compass with N pointing up */
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <text x="12" y="9" textAnchor="middle" fontSize="8" fill="currentColor" stroke="none">N</text>
+                  <path d="M12 11v6" />
+                </svg>
+              )}
+            </button>
+            <button
+              className={`${s.toolbarIcon}${tilt === 'perspective' ? ` ${s.active}` : ''}`}
+              title={tilt === 'perspective' ? 'Player view (click for top-down)' : 'Top-down (click for player view)'}
+              onClick={() => setTilt(t => t === 'perspective' ? 'flat' : 'perspective')}
+            >
+              {tilt === 'perspective' ? (
+                /* perspective rectangle */
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 18 L8 6 L16 6 L21 18 Z" />
+                </svg>
+              ) : (
+                /* flat square */
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="4" y="4" width="16" height="16" rx="1" />
+                </svg>
+              )}
+            </button>
+            <div className={s.toolbarDivider} />
             {ANALYSIS_PANELS.map((pid) => (
               <button key={pid} className={`${s.toolbarIcon}${openPanels.has(pid) ? ` ${s.active}` : ''}`} title={PANEL_ICONS[pid].title} onClick={() => togglePanel(pid)}>
                 {PANEL_ICONS[pid].svg}

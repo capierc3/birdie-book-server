@@ -456,8 +456,16 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
                     <option key={c.club_type} value={c.club_type}>{c.club_type} ({Math.round(c.avg_yards)}y)</option>
                   ))}
                 </select>
-                <button className={s.actionBtn} style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }} disabled={aiming} onClick={() => handlePlaceShot(selectedClub)}>
-                  {aiming ? 'Aiming... (Esc)' : 'Place Shot'}
+                {/* Stage 20f: live cursor-following aim is offline (PlanAimOverlay
+                    awaits MapLibre port in 20g). Existing planned shots still render
+                    on the map via DesktopPlanOverlays. */}
+                <button
+                  className={s.actionBtn}
+                  style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                  disabled
+                  title="Live aiming returns in the next release. Use the mobile app to add shots in the meantime."
+                >
+                  Aim (migrating)
                 </button>
               </div>
             )}

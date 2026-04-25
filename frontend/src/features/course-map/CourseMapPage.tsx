@@ -13,6 +13,9 @@ import { CourseMapContext, parseHoleData } from './courseMapState'
 import type { CourseMapContextType, LatLng, DrawTool, HazardType, EditorHazard, PanelId } from './courseMapState'
 import { setClubColorCache } from './clubColors'
 import { DesktopMapLibreOverlays } from './DesktopMapLibreOverlays'
+import { DesktopEditingOverlays } from './DesktopEditingOverlays'
+import { DesktopStrategyOverlays } from './DesktopStrategyOverlays'
+import { DesktopPlanAimOverlay } from './DesktopPlanAimOverlay'
 import { EditHolePanel } from './EditHolePanel'
 import { DrawToolsPanel } from './DrawToolsPanel'
 import { ScorecardPanel } from './ScorecardPanel'
@@ -25,7 +28,9 @@ import { PlanningPanel } from './PlanningPanel'
 import { DesktopPlanOverlays } from './DesktopPlanOverlays'
 import { DataImportPanel } from './DataImportPanel'
 import { MobileHoleViewer } from './mobile/MobileHoleViewer'
-import { bearing as computeBearing } from './geoUtils'
+import { bearing as computeBearing, haversineYards, pointToSegmentDist } from './geoUtils'
+import type { OSMHole } from '../../api'
+import type { MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import s from './CourseMapPage.module.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
@@ -251,6 +256,159 @@ function DesktopCourseMapPage() {
   const cameraResolved = useMemo(
     () => resolveHoleCamera(course, currentHole, teeId, allRoundDetails),
     [course, currentHole, teeId, allRoundDetails],
+  )
+
+  // ── Drawing tool map handlers (Stage 20g) ──
+  const OSM_SNAP_YARDS = 30
+
+  const onMapClick = useCallback((e: MapLayerMouseEvent) => {
+    if (!drawPanelOpen || !activeTool) return
+    const { lat, lng } = e.lngLat
+
+    // Helper: find closest unlinked OSM hole within snap radius
+    const getUnlinkedOsm = (): OSMHole[] => {
+      if (!course?.osm_holes) return []
+      const linked = new Set<number>()
+      for (const t of course.tees || []) {
+        for (const h of t.holes || []) {
+          if (h.osm_hole_id) linked.add(h.osm_hole_id)
+        }
+      }
+      return course.osm_holes.filter(oh => !linked.has(oh.id))
+    }
+
+    switch (activeTool) {
+      case 'tee': {
+        let newPos: LatLng = { lat, lng }
+        let snappedOsmId: number | null = null
+        const unlinked = getUnlinkedOsm()
+        let bestDist = OSM_SNAP_YARDS
+        for (const oh of unlinked) {
+          if (oh.tee_lat == null || oh.tee_lng == null) continue
+          const d = haversineYards(lat, lng, oh.tee_lat, oh.tee_lng)
+          if (d < bestDist) {
+            bestDist = d
+            newPos = { lat: oh.tee_lat, lng: oh.tee_lng }
+            snappedOsmId = oh.id
+          }
+        }
+        setTeePos(newPos)
+        const activeTee = course?.tees?.find(t => t.id === teeId)
+        if (activeTee) {
+          setTeePositions({ ...teePositions, [activeTee.tee_name]: newPos })
+        }
+        if (snappedOsmId != null) {
+          assignOsmHoleToHole(snappedOsmId, currentHole, false)
+        }
+        break
+      }
+      case 'green': {
+        let newPos: LatLng = { lat, lng }
+        let snappedOsmId: number | null = null
+        const unlinked = getUnlinkedOsm()
+        let bestDist = OSM_SNAP_YARDS
+        for (const oh of unlinked) {
+          if (oh.green_lat == null || oh.green_lng == null) continue
+          const d = haversineYards(lat, lng, oh.green_lat, oh.green_lng)
+          if (d < bestDist) {
+            bestDist = d
+            newPos = { lat: oh.green_lat, lng: oh.green_lng }
+            snappedOsmId = oh.id
+          }
+        }
+        setGreenPos(newPos)
+        if (snappedOsmId != null) {
+          assignOsmHoleToHole(snappedOsmId, currentHole, false)
+        }
+        break
+      }
+      case 'fairway': {
+        if (fairwayPath.length === 0) {
+          setFairwayPath([{ lat, lng }])
+        } else {
+          // Smart insertion: pick the segment in the full tee→path→green chain
+          // that's closest to the click, insert between those points.
+          const allPts: LatLng[] = []
+          if (teePos) allPts.push(teePos)
+          allPts.push(...fairwayPath)
+          if (greenPos) allPts.push(greenPos)
+          let bestIdx = fairwayPath.length
+          let bestDist = Infinity
+          for (let i = 0; i < allPts.length - 1; i++) {
+            const d = pointToSegmentDist(lat, lng, allPts[i].lat, allPts[i].lng, allPts[i + 1].lat, allPts[i + 1].lng)
+            if (d < bestDist) {
+              bestDist = d
+              bestIdx = teePos ? i : i + 1
+            }
+          }
+          const newPath = [...fairwayPath]
+          const insertAt = Math.max(0, Math.min(bestIdx, newPath.length))
+          newPath.splice(insertAt, 0, { lat, lng })
+          setFairwayPath(newPath)
+        }
+        break
+      }
+      case 'fairway-boundary':
+        setCurrentFwBoundary([...currentFwBoundary, { lat, lng }])
+        break
+      case 'green-boundary':
+        setGreenBoundary([...greenBoundary, { lat, lng }])
+        break
+      case 'hazard':
+        setCurrentHazard([...currentHazard, { lat, lng }])
+        break
+    }
+
+    setDirty(true)
+    triggerRedraw()
+  }, [
+    drawPanelOpen, activeTool, course, teeId, currentHole,
+    teePos, greenPos, teePositions, fairwayPath, currentFwBoundary, greenBoundary, currentHazard,
+  ])
+
+  const onMapDblClick = useCallback((e: MapLayerMouseEvent) => {
+    if (!drawPanelOpen) return
+    if (activeTool === 'fairway-boundary' && currentFwBoundary.length >= 3) {
+      e.preventDefault()
+      finishFwBoundary()
+    }
+    if (activeTool === 'hazard' && currentHazard.length >= 3) {
+      e.preventDefault()
+      finishHazard()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawPanelOpen, activeTool, currentFwBoundary.length, currentHazard.length])
+
+  const onMapContextMenu = useCallback((e: MapLayerMouseEvent) => {
+    if (!drawPanelOpen) return
+    const features = e.features ?? []
+    if (features.length === 0) return
+    e.preventDefault()
+    const top = features[0]
+    const idxRaw = top.properties?.idx
+    const idx = typeof idxRaw === 'number' ? idxRaw : Number(idxRaw)
+    if (!Number.isFinite(idx)) return
+    if (top.layer.id === 'd-hazards-fill') {
+      const next = [...hazards]
+      if (next[idx]?.id) next[idx] = { ...next[idx], _deleted: true }
+      else next.splice(idx, 1)
+      setHazards(next)
+      setDirty(true)
+      triggerRedraw()
+    } else if (top.layer.id === 'd-fw-bnd-fill') {
+      const next = [...fairwayBoundaries]
+      next.splice(idx, 1)
+      setFairwayBoundaries(next)
+      setDirty(true)
+      triggerRedraw()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawPanelOpen, hazards, fairwayBoundaries])
+
+  // Layer ids that should be queryable for right-click delete
+  const interactiveLayerIds = useMemo(
+    () => drawPanelOpen ? ['d-hazards-fill', 'd-fw-bnd-fill'] : [],
+    [drawPanelOpen],
   )
 
   // Apply camera prefs whenever the resolved hole camera or user toggles change.
@@ -546,16 +704,22 @@ function DesktopCourseMapPage() {
           <Map
             {...viewState}
             onMove={evt => setViewState(evt.viewState)}
+            onClick={onMapClick}
+            onDblClick={onMapDblClick}
+            onContextMenu={onMapContextMenu}
             mapStyle={SATELLITE_STYLE}
             maxPitch={85}
             style={{ width: '100%', height: '100%' }}
             attributionControl={false}
-            // 20f: editing/click handlers come back in 20g
-            interactiveLayerIds={[]}
+            interactiveLayerIds={interactiveLayerIds}
+            cursor={drawPanelOpen && activeTool ? 'crosshair' : undefined}
           >
             <DesktopMapLibreOverlays />
+            <DesktopEditingOverlays />
             <DesktopShotOverlays visible={openPanels.has('shots')} />
+            <DesktopStrategyOverlays visible={openPanels.has('strategy')} />
             <DesktopPlanOverlays visible={openPanels.has('planning')} planId={currentPlanId} />
+            <DesktopPlanAimOverlay />
           </Map>
         </div>
 

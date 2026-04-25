@@ -192,28 +192,6 @@ export function DrawToolsPanel({ onClose }: { onClose: () => void }) {
     return null
   }
 
-  // Stage 20f: drawing tools are disabled while the desktop map migrates from
-  // Leaflet to MapLibre. The implementation below stays intact and returns in
-  // Stage 20g (full feature parity). Delete this notice block to re-enable.
-  return (
-    <FloatingPanel title="Drawing Tools" onClose={onClose} width={300}>
-      <div style={{ padding: '12px 4px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)' }}>
-          Drawing tools are migrating
-        </div>
-        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-muted, #aaa)' }}>
-          The desktop map is being upgraded from Leaflet to MapLibre. Drawing tools
-          (place tee/green, fairway lines and boundaries, hazards) return in the next
-          release.
-          <br /><br />
-          On mobile, all drawing already works via the new map. To edit course data on
-          desktop in the meantime, open the page on a phone or tablet.
-        </div>
-      </div>
-    </FloatingPanel>
-  )
-
-  // eslint-disable-next-line no-unreachable
   return (
     <FloatingPanel title="Drawing Tools" onClose={onClose} width={280}>
       {/* Unlinked OSM features toggle */}

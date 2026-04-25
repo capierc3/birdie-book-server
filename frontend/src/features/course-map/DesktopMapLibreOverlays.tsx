@@ -29,18 +29,20 @@ export function DesktopMapLibreOverlays() {
   const ctx = useCourseMap()
   const {
     teePos, greenPos, fairwayPath, teePositions, fairwayBoundaries,
-    greenBoundary, hazards, course, teeId,
+    greenBoundary, hazards, course, teeId, drawPanelOpen, ballPos,
+    setTeePos, setTeePositions, setGreenPos, setDirty, triggerRedraw,
   } = ctx
 
   const activeTeeName = course?.tees?.find(t => t.id === teeId)?.tee_name ?? ''
 
   const fairwayBoundaryFC = useMemo<FeatureCollection>(() => {
     const features: Feature<Polygon>[] = fairwayBoundaries
-      .filter(p => p.length >= 3)
-      .map(p => ({
+      .map((p, idx) => ({ p, idx }))
+      .filter(({ p }) => p.length >= 3)
+      .map(({ p, idx }) => ({
         type: 'Feature',
         geometry: { type: 'Polygon', coordinates: [ringFromLatLng(p)] },
-        properties: {},
+        properties: { idx },
       }))
     return { type: 'FeatureCollection', features }
   }, [fairwayBoundaries])
@@ -59,8 +61,9 @@ export function DesktopMapLibreOverlays() {
 
   const hazardsFC = useMemo<FeatureCollection>(() => {
     const features: Feature<Polygon>[] = hazards
-      .filter(h => !h._deleted && h.boundary.length >= 3)
-      .map(h => {
+      .map((h, idx) => ({ h, idx }))
+      .filter(({ h }) => !h._deleted && h.boundary.length >= 3)
+      .map(({ h, idx }) => {
         const [fill, stroke] = HAZARD_COLORS[h.hazard_type] ?? ['#999', '#666']
         // GeoJSON Polygon coords: first ring is outer, rest are holes (cutouts).
         const coordinates = [
@@ -70,7 +73,7 @@ export function DesktopMapLibreOverlays() {
         return {
           type: 'Feature',
           geometry: { type: 'Polygon', coordinates },
-          properties: { fill, stroke, hazard_type: h.hazard_type, name: h.name ?? '' },
+          properties: { fill, stroke, hazard_type: h.hazard_type, name: h.name ?? '', idx },
         }
       })
     return { type: 'FeatureCollection', features }
@@ -139,10 +142,24 @@ export function DesktopMapLibreOverlays() {
         const color = TEE_COLORS[name.split(' ')[0]] || '#999'
         const size = isActive ? 24 : 18
         const textColor = color === '#fff' ? '#333' : '#fff'
+        const draggable = isActive && drawPanelOpen
         return (
-          <Marker key={name} longitude={pos.lng} latitude={pos.lat} anchor="center">
+          <Marker
+            key={name}
+            longitude={pos.lng}
+            latitude={pos.lat}
+            anchor="center"
+            draggable={draggable}
+            onDragEnd={draggable ? (evt) => {
+              const newPos = { lat: evt.lngLat.lat, lng: evt.lngLat.lng }
+              setTeePos(newPos)
+              setTeePositions({ ...teePositions, [name]: newPos })
+              setDirty(true)
+              triggerRedraw()
+            } : undefined}
+          >
             <div
-              title={`${name} tee`}
+              title={draggable ? `${name} tee — drag to move` : `${name} tee`}
               style={{
                 width: size, height: size, borderRadius: '50%',
                 background: color, border: '2px solid #fff',
@@ -150,7 +167,8 @@ export function DesktopMapLibreOverlays() {
                 fontSize: 9, fontWeight: 'bold', color: textColor,
                 opacity: isActive ? 1 : 0.6,
                 boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
-                pointerEvents: 'none',
+                cursor: draggable ? 'move' : 'default',
+                pointerEvents: draggable ? 'auto' : 'none',
               }}
             >T</div>
           </Marker>
@@ -158,8 +176,26 @@ export function DesktopMapLibreOverlays() {
       })}
 
       {greenPos && (
-        <Marker longitude={greenPos.lng} latitude={greenPos.lat} anchor="bottom">
-          <svg width="20" height="24" viewBox="0 0 20 24" style={{ pointerEvents: 'none' }}>
+        <Marker
+          longitude={greenPos.lng}
+          latitude={greenPos.lat}
+          anchor="bottom"
+          draggable={drawPanelOpen}
+          onDragEnd={drawPanelOpen ? (evt) => {
+            setGreenPos({ lat: evt.lngLat.lat, lng: evt.lngLat.lng })
+            setDirty(true)
+            triggerRedraw()
+          } : undefined}
+        >
+          <svg
+            width="20"
+            height="24"
+            viewBox="0 0 20 24"
+            style={{
+              cursor: drawPanelOpen ? 'move' : 'default',
+              pointerEvents: drawPanelOpen ? 'auto' : 'none',
+            }}
+          >
             <line x1="4" y1="2" x2="4" y2="22" stroke="#fff" strokeWidth="2" />
             <polygon points="5,2 18,7 5,12" fill="#ef5350" />
             <circle cx="4" cy="22" r="2.5" fill="#fff" stroke="#333" />
@@ -178,6 +214,20 @@ export function DesktopMapLibreOverlays() {
           >{l.yards}y</div>
         </Marker>
       ))}
+
+      {/* Ball position (placed via Strategy → Place Ball, used by caddie calcs) */}
+      {ballPos && (
+        <Marker longitude={ballPos.lng} latitude={ballPos.lat} anchor="center">
+          <div
+            style={{
+              width: 14, height: 14, borderRadius: '50%',
+              background: '#FFD700', border: '2px solid #fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.5)',
+              pointerEvents: 'none',
+            }}
+          />
+        </Marker>
+      )}
     </>
   )
 }

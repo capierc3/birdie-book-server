@@ -16,7 +16,7 @@ export {
   linkOsmHole,
 } from './hooks/useCourses'
 export type { ClubDeletePreview, CourseDeletePreview, DeleteResult } from './hooks/useCourses'
-export { useNearbyPlaces, usePlacesSearch } from './hooks/usePlaces'
+export { useNearbyPlaces, usePlacesSearch, usePlacesAutocomplete } from './hooks/usePlaces'
 export {
   usePlaySessions,
   usePlaySession,
@@ -142,6 +142,8 @@ export type {
   MergeSuggestionCandidate,
   PlaceCandidate,
   PlaceCandidatesResponse,
+  PlaceSuggestion,
+  PlaceSuggestionsResponse,
   PlaySessionState,
   PlaySessionSummary,
   PlaySessionDetail,

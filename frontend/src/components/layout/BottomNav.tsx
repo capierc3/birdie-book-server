@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react'
 import { cn } from '../../utils/cn'
+import { useGps } from '../../contexts/GpsContext'
 import styles from './BottomNav.module.css'
 
 const tabs = [
@@ -26,6 +27,7 @@ interface BottomNavProps {
 
 export function BottomNav({ onMorePress, moreOpen }: BottomNavProps) {
   const location = useLocation()
+  const gps = useGps()
 
   const hidden = hiddenRoutes.some((r) => r.test(location.pathname))
   if (hidden) return null
@@ -40,6 +42,7 @@ export function BottomNav({ onMorePress, moreOpen }: BottomNavProps) {
           className={({ isActive }) =>
             cn(styles.tab, isActive && styles.active)
           }
+          onClick={tab.to === '/play' ? () => gps.refresh() : undefined}
         >
           <tab.icon size={22} />
           <span className={styles.label}>{tab.label}</span>

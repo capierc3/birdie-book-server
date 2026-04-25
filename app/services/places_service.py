@@ -103,6 +103,138 @@ def _do_places_search(search_text: str, lat: float = None, lng: float = None) ->
     return result
 
 
+@dataclass
+class PlaceSuggestion:
+    """Lightweight prediction from the Places Autocomplete API.
+
+    Autocomplete returns place_id + display text only (no lat/lng/photo) — the
+    full details are fetched later when the user actually picks one.
+    """
+    place_id: str
+    name: str
+    secondary_text: Optional[str] = None  # typically city/region
+
+
+def _do_places_autocomplete(query: str, lat: float = None, lng: float = None, max_results: int = 8) -> list[PlaceSuggestion]:
+    """
+    Places Autocomplete (New) — prefix-based type-ahead suggestions for golf courses.
+
+    Unlike Text Search, this ranks by name-prefix match, so "tpc sa" surfaces
+    "TPC Sawgrass" instead of generic "tpc" + "sa" relevance.
+    """
+    api_key = settings.google_maps_api_key
+    if not api_key:
+        return []
+
+    # Bias toward golf without a hard type filter. Many real golf clubs are
+    # tagged in Google's database with primary types other than "golf_course"
+    # or "country_club" (e.g. "establishment"), so a strict includedPrimaryTypes
+    # filter silently drops them. Appending "golf" to the input — when not
+    # already present — gives the same effect via name relevance ranking and
+    # still keeps the prefix-completion behavior.
+    biased_input = query
+    if "golf" not in query.lower():
+        biased_input = f"{query} golf"
+
+    body: dict = {
+        "input": biased_input,
+    }
+    if lat is not None and lng is not None:
+        body["locationBias"] = {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": 50000.0,
+            }
+        }
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+    }
+
+    from app.services.api_tracker import track_call, check_limit
+    if not check_limit("google_places"):
+        return []
+    track_call("google_places", "autocomplete")
+
+    try:
+        resp = httpx.post(
+            f"{PLACES_BASE}:autocomplete",
+            json=body,
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.warning("Places Autocomplete failed: %s", e)
+        return []
+
+    out: list[PlaceSuggestion] = []
+    for sug in data.get("suggestions", [])[:max_results]:
+        pred = sug.get("placePrediction") or {}
+        place_id = pred.get("placeId")
+        if not place_id:
+            continue
+        structured = pred.get("structuredFormat") or {}
+        main = (structured.get("mainText") or {}).get("text")
+        secondary = (structured.get("secondaryText") or {}).get("text")
+        if not main:
+            # Fallback to the flat "text" field if structuredFormat is missing
+            main = (pred.get("text") or {}).get("text")
+        if not main:
+            continue
+        out.append(PlaceSuggestion(place_id=place_id, name=main, secondary_text=secondary))
+    return out
+
+
+def _do_places_get_by_id(place_id: str) -> Optional[PlacesResult]:
+    """Fetch full place details by Google place_id (Place Details / New Places API)."""
+    api_key = settings.google_maps_api_key
+    if not api_key or not place_id:
+        return None
+
+    headers = {
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": (
+            "id,displayName,formattedAddress,location,photos,googleMapsUri"
+        ),
+    }
+
+    from app.services.api_tracker import track_call, check_limit
+    if not check_limit("google_places"):
+        return None
+    track_call("google_places", "placeDetails")
+
+    try:
+        resp = httpx.get(
+            f"{PLACES_BASE}/{place_id}",
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        place = resp.json()
+    except Exception as e:
+        log.warning("Places Details lookup failed for %s: %s", place_id, e)
+        return None
+
+    result = PlacesResult()
+    result.place_id = place.get("id") or place_id
+    result.maps_uri = place.get("googleMapsUri")
+    display = place.get("displayName") or {}
+    result.display_name = display.get("text")
+    result.address = place.get("formattedAddress")
+    location = place.get("location") or {}
+    result.lat = location.get("latitude")
+    result.lng = location.get("longitude")
+    photos = place.get("photos", [])
+    if photos:
+        photo_name = photos[0].get("name")
+        if photo_name:
+            result.photo_url = photo_name
+    return result
+
+
 def _do_places_text_search_all(search_text: str, lat: float = None, lng: float = None, max_results: int = 10) -> list[PlacesResult]:
     """
     Text Search variant that returns up to max_results matches (not just the top one).

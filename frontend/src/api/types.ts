@@ -378,6 +378,16 @@ export interface PlaceCandidatesResponse {
   candidates: PlaceCandidate[]
 }
 
+export interface PlaceSuggestion {
+  place_id: string
+  name: string
+  secondary_text?: string | null
+}
+
+export interface PlaceSuggestionsResponse {
+  suggestions: PlaceSuggestion[]
+}
+
 // ============================================================
 // Clubs (Equipment)
 // ============================================================

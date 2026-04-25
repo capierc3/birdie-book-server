@@ -107,7 +107,11 @@ def _geom_center(geometry: list[dict]) -> tuple[float, float]:
 
 
 def _relation_to_geometry(element: dict) -> list[dict]:
-    """Extract geometry points from a relation's members."""
+    """
+    Concatenate all member-way geometries into a single point list.
+    Used as a coarse fallback for course-boundary relations whose ways form one
+    connected perimeter. Do NOT use for hazard polygons — see _relation_to_outer_rings.
+    """
     points = []
     for member in element.get("members", []):
         if member.get("type") == "way" and "geometry" in member:
@@ -119,17 +123,27 @@ def _parse_elements(elements: list[dict]) -> OSMCourseData:
     """Parse Overpass API elements into structured golf feature data."""
     data = OSMCourseData()
 
+    def _classify(feature: OSMFeature, golf: str, natural: str) -> None:
+        if golf == "bunker":
+            data.bunkers.append(feature)
+        elif golf == "green":
+            data.greens.append(feature)
+        elif golf == "tee":
+            data.tees.append(feature)
+        elif golf == "fairway":
+            data.fairways.append(feature)
+        elif golf in ("water_hazard", "lateral_water_hazard") or natural == "water":
+            feature.feature_type = "water"
+            data.water.append(feature)
+        elif golf == "pin":
+            data.pins.append(feature)
+        # Skip cartpaths, paths, rough, clubhouse, etc.
+
     for e in elements:
         tags = e.get("tags", {})
         golf_tag = tags.get("golf", "")
         natural_tag = tags.get("natural", "")
         name = tags.get("name") or tags.get("ref")
-
-        # Get geometry — ways have it directly, relations need member extraction
-        if e["type"] == "relation":
-            geometry = _relation_to_geometry(e)
-        else:
-            geometry = e.get("geometry", [])
 
         # Node (point feature like tee or pin)
         if e["type"] == "node":
@@ -147,6 +161,21 @@ def _parse_elements(elements: list[dict]) -> OSMCourseData:
             elif golf_tag == "pin":
                 data.pins.append(feature)
             continue
+
+        # Skip multipolygon relations as feature sources.
+        # OSM water relations are typically multipolygons with one big `outer` ring
+        # plus many `inner` rings cutting out islands and land. Our boundary schema
+        # is a single flat ring with no hole support, so:
+        #   - Concatenating all members → "triangle" artifact connecting disjoint ponds
+        #   - Emitting just the outer  → giant blob covering the islands as water
+        # Both are wrong. Way-based water (individual ponds) renders correctly on its
+        # own, and the user can hand-draw any large water body the relation would have
+        # provided. Revisit if/when CourseHazard.boundary is upgraded to GeoJSON Polygon
+        # (outer + holes).
+        if e["type"] == "relation":
+            continue
+
+        geometry = e.get("geometry", [])
 
         # Hole centerlines (way with golf=hole, has par and ref tags)
         if golf_tag == "hole" and geometry and len(geometry) >= 2:
@@ -184,21 +213,7 @@ def _parse_elements(elements: list[dict]) -> OSMCourseData:
             center_lng=center[1],
             hole_number=_extract_hole_number(name),
         )
-
-        if golf_tag == "bunker":
-            data.bunkers.append(feature)
-        elif golf_tag == "green":
-            data.greens.append(feature)
-        elif golf_tag == "tee":
-            data.tees.append(feature)
-        elif golf_tag == "fairway":
-            data.fairways.append(feature)
-        elif golf_tag in ("water_hazard", "lateral_water_hazard") or natural_tag == "water":
-            feature.feature_type = "water"
-            data.water.append(feature)
-        elif golf_tag == "pin":
-            data.pins.append(feature)
-        # Skip cartpaths, paths, rough, clubhouse, etc.
+        _classify(feature, golf_tag, natural_tag)
 
     return data
 
@@ -420,13 +435,14 @@ def fetch_features_by_osm_id(
     bbox = f"{bbox_tuple[0]},{bbox_tuple[1]},{bbox_tuple[2]},{bbox_tuple[3]}"
     _progress("Course boundary found. Querying features...")
 
-    # Step 2: Single combined Overpass query for ALL golf features
+    # Step 2: Single combined Overpass query for ALL golf features.
+    # Water relations are intentionally excluded — they're multipolygons with island
+    # cutouts that our flat boundary schema can't render correctly (see _parse_elements).
     combined_query = f"""[out:json][timeout:30];
 (
   way["golf"]({bbox});
   node["golf"]({bbox});
   way["natural"="water"]({bbox});
-  relation["natural"="water"]({bbox});
 );
 out geom;"""
 
@@ -463,13 +479,12 @@ out geom;"""
 
     time.sleep(2)
 
-    # Query 2: hazards (bunkers, water, fairways)
+    # Query 2: hazards (bunkers, water, fairways) — way-only, see comment on combined_query
     q2 = f"""[out:json][timeout:25];
 (
   way["golf"="bunker"]({bbox});
   way["golf"="fairway"]({bbox});
   way["natural"="water"]({bbox});
-  relation["natural"="water"]({bbox});
   way["golf"="water_hazard"]({bbox});
 );
 out geom;"""
@@ -552,13 +567,13 @@ def fetch_golf_features(lat: float, lng: float, radius_km: float = 1.5) -> OSMCo
     """
     south, west, north, east = _compute_bbox(lat, lng, radius_km)
 
+    # Relations are dropped on the parse side (multipolygon-with-holes not supported),
+    # so don't fetch them here either.
     query = f"""[out:json][timeout:30];
 (
   way["golf"]({south},{west},{north},{east});
-  relation["golf"]({south},{west},{north},{east});
   node["golf"]({south},{west},{north},{east});
   way["natural"="water"]({south},{west},{north},{east});
-  relation["natural"="water"]({south},{west},{north},{east});
 );
 out geom;"""
 

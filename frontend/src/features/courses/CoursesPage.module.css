@@ -38,6 +38,66 @@
   flex: 1;
 }
 
+.searchInputWrap {
+  position: relative;
+  flex: 1;
+}
+
+.suggestList {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.suggestItem {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.suggestItem:last-child {
+  border-bottom: 0;
+}
+
+.suggestItem:hover,
+.suggestItem:focus {
+  background: var(--bg);
+}
+
+.suggestName {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.suggestSub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestEmpty {
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .searchResult {
   margin-top: 12px;
   padding: 12px;

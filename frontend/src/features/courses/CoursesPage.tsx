@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus } from 'lucide-react'
-import { Card, CardHeader, DataTable, Button, Input, Badge, EmptyState } from '../../components'
+import { Card, CardHeader, DataTable, Button, Input, Badge, EmptyState, useToast } from '../../components'
 import type { Column } from '../../components'
-import { useGolfClubs, useSearchCreateCourse } from '../../api'
-import type { GolfClubSummary, SearchCreateResult } from '../../api'
+import { useGolfClubs, useSearchCreateCourse, usePlacesAutocomplete } from '../../api'
+import type { GolfClubSummary, PlaceSuggestion, SearchCreateResult } from '../../api'
 import styles from '../../styles/pages.module.css'
 import cs from './CoursesPage.module.css'
 
@@ -58,26 +58,68 @@ export function CoursesPage() {
   const navigate = useNavigate()
   const { data: clubs = [], isLoading } = useGolfClubs()
   const searchCreate = useSearchCreateCourse()
+  const { toast } = useToast()
 
   const [showAddPanel, setShowAddPanel] = useState(false)
   const [searchName, setSearchName] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [searchResult, setSearchResult] = useState<SearchCreateResult | null>(null)
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchName.trim()), 300)
+    return () => clearTimeout(t)
+  }, [searchName])
+
+  const placesSearch = usePlacesAutocomplete(debouncedQuery)
+  const suggestions: PlaceSuggestion[] = placesSearch.data?.suggestions ?? []
+  const suggestionsLoading = debouncedQuery.length >= 3 && placesSearch.isFetching
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
 
   const sorted = useMemo(
     () => [...clubs].sort((a, b) => a.name.localeCompare(b.name)),
     [clubs],
   )
 
-  const handleSearch = async () => {
-    const name = searchName.trim()
-    if (!name) return
+  const runSearchCreate = async (args: { name: string; google_place_id?: string }) => {
     setSearchResult(null)
-    const result = await searchCreate.mutateAsync(name)
-    setSearchResult(result)
+    setShowSuggestions(false)
+    toast(`Adding ${args.name}…`, 'info')
+    try {
+      const result = await searchCreate.mutateAsync(args)
+      setSearchResult(result)
+      const displayName = result.club_name || args.name
+      if (result.status === 'existing') {
+        toast(`${displayName} already in your library`, 'info')
+      } else {
+        toast(`${displayName} added`, 'success')
+      }
+    } catch (e) {
+      toast(`Failed to add ${args.name}: ${(e as Error).message}`, 'error')
+    }
+  }
+
+  const handleSelectSuggestion = (s: PlaceSuggestion) => {
+    setSearchName(s.name)
+    runSearchCreate({ name: s.name, google_place_id: s.place_id })
   }
 
   const handleSearchKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleSearch()
+    if (e.key === 'Enter') {
+      const name = searchName.trim()
+      if (name) runSearchCreate({ name })
+    }
+    if (e.key === 'Escape') setShowSuggestions(false)
   }
 
   if (isLoading) {
@@ -105,28 +147,47 @@ export function CoursesPage() {
 
       {showAddPanel && (
         <div className={cs.addPanel}>
-          <div className={cs.searchRow}>
-            <Input
-              placeholder="Search for a course..."
-              value={searchName}
-              onChange={(e) => setSearchName(e.target.value)}
-              onKeyDown={handleSearchKey}
-              autoFocus
-            />
-            <Button
-              size="sm"
-              onClick={handleSearch}
-              disabled={searchCreate.isPending || !searchName.trim()}
-            >
-              {searchCreate.isPending ? 'Searching...' : 'Search'}
-            </Button>
-          </div>
-
-          {searchCreate.isError && (
-            <div className={cs.searchError}>
-              Search failed. Please try again.
+          <div className={cs.searchRow} ref={wrapRef}>
+            <div className={cs.searchInputWrap}>
+              <Input
+                placeholder="Search for a course..."
+                value={searchName}
+                onChange={(e) => {
+                  setSearchName(e.target.value)
+                  setShowSuggestions(true)
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onKeyDown={handleSearchKey}
+                autoFocus
+              />
+              {showSuggestions && debouncedQuery.length >= 3 && (
+                <div className={cs.suggestList}>
+                  {suggestionsLoading && suggestions.length === 0 && (
+                    <div className={cs.suggestEmpty}>Searching...</div>
+                  )}
+                  {!suggestionsLoading && suggestions.length === 0 && (
+                    <div className={cs.suggestEmpty}>
+                      No matches. Press Enter to try anyway.
+                    </div>
+                  )}
+                  {suggestions.map((s) => (
+                    <button
+                      type="button"
+                      key={s.place_id}
+                      className={cs.suggestItem}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelectSuggestion(s)}
+                    >
+                      <div className={cs.suggestName}>{s.name}</div>
+                      {s.secondary_text && (
+                        <div className={cs.suggestSub}>{s.secondary_text}</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {searchResult && (
             <div className={cs.searchResult}>

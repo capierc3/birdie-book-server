@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, Round, RoundHole, Shot
 from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
-from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo, _do_places_nearby, _do_places_text_search_all, _haversine_miles
+from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo, _do_places_nearby, _do_places_text_search_all, _do_places_autocomplete, _haversine_miles
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
 from app.services.course_calc_service import recalc_hole_shots, recalc_course_shots
 from app.services.strokes_gained import expected_strokes, personal_expected_strokes
@@ -336,6 +336,33 @@ def places_search(q: str, lat: Optional[float] = None, lng: Optional[float] = No
     return PlaceCandidatesResponse(candidates=candidates)
 
 
+class PlaceSuggestionResponse(BaseModel):
+    place_id: str
+    name: str
+    secondary_text: Optional[str] = None
+
+
+class PlaceSuggestionsResponse(BaseModel):
+    suggestions: list[PlaceSuggestionResponse]
+
+
+@router.get("/places/autocomplete", response_model=PlaceSuggestionsResponse)
+def places_autocomplete(q: str, lat: Optional[float] = None, lng: Optional[float] = None, db: Session = Depends(get_db)):
+    """Type-ahead suggestions backed by Google Places Autocomplete (prefix-ranked)."""
+    query = q.strip()
+    if len(query) < 3:
+        return PlaceSuggestionsResponse(suggestions=[])
+
+    saved_place_ids = {pid for (pid,) in db.query(GolfClub.google_place_id).filter(GolfClub.google_place_id.isnot(None)).all()}
+    raw = _do_places_autocomplete(query, lat=lat, lng=lng, max_results=8)
+    out: list[PlaceSuggestionResponse] = []
+    for s in raw:
+        if s.place_id in saved_place_ids:
+            continue
+        out.append(PlaceSuggestionResponse(place_id=s.place_id, name=s.name, secondary_text=s.secondary_text))
+    return PlaceSuggestionsResponse(suggestions=out)
+
+
 # --- Course Search & Create ---
 
 class CourseSearchCreateRequest(BaseModel):
@@ -350,7 +377,7 @@ def search_create_course(req: CourseSearchCreateRequest, db: Session = Depends(g
     and auto-sync tee/hole data from the Golf Course API.
     Returns existing club if a match is found.
     """
-    from app.services.places_service import _do_places_search, apply_places_result, _download_photo
+    from app.services.places_service import _do_places_search, _do_places_get_by_id, apply_places_result, _download_photo
 
     # 1. Check for existing club by google_place_id
     if req.google_place_id:
@@ -366,11 +393,17 @@ def search_create_course(req: CourseSearchCreateRequest, db: Session = Depends(g
                 "photo_url": existing.photo_url,
             }
 
-    # 2. Search Google Places
-    search_text = req.name
-    if "golf" not in search_text.lower():
-        search_text += " golf course"
-    places_result = _do_places_search(search_text)
+    # 2. Resolve place details. If we already know the place_id (from the
+    # autocomplete dropdown), fetch by id directly — text search is unreliable
+    # for ambiguous names (e.g. "Marquette Golf Club" returning Marquette Park
+    # in Chicago).
+    if req.google_place_id:
+        places_result = _do_places_get_by_id(req.google_place_id)
+    else:
+        search_text = req.name
+        if "golf" not in search_text.lower():
+            search_text += " golf course"
+        places_result = _do_places_search(search_text)
 
     # 3. Check for existing club by place_id from search result
     if places_result and places_result.place_id:
@@ -1537,6 +1570,19 @@ def link_osm_hole(
     return {"status": "linked", "hole_id": hole.id, "osm_hole_id": osm_hole.id}
 
 
+@router.post("/{course_id}/match-osm-holes")
+def match_osm_holes(course_id: int, db: Session = Depends(get_db)):
+    """
+    Run the unified OSM-to-CourseHole matcher for this course.
+    Useful when OSM holes were already imported (e.g. at club level) but the course
+    has no shot GPS yet — re-runs the ref-tag fallback to link as many holes as possible.
+    """
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return _match_osm_holes_to_course(db, course)
+
+
 # ── OSM Auto-Detect ──
 
 @router.post("/{course_id}/detect-features")
@@ -1643,148 +1689,36 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
             db.add(hazard)
             imported["water"] += 1
 
-    # Use hole centerlines to enrich CourseHoles with tee/green/fairway positions
+    # Persist OSM holes at club level (idempotent — dedupe by osm_id), then run the
+    # unified matcher to link them to CourseHoles. One code path for all OSM imports.
     if features.holes:
-        # For multi-course facilities (like Pine Knob with Eagle/Falcon/Hawk),
-        # we need to figure out which OSM holes belong to THIS course.
-        # Strategy: find the course's geographic center, then only use OSM holes
-        # that are within a reasonable distance of it.
+        for h in features.holes:
+            osm_id = h.get("osm_id")
+            if osm_id and db.query(OSMHole).filter(
+                OSMHole.golf_club_id == golf_club_id,
+                OSMHole.osm_id == osm_id,
+            ).first():
+                continue
+            tee_pos = h.get("tee") or [None, None]
+            green_pos = h.get("green") or [None, None]
+            waypoints = h.get("waypoints") or []
+            db.add(OSMHole(
+                golf_club_id=golf_club_id,
+                osm_id=osm_id,
+                hole_number=h.get("hole_number"),
+                par=h.get("par"),
+                tee_lat=tee_pos[0],
+                tee_lng=tee_pos[1],
+                green_lat=green_pos[0],
+                green_lng=green_pos[1],
+                waypoints=jsonlib.dumps(waypoints) if waypoints else None,
+            ))
+        db.commit()
 
-        # Get course center from actual shot GPS data (most reliable for multi-course facilities)
-        course_lat, course_lng = None, None
-
-        # First: use first-shot GPS positions from rounds played on this course
-        round_ids = [r.id for r in db.query(Round).filter(Round.course_id == course_id).all()]
-        if round_ids:
-            shot_center = (
-                db.query(
-                    sqlfunc.avg(Shot.start_lat),
-                    sqlfunc.avg(Shot.start_lng),
-                )
-                .filter(
-                    Shot.round_id.in_(round_ids),
-                    Shot.start_lat.isnot(None),
-                    Shot.shot_number == 1,  # First shot per hole = tee shots
-                )
-                .first()
-            )
-            if shot_center[0]:
-                course_lat, course_lng = shot_center[0], shot_center[1]
-
-        # Fallback: existing hole positions on this course
-        if not course_lat:
-            tees_check = db.query(CourseTee).filter(CourseTee.course_id == course_id).all()
-            all_hole_lats, all_hole_lngs = [], []
-            for tee_obj in tees_check:
-                for h in db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all():
-                    if h.tee_lat and h.tee_lng:
-                        all_hole_lats.append(h.tee_lat)
-                        all_hole_lngs.append(h.tee_lng)
-            if all_hole_lats:
-                course_lat = sum(all_hole_lats) / len(all_hole_lats)
-                course_lng = sum(all_hole_lngs) / len(all_hole_lngs)
-
-        # Last fallback: club GPS
-        if not course_lat:
-            club = course.club
-            if club and club.lat and club.lng:
-                course_lat, course_lng = club.lat, club.lng
-
-        # Filter OSM holes to those near this course's center
-        # Use tight radius (~0.005 degrees ≈ 500m) for multi-course facilities
-        filtered_osm_holes = features.holes
-        if course_lat and course_lng:
-            def _hole_dist_to_course(h):
-                t = h.get("tee", [0, 0])
-                return math.sqrt((t[0] - course_lat) ** 2 + (t[1] - course_lng) ** 2)
-
-            # Sort by distance, take only holes within tight radius
-            sorted_holes = sorted(features.holes, key=_hole_dist_to_course)
-
-            # For a 9-hole course, take the 9 closest; for 18, take 18 closest
-            # But also cap by distance
-            num_holes = course.holes or 9
-            close_holes = [h for h in sorted_holes if _hole_dist_to_course(h) < 0.005]
-
-            # If we got enough close holes, use them; otherwise widen the radius
-            if len(close_holes) >= num_holes:
-                filtered_osm_holes = close_holes
-            else:
-                # Widen to 0.01 degrees (~1km)
-                filtered_osm_holes = [h for h in sorted_holes if _hole_dist_to_course(h) < 0.01]
-
-        tees_db = db.query(CourseTee).filter(CourseTee.course_id == course_id).all()
-
-        # For 9-hole courses, OSM may number holes 10-18 (back nine).
-        # Build a mapping: our hole number -> OSM hole number, trying direct match first,
-        # then offset by 9 or 18, then fallback to proximity matching.
-        num_course_holes = course.holes or 9
-
-        for tee_obj in tees_db:
-            holes = db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all()
-
-            for hole in holes:
-                # Try matching by hole number: direct, +9, +18
-                osm_matches = []
-                for offset in [0, 9, 18]:
-                    target_num = hole.hole_number + offset
-                    matches = [h for h in filtered_osm_holes if h.get("hole_number") == target_num]
-                    if matches:
-                        osm_matches = matches
-                        break
-
-                # Fallback: if no number match, find closest OSM hole by GPS proximity
-                # (use first shot GPS from rounds if available)
-                if not osm_matches and round_ids:
-                    first_shot = (
-                        db.query(Shot)
-                        .join(RoundHole)
-                        .filter(
-                            Shot.round_id.in_(round_ids),
-                            RoundHole.hole_number == hole.hole_number,
-                            Shot.shot_number == 1,
-                            Shot.start_lat.isnot(None),
-                        )
-                        .first()
-                    )
-                    if first_shot:
-                        # Find OSM hole whose tee is closest to this shot's start
-                        def _dist_to_shot(h):
-                            t = h.get("tee", [0, 0])
-                            return math.sqrt((t[0] - first_shot.start_lat)**2 + (t[1] - first_shot.start_lng)**2)
-                        closest = min(filtered_osm_holes, key=_dist_to_shot, default=None)
-                        if closest and _dist_to_shot(closest) < 0.003:  # ~300m
-                            osm_matches = [closest]
-
-                if not osm_matches:
-                    continue
-
-                # Pick best match
-                best = osm_matches[0]
-                if len(osm_matches) > 1:
-                    # Pick by par match first
-                    par_matches = [h for h in osm_matches if h.get("par") == hole.par]
-                    if par_matches:
-                        best = par_matches[0]
-
-                tee_pos = best.get("tee")
-                if tee_pos and not hole.tee_lat:
-                    hole.tee_lat = tee_pos[0]
-                    hole.tee_lng = tee_pos[1]
-
-                green_pos = best.get("green")
-                if green_pos and not hole.flag_lat:
-                    hole.flag_lat = green_pos[0]
-                    hole.flag_lng = green_pos[1]
-
-                waypoints = best.get("waypoints", [])
-                if waypoints and len(waypoints) >= 2 and not hole.fairway_path:
-                    hole.fairway_path = jsonlib.dumps(waypoints)
-
-                if not hole.data_source or hole.data_source == 'api':
-                    hole.data_source = 'osm'
-
-                imported["holes_enriched"] += 1
+        match_result = _match_osm_holes_to_course(db, course)
+        imported["holes_enriched"] = match_result["matched"]
+        imported["match_strategy"] = match_result["by_strategy"]
+        imported["unlinked"] = match_result["unlinked"]
 
     # Match green boundaries to holes by proximity to flag position
     if features.greens:
@@ -2437,7 +2371,7 @@ def _import_osm_features_to_course(db: Session, course: Course, features) -> dic
     db.commit()
 
     # Auto-match OSM holes to course holes
-    _auto_match_osm_holes(db, course)
+    _match_osm_holes_to_course(db, course)
 
     return result
 
@@ -2504,39 +2438,44 @@ def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
     # Auto-match holes to each course at the club
     courses = db.query(Course).filter(Course.golf_club_id == club.id).all()
     for course in courses:
-        matched = _auto_match_osm_holes(db, course)
-        if matched > 0:
+        match_result = _match_osm_holes_to_course(db, course)
+        if match_result["matched"] > 0:
             result["courses_matched"] += 1
 
     return result
 
 
-def _auto_match_osm_holes(db: Session, course: Course) -> int:
+def _match_osm_holes_to_course(db: Session, course: Course) -> dict:
     """
-    Auto-match OSM holes to course holes. Only links when shot GPS data validates
-    the match (within 50 yards of the OSM tee). Without shot GPS, leaves the hole
-    unlinked so the user can manually assign via the map editor — OSM tee/green
-    coords are unreliable (centerline start is not the actual tee box) and
-    yardage+par alone can link wrong holes.
+    Unified matcher: link persisted OSMHole records to this course's CourseHoles.
+
+    Per-hole priority (first hit wins):
+      1. Garmin shot GPS  — first-shot lat/lng within 50y of an OSM tee
+      2. OSM ref tag      — OSMHole.hole_number == hole.hole_number (with +9/+18 offset
+                            for back-nine OSM data on 9-hole courses); par tie-break
+                            when multiple candidates remain
+      3. Unlinked         — left for manual assignment via Drawing Tools
+
+    Multi-course facilities (e.g. Pine Knob): OSM holes are stored at club level. Before
+    matching, candidates are pre-filtered to those near this course's centroid (derived
+    from shot GPS, then existing hole positions, then club GPS).
+
+    Sets osm_hole_id FK and applies tee/green/fairway GPS when missing. Idempotent —
+    skips holes already linked. Returns per-strategy counts for telemetry.
     """
     osm_holes = db.query(OSMHole).filter(
         OSMHole.golf_club_id == course.golf_club_id
     ).all()
-
     if not osm_holes:
-        return 0
+        return {"matched": 0, "by_strategy": {"gps": 0, "ref": 0}, "unlinked": 0}
 
     tees = db.query(CourseTee).filter(CourseTee.course_id == course.id).all()
     if not tees:
-        return 0
+        return {"matched": 0, "by_strategy": {"gps": 0, "ref": 0}, "unlinked": 0}
 
-    matched = 0
-
-    # Get shot GPS for this course (first shots = tee positions)
-    from app.models.round import Round, Shot, RoundHole
+    # ── First-shot GPS per hole_number (strategy 1 signal) ──
     round_ids = [r.id for r in db.query(Round).filter(Round.course_id == course.id).all()]
-
-    shot_tee_positions = {}  # hole_number -> (lat, lng)
+    shot_tee_positions: dict[int, tuple[float, float]] = {}
     if round_ids:
         for rh in db.query(RoundHole).filter(RoundHole.round_id.in_(round_ids)).all():
             if rh.hole_number in shot_tee_positions:
@@ -2549,38 +2488,91 @@ def _auto_match_osm_holes(db: Session, course: Course) -> int:
             if s1:
                 shot_tee_positions[rh.hole_number] = (s1.start_lat, s1.start_lng)
 
-    # Nothing to auto-match if we have no shot GPS — user will link manually
-    if not shot_tee_positions:
-        return 0
+    # ── Course centroid (used to pre-filter OSM candidates at multi-course facilities) ──
+    course_lat, course_lng = None, None
+    if shot_tee_positions:
+        course_lat = sum(p[0] for p in shot_tee_positions.values()) / len(shot_tee_positions)
+        course_lng = sum(p[1] for p in shot_tee_positions.values()) / len(shot_tee_positions)
+    else:
+        existing_lats, existing_lngs = [], []
+        for t in tees:
+            for h in db.query(CourseHole).filter(CourseHole.tee_id == t.id).all():
+                if h.tee_lat:
+                    existing_lats.append(h.tee_lat)
+                    existing_lngs.append(h.tee_lng)
+        if existing_lats:
+            course_lat = sum(existing_lats) / len(existing_lats)
+            course_lng = sum(existing_lngs) / len(existing_lngs)
+        elif course.club and course.club.lat and course.club.lng:
+            course_lat, course_lng = course.club.lat, course.club.lng
 
-    GPS_MAX_YARDS = 50  # Require OSM tee within 50y of first shot
+    # Narrow candidates only when the club has clearly more OSM holes than this course needs
+    # (i.e. multi-course facility). Tight 500m radius, widen to 1km if too few.
+    num_course_holes = course.holes or 18
+    candidate_osm = osm_holes
+    if course_lat and len(osm_holes) > num_course_holes:
+        with_pos = [oh for oh in osm_holes if oh.tee_lat]
+        TIGHT_YDS, WIDE_YDS = 547, 1094  # ~500m, ~1km
+        close = [oh for oh in with_pos
+                 if _haversine_yards_simple(course_lat, course_lng, oh.tee_lat, oh.tee_lng) < TIGHT_YDS]
+        if len(close) >= num_course_holes:
+            candidate_osm = close
+        else:
+            wide = [oh for oh in with_pos
+                    if _haversine_yards_simple(course_lat, course_lng, oh.tee_lat, oh.tee_lng) < WIDE_YDS]
+            candidate_osm = wide if wide else osm_holes
+
+    GPS_MAX_YARDS = 50
+    by_strategy = {"gps": 0, "ref": 0}
+    matched_total = 0
+    unlinked = 0
 
     for tee_obj in tees:
         holes = db.query(CourseHole).filter(CourseHole.tee_id == tee_obj.id).all()
-
         for hole in holes:
             if hole.osm_hole_id:
                 continue
 
-            shot_pos = shot_tee_positions.get(hole.hole_number)
-            if not shot_pos:
-                continue  # No GPS — leave unlinked for manual assignment
-
             best_osm = None
-            best_dist = GPS_MAX_YARDS + 1
+            strategy = None
 
-            for oh in osm_holes:
-                if not oh.tee_lat:
-                    continue
-                dist = _haversine_yards_simple(shot_pos[0], shot_pos[1], oh.tee_lat, oh.tee_lng)
-                if dist > GPS_MAX_YARDS:
-                    continue
-                # Tie-break with par if available
-                if hole.par and oh.par and hole.par != oh.par:
-                    dist += 10
-                if dist < best_dist:
-                    best_dist = dist
-                    best_osm = oh
+            # ── Strategy 1: Garmin shot GPS (highest confidence) ──
+            shot_pos = shot_tee_positions.get(hole.hole_number)
+            if shot_pos:
+                best_dist = GPS_MAX_YARDS + 1
+                for oh in candidate_osm:
+                    if not oh.tee_lat:
+                        continue
+                    d = _haversine_yards_simple(shot_pos[0], shot_pos[1], oh.tee_lat, oh.tee_lng)
+                    if d > GPS_MAX_YARDS:
+                        continue
+                    if hole.par and oh.par and hole.par != oh.par:
+                        d += 10  # par tie-break
+                    if d < best_dist:
+                        best_dist = d
+                        best_osm = oh
+                if best_osm:
+                    strategy = "gps"
+
+            # ── Strategy 2: OSM ref tag (works without played rounds) ──
+            if not best_osm:
+                for offset in (0, 9, 18):
+                    target_num = hole.hole_number + offset
+                    matches = [oh for oh in candidate_osm if oh.hole_number == target_num]
+                    if not matches:
+                        continue
+                    if len(matches) > 1 and hole.par:
+                        par_matches = [oh for oh in matches if oh.par == hole.par]
+                        if par_matches:
+                            matches = par_matches
+                    # Final tie-break: closest to course centroid
+                    if len(matches) > 1 and course_lat:
+                        matches.sort(key=lambda oh: _haversine_yards_simple(
+                            course_lat, course_lng, oh.tee_lat or course_lat, oh.tee_lng or course_lng,
+                        ))
+                    best_osm = matches[0]
+                    strategy = "ref"
+                    break
 
             if best_osm:
                 hole.osm_hole_id = best_osm.id
@@ -2594,10 +2586,15 @@ def _auto_match_osm_holes(db: Session, course: Course) -> int:
                     hole.fairway_path = best_osm.waypoints
                 if best_osm.green_boundary and not hole.green_boundary:
                     hole.green_boundary = best_osm.green_boundary
-                matched += 1
+                if not hole.data_source or hole.data_source == 'api':
+                    hole.data_source = 'osm'
+                by_strategy[strategy] += 1
+                matched_total += 1
+            else:
+                unlinked += 1
 
     db.commit()
-    return matched
+    return {"matched": matched_total, "by_strategy": by_strategy, "unlinked": unlinked}
 
 
 @router.get("/{target_id}/merge-preview/{source_id}")

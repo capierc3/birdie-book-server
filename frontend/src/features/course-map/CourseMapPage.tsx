@@ -253,10 +253,13 @@ function DesktopCourseMapPage() {
         await del(`/courses/${course.id}/hazards/${h.id}`)
       }
       if (h._new) {
+        const ringToCoords = (ring: { lat: number; lng: number }[]) =>
+          ring.map((p) => [p.lat, p.lng])
+        const rings = [ringToCoords(h.boundary), ...((h.holes || []).map(ringToCoords))]
         await post(`/courses/${course.id}/hazards`, {
           hazard_type: h.hazard_type,
           name: h.name || '',
-          boundary: JSON.stringify(h.boundary.map((p) => [p.lat, p.lng])),
+          boundary: JSON.stringify(rings),
         })
       }
     }

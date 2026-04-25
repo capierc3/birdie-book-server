@@ -66,9 +66,15 @@ export function MobileMapOverlays() {
       .filter(h => !h._deleted && h.boundary.length >= 3)
       .map(h => {
         const [fill, stroke] = HAZARD_COLORS[h.hazard_type] ?? ['#999', '#666']
+        // GeoJSON Polygon coordinates: first ring is outer, subsequent rings are holes.
+        // MapLibre's fill/line layers render polygon-with-holes natively.
+        const coordinates = [
+          ringFromLatLng(h.boundary),
+          ...(h.holes ?? []).filter(hole => hole.length >= 3).map(ringFromLatLng),
+        ]
         return {
           type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [ringFromLatLng(h.boundary)] },
+          geometry: { type: 'Polygon', coordinates },
           properties: { fill, stroke, hazard_type: h.hazard_type, name: h.name ?? '' },
         }
       })

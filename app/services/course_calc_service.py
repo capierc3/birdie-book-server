@@ -83,6 +83,27 @@ def _parse_path(json_str) -> list[list[float]]:
         return []
 
 
+def parse_boundary(json_str) -> list[list[list[float]]]:
+    """
+    Parse a CourseHazard.boundary JSON string into a list of rings.
+
+    Handles both shapes:
+      - Legacy single ring:  [[lat,lng], ...]                    → [[[lat,lng], ...]]
+      - Nested with holes:   [[outer], [hole1], [hole2], ...]    → returned as-is
+
+    Discriminator: nested form has arrays as the inner-most pair members.
+    Returns [] on failure or empty input.
+    """
+    parsed = _parse_path(json_str)
+    if not parsed:
+        return []
+    # Nested shape if first element's first element is itself a list
+    if isinstance(parsed[0], list) and parsed[0] and isinstance(parsed[0][0], list):
+        return parsed
+    # Legacy flat ring — promote to nested
+    return [parsed]
+
+
 def _point_in_polygon(lat: float, lng: float, polygon: list[list[float]]) -> bool:
     """Ray-casting algorithm for point-in-polygon test."""
     n = len(polygon)
@@ -349,24 +370,38 @@ def hazard_proximity(
 
     best = None
     for h in hazards:
-        boundary = _parse_path(h.boundary)
-        if len(boundary) < 3:
+        rings = parse_boundary(h.boundary)
+        if not rings or len(rings[0]) < 3:
             continue
+        outer = rings[0]
+        holes = rings[1:]
 
-        # Check if point is inside the hazard
-        if _point_in_polygon(end_lat, end_lng, boundary):
+        # Inside outer AND not inside any hole → on the hazard
+        in_outer = _point_in_polygon(end_lat, end_lng, outer)
+        in_hole = any(
+            len(hole) >= 3 and _point_in_polygon(end_lat, end_lng, hole)
+            for hole in holes
+        )
+
+        if in_outer and not in_hole:
             dist = 0.0
         else:
-            # Find min distance to any edge of the polygon
+            # Distance to nearest edge — outer perimeter, plus inner edges if the
+            # point is sitting inside a hole (closer hole edge than outer edge).
             dist = float("inf")
-            for i in range(len(boundary)):
-                j = (i + 1) % len(boundary)
-                d = _point_to_segment_dist(
-                    end_lat, end_lng,
-                    boundary[i][0], boundary[i][1],
-                    boundary[j][0], boundary[j][1],
-                )
-                dist = min(dist, d)
+            rings_to_check = [outer] + holes if in_hole else [outer]
+            for ring in rings_to_check:
+                if len(ring) < 3:
+                    continue
+                for i in range(len(ring)):
+                    j = (i + 1) % len(ring)
+                    d = _point_to_segment_dist(
+                        end_lat, end_lng,
+                        ring[i][0], ring[i][1],
+                        ring[j][0], ring[j][1],
+                    )
+                    if d < dist:
+                        dist = d
 
         if best is None or dist < best["distance_yards"]:
             best = {

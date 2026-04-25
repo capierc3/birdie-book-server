@@ -26,10 +26,13 @@ class OSMFeature:
     osm_id: int
     feature_type: str  # bunker, green, tee, fairway, water, pin
     name: str | None
-    boundary: list[list[float]]  # [[lat, lng], ...] for polygons
+    boundary: list[list[float]]  # [[lat, lng], ...] outer ring
     center_lat: float | None = None
     center_lng: float | None = None
     hole_number: int | None = None  # inferred from name or proximity
+    # Inner rings (cutouts) for OSM water multipolygons — islands inside lakes etc.
+    # Empty for simple ways. Renderers should treat boundary as outer + holes as inner.
+    holes: list[list[list[float]]] = field(default_factory=list)
 
 
 @dataclass
@@ -110,13 +113,178 @@ def _relation_to_geometry(element: dict) -> list[dict]:
     """
     Concatenate all member-way geometries into a single point list.
     Used as a coarse fallback for course-boundary relations whose ways form one
-    connected perimeter. Do NOT use for hazard polygons — see _relation_to_outer_rings.
+    connected perimeter. Do NOT use for hazard polygons — see _relation_to_polygons.
     """
     points = []
     for member in element.get("members", []):
         if member.get("type") == "way" and "geometry" in member:
             points.extend(member["geometry"])
     return points
+
+
+def _ring_is_closed(geom: list[dict], tol: float = 1e-7) -> bool:
+    """A ring is closed if first and last vertex coincide. Overpass `out geom;` returns
+    closed ways with the closing vertex repeated; split-across-ways outers don't satisfy
+    this and we skip them rather than emit a bad shape."""
+    if len(geom) < 4:
+        return False
+    return (
+        abs(geom[0]["lat"] - geom[-1]["lat"]) < tol
+        and abs(geom[0]["lon"] - geom[-1]["lon"]) < tol
+    )
+
+
+def _point_in_ring(lat: float, lng: float, ring: list[list[float]]) -> bool:
+    """Ray-casting point-in-polygon (single ring). Used to assign inner rings to
+    their enclosing outer when a multipolygon has multiple disjoint outers."""
+    n = len(ring)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        yi, xi = ring[i][0], ring[i][1]
+        yj, xj = ring[j][0], ring[j][1]
+        if ((yi > lat) != (yj > lat)) and (
+            lng < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi
+        ):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _stitch_rings(
+    geoms: list[list[dict]], context: str = "",
+) -> list[tuple[list[dict], int | None]]:
+    """
+    Stitch a list of OSM way geometries into closed rings.
+
+    OSM multipolygon relations frequently split a single ring across multiple
+    `way` members that share endpoints (head-to-tail). At TPC Sawgrass nearly
+    all the water is structured this way. This function:
+      - Passes already-closed input ways through directly (preserves source idx).
+      - Chains open segments end-to-end (reversing where needed) until they
+        close into rings.
+      - Drops dangling chains that can't be closed (logged with `context`).
+
+    Each input/output point is `{"lat": float, "lon": float}` (Overpass shape).
+    Returns: [(ring, source_index_or_None)] — source_index points back into the
+    input list when the ring was a single already-closed way, so callers can
+    preserve that way's osm_id; None for stitched multi-way rings.
+    """
+    EPS = 1e-7
+
+    def same(a: dict, b: dict) -> bool:
+        return abs(a["lat"] - b["lat"]) < EPS and abs(a["lon"] - b["lon"]) < EPS
+
+    results: list[tuple[list[dict], int | None]] = []
+    open_segs: list[list[dict]] = []
+    for idx, g in enumerate(geoms):
+        if len(g) < 2:
+            continue
+        if _ring_is_closed(g):
+            results.append((g, idx))
+        else:
+            open_segs.append(list(g))
+
+    dropped_segs = 0
+    while open_segs:
+        ring = open_segs.pop(0)
+        progress = True
+        while progress and not same(ring[0], ring[-1]):
+            progress = False
+            for i, seg in enumerate(open_segs):
+                # Try the four possible attach orientations
+                if same(ring[-1], seg[0]):
+                    ring.extend(seg[1:])
+                elif same(ring[-1], seg[-1]):
+                    ring.extend(reversed(seg[:-1]))
+                elif same(ring[0], seg[-1]):
+                    ring = seg[:-1] + ring
+                elif same(ring[0], seg[0]):
+                    ring = list(reversed(seg))[:-1] + ring
+                else:
+                    continue
+                open_segs.pop(i)
+                progress = True
+                break
+        if same(ring[0], ring[-1]) and len(ring) >= 4:
+            results.append((ring, None))
+        else:
+            dropped_segs += 1
+
+    if dropped_segs and context:
+        logger.warning(
+            "Ring stitching: dropped %d dangling chain(s) in %s",
+            dropped_segs, context,
+        )
+
+    return results
+
+
+def _relation_to_polygons(element: dict) -> list[dict]:
+    """
+    Decompose a multipolygon relation into proper polygons with holes.
+
+    OSM water multipolygons have one or more `outer` rings (distinct water
+    bodies) plus optional `inner` rings (islands, land cutouts inside water).
+    Member ways may be closed-on-their-own or split across multiple ways that
+    need head-to-tail stitching. Both cases are handled.
+
+    Returns:
+        [{"osm_id": int|None, "outer": [[lat,lng],...], "holes": [[[lat,lng],...], ...]}]
+
+    - One entry per outer ring.
+    - osm_id preserved when the ring was a single closed input way (so import-time
+      dedup works for re-imports). Stitched rings get None — dedup is bypassed,
+      acceptable for the rare repeat-import case.
+    - Members with empty role are treated as outer.
+    - Inner rings are assigned to whichever outer contains their first vertex.
+    """
+    outer_geoms: list[list[dict]] = []
+    inner_geoms: list[list[dict]] = []
+    outer_seed_ids: list[int | None] = []  # parallel to outer_geoms
+
+    for member in element.get("members", []):
+        if member.get("type") != "way" or "geometry" not in member:
+            continue
+        role = member.get("role", "") or "outer"
+        geom = member["geometry"]
+        if not geom:
+            continue
+        if role == "outer":
+            outer_geoms.append(geom)
+            outer_seed_ids.append(member.get("ref"))
+        elif role == "inner":
+            inner_geoms.append(geom)
+        # ignore other roles (subarea, label, etc.)
+
+    rel_label = f"relation {element.get('id')}"
+    outer_results = _stitch_rings(outer_geoms, context=f"{rel_label} (outer)")
+    inner_results = _stitch_rings(inner_geoms, context=f"{rel_label} (inner)")
+
+    polygons = []
+    for ring, source_idx in outer_results:
+        way_id = outer_seed_ids[source_idx] if source_idx is not None else None
+        polygons.append({
+            "osm_id": way_id,
+            "outer": _geom_to_boundary(ring),
+            "holes": [],
+        })
+
+    # Assign each inner ring to its enclosing outer (point-in-polygon on first vertex).
+    for ring, _ in inner_results:
+        if not ring:
+            continue
+        i_lat = ring[0]["lat"]
+        i_lng = ring[0]["lon"]
+        inner_ll = _geom_to_boundary(ring)
+        for poly in polygons:
+            if _point_in_ring(i_lat, i_lng, poly["outer"]):
+                poly["holes"].append(inner_ll)
+                break
+
+    return polygons
 
 
 def _parse_elements(elements: list[dict]) -> OSMCourseData:
@@ -162,17 +330,27 @@ def _parse_elements(elements: list[dict]) -> OSMCourseData:
                 data.pins.append(feature)
             continue
 
-        # Skip multipolygon relations as feature sources.
-        # OSM water relations are typically multipolygons with one big `outer` ring
-        # plus many `inner` rings cutting out islands and land. Our boundary schema
-        # is a single flat ring with no hole support, so:
-        #   - Concatenating all members → "triangle" artifact connecting disjoint ponds
-        #   - Emitting just the outer  → giant blob covering the islands as water
-        # Both are wrong. Way-based water (individual ponds) renders correctly on its
-        # own, and the user can hand-draw any large water body the relation would have
-        # provided. Revisit if/when CourseHazard.boundary is upgraded to GeoJSON Polygon
-        # (outer + holes).
+        # Multipolygon relations: decompose into one feature per outer ring, each
+        # carrying its inner rings as `holes` so islands inside lakes don't render
+        # as water. CourseHazard.boundary is stored as a nested ring array
+        # `[outer, hole1, ...]` for these features (see import paths in courses.py).
         if e["type"] == "relation":
+            for poly in _relation_to_polygons(e):
+                outer = poly["outer"]
+                if len(outer) < 3:
+                    continue
+                ring_center = _geom_center([{"lat": p[0], "lon": p[1]} for p in outer])
+                ring_feature = OSMFeature(
+                    osm_id=poly["osm_id"],
+                    feature_type=golf_tag or natural_tag,
+                    name=name,
+                    boundary=outer,
+                    holes=poly["holes"],
+                    center_lat=ring_center[0],
+                    center_lng=ring_center[1],
+                    hole_number=_extract_hole_number(name),
+                )
+                _classify(ring_feature, golf_tag, natural_tag)
             continue
 
         geometry = e.get("geometry", [])
@@ -436,13 +614,12 @@ def fetch_features_by_osm_id(
     _progress("Course boundary found. Querying features...")
 
     # Step 2: Single combined Overpass query for ALL golf features.
-    # Water relations are intentionally excluded — they're multipolygons with island
-    # cutouts that our flat boundary schema can't render correctly (see _parse_elements).
     combined_query = f"""[out:json][timeout:30];
 (
   way["golf"]({bbox});
   node["golf"]({bbox});
   way["natural"="water"]({bbox});
+  relation["natural"="water"]({bbox});
 );
 out geom;"""
 
@@ -479,12 +656,13 @@ out geom;"""
 
     time.sleep(2)
 
-    # Query 2: hazards (bunkers, water, fairways) — way-only, see comment on combined_query
+    # Query 2: hazards (bunkers, water, fairways)
     q2 = f"""[out:json][timeout:25];
 (
   way["golf"="bunker"]({bbox});
   way["golf"="fairway"]({bbox});
   way["natural"="water"]({bbox});
+  relation["natural"="water"]({bbox});
   way["golf"="water_hazard"]({bbox});
 );
 out geom;"""
@@ -567,13 +745,13 @@ def fetch_golf_features(lat: float, lng: float, radius_km: float = 1.5) -> OSMCo
     """
     south, west, north, east = _compute_bbox(lat, lng, radius_km)
 
-    # Relations are dropped on the parse side (multipolygon-with-holes not supported),
-    # so don't fetch them here either.
     query = f"""[out:json][timeout:30];
 (
   way["golf"]({south},{west},{north},{east});
+  relation["golf"]({south},{west},{north},{east});
   node["golf"]({south},{west},{north},{east});
   way["natural"="water"]({south},{west},{north},{east});
+  relation["natural"="water"]({south},{west},{north},{east});
 );
 out geom;"""
 

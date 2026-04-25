@@ -18,9 +18,48 @@ export interface EditorHazard {
   id?: number
   hazard_type: string
   name?: string | null
-  boundary: LatLng[]
+  boundary: LatLng[]              // outer ring
+  holes?: LatLng[][]              // inner rings (cutouts) — OSM water multipolygons
   _new?: boolean
   _deleted?: boolean
+}
+
+/**
+ * Parse a CourseHazard.boundary JSON string into outer + holes.
+ *
+ * Storage is GeoJSON-style polygon coordinates: `[outer, hole1, hole2, ...]`.
+ * Legacy rows store a flat ring `[lat,lng], ...]` — promoted on read.
+ *
+ * Returns `{ outer: [], holes: [] }` on parse failure or empty input.
+ */
+export function parseHazardBoundary(json: string | null | undefined): {
+  outer: LatLng[]
+  holes: LatLng[][]
+} {
+  if (!json) return { outer: [], holes: [] }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return { outer: [], holes: [] }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return { outer: [], holes: [] }
+
+  const toRing = (raw: unknown): LatLng[] =>
+    Array.isArray(raw)
+      ? raw
+          .filter((p): p is number[] => Array.isArray(p) && p.length >= 2)
+          .map((p) => ({ lat: p[0], lng: p[1] }))
+      : []
+
+  // Nested shape: first element's first element is itself an array
+  const first = parsed[0] as unknown[]
+  if (Array.isArray(first) && first.length > 0 && Array.isArray(first[0])) {
+    const rings = (parsed as unknown[]).map(toRing)
+    return { outer: rings[0] ?? [], holes: rings.slice(1).filter((r) => r.length >= 3) }
+  }
+  // Legacy flat ring
+  return { outer: toRing(parsed), holes: [] }
 }
 
 // ── Drawing tool types ──
@@ -217,11 +256,8 @@ export function parseHoleData(
 
   // Hazards (club-level)
   const hazards: EditorHazard[] = (course.hazards || []).map((h) => {
-    let boundary: LatLng[] = []
-    try {
-      boundary = JSON.parse(h.boundary).map((p: number[]) => ({ lat: p[0], lng: p[1] }))
-    } catch { /* ignore */ }
-    return { id: h.id, hazard_type: h.hazard_type, name: h.name, boundary }
+    const { outer, holes } = parseHazardBoundary(h.boundary)
+    return { id: h.id, hazard_type: h.hazard_type, name: h.name, boundary: outer, holes }
   })
 
   return { hole, teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries, greenBoundary, hazards }

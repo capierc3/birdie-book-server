@@ -281,7 +281,14 @@ export function MapOverlays() {
     ctx.hazards.forEach((h, idx) => {
       if (h._deleted || h.boundary.length < 3) return
       const [fill, stroke] = HAZARD_COLORS[h.hazard_type] || ['#999', '#666']
-      const poly = L.polygon(h.boundary.map((p) => [p.lat, p.lng] as [number, number]), {
+      // L.polygon accepts [outerRing, holeRing1, ...] for polygon-with-holes.
+      const ringToLeaflet = (ring: { lat: number; lng: number }[]) =>
+        ring.map((p) => [p.lat, p.lng] as [number, number])
+      const rings: [number, number][][] = [
+        ringToLeaflet(h.boundary),
+        ...(h.holes ?? []).filter((r) => r.length >= 3).map(ringToLeaflet),
+      ]
+      const poly = L.polygon(rings, {
         color: stroke, weight: 1.5, fillColor: fill, fillOpacity: 0.3, interactive: drawOpen,
       }).addTo(lg)
       if (h.name) poly.bindTooltip(h.name, { permanent: false })

@@ -133,9 +133,13 @@ export function MapLibreTestPage() {
       .filter(h => !h._deleted && h.boundary.length >= 3)
       .map(h => {
         const [fill, stroke] = HAZARD_COLORS[h.hazard_type] ?? ['#999', '#666']
+        const coordinates = [
+          ringFromLatLng(h.boundary),
+          ...(h.holes ?? []).filter(r => r.length >= 3).map(ringFromLatLng),
+        ]
         return {
           type: 'Feature',
-          geometry: { type: 'Polygon', coordinates: [ringFromLatLng(h.boundary)] },
+          geometry: { type: 'Polygon', coordinates },
           properties: { fill, stroke, hazard_type: h.hazard_type, name: h.name ?? '' },
         }
       })

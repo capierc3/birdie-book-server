@@ -1620,11 +1620,11 @@ def detect_features(course_id: int, db: Session = Depends(get_db)):
 
     return {
         "summary": data.summary(),
-        "bunkers": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "hole": f.hole_number} for f in data.bunkers],
+        "bunkers": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "holes": f.holes, "hole": f.hole_number} for f in data.bunkers],
         "greens": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "center": [f.center_lat, f.center_lng], "hole": f.hole_number} for f in data.greens],
         "tees": [{"osm_id": f.osm_id, "name": f.name, "center": [f.center_lat, f.center_lng] if f.center_lat else f.boundary[0] if f.boundary else None, "boundary": f.boundary, "hole": f.hole_number} for f in data.tees],
         "fairways": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "hole": f.hole_number} for f in data.fairways],
-        "water": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary} for f in data.water],
+        "water": [{"osm_id": f.osm_id, "name": f.name, "boundary": f.boundary, "holes": f.holes} for f in data.water],
         "pins": [{"osm_id": f.osm_id, "name": f.name, "center": [f.center_lat, f.center_lng], "hole": f.hole_number} for f in data.pins],
         "holes": [{"osm_id": h.osm_id, "hole_number": h.hole_number, "par": h.par,
                    "tee": [h.tee_lat, h.tee_lng], "green": [h.green_lat, h.green_lng],
@@ -1670,7 +1670,7 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
                 golf_club_id=golf_club_id,
                 hazard_type="bunker",
                 name=b.get("name"),
-                boundary=jsonlib.dumps(b["boundary"]),
+                boundary=jsonlib.dumps([b["boundary"], *(b.get("holes") or [])]),
                 data_source='osm',
             )
             db.add(hazard)
@@ -1683,7 +1683,7 @@ def import_features(course_id: int, features: ImportFeaturesRequest, db: Session
                 golf_club_id=golf_club_id,
                 hazard_type="water",
                 name=w.get("name"),
-                boundary=jsonlib.dumps(w["boundary"]),
+                boundary=jsonlib.dumps([w["boundary"], *(w.get("holes") or [])]),
                 data_source='osm',
             )
             db.add(hazard)
@@ -2329,7 +2329,7 @@ def _import_osm_features_to_course(db: Session, course: Course, features) -> dic
             osm_id=bunker.osm_id,
             hazard_type="bunker",
             name=bunker.name,
-            boundary=jsonlib.dumps(bunker.boundary),
+            boundary=jsonlib.dumps([bunker.boundary, *bunker.holes]),
         ))
         result["bunkers"] += 1
 
@@ -2344,7 +2344,7 @@ def _import_osm_features_to_course(db: Session, course: Course, features) -> dic
             osm_id=water.osm_id,
             hazard_type="water",
             name=water.name,
-            boundary=jsonlib.dumps(water.boundary),
+            boundary=jsonlib.dumps([water.boundary, *water.holes]),
         ))
         result["water"] += 1
 
@@ -2394,7 +2394,7 @@ def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
             osm_id=bunker.osm_id,
             hazard_type="bunker",
             name=bunker.name,
-            boundary=jsonlib.dumps(bunker.boundary),
+            boundary=jsonlib.dumps([bunker.boundary, *bunker.holes]),
         ))
         result["bunkers"] += 1
 
@@ -2409,7 +2409,7 @@ def _import_osm_features_to_club(db: Session, club: GolfClub, features) -> dict:
             osm_id=water.osm_id,
             hazard_type="water",
             name=water.name,
-            boundary=jsonlib.dumps(water.boundary),
+            boundary=jsonlib.dumps([water.boundary, *water.holes]),
         ))
         result["water"] += 1
 

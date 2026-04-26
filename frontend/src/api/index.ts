@@ -2,6 +2,8 @@
 export { get, post, put, patch, del, postForm, ApiError } from './client'
 
 // Hooks
+export { useMe, useUpdateMe, usePartners } from './hooks/useMe'
+export type { CurrentUser, CurrentUserUpdate, PartnerSummary } from './hooks/useMe'
 export { useRounds, useRound } from './hooks/useRounds'
 export {
   useCourses,

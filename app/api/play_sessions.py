@@ -7,8 +7,9 @@ from typing import Optional
 from app.database import get_db
 from app.models import (
     PlaySession, PlaySessionPartner, PlaySessionWeatherSample,
-    Course, CourseTee, GolfClub,
+    Course, CourseTee, GolfClub, Player,
 )
+from app.services.active_user import get_active_player
 from app.services.weather_service import fetch_current_weather, WeatherFetchError
 
 router = APIRouter(prefix="/api/play-sessions", tags=["play-sessions"])
@@ -234,7 +235,10 @@ def create_play_session(body: PlaySessionCreate, db: Session = Depends(get_db)):
         if not db.query(CourseTee).filter(CourseTee.id == body.tee_id).first():
             raise HTTPException(status_code=400, detail="tee_id not found")
 
+    me = get_active_player(db)
+
     s = PlaySession(
+        player_id=me.id,
         course_id=body.course_id,
         tee_id=body.tee_id,
         date=body.date or DateType.today(),
@@ -251,11 +255,30 @@ def create_play_session(body: PlaySessionCreate, db: Session = Depends(get_db)):
     db.add(s)
     db.flush()
 
+    # Resolve each partner's name to a Player row (creating one if needed) so
+    # we can later show "rounds played with X" rollups. Self-as-partner is
+    # rejected — Player 1 is implicit.
     for p in body.partners:
+        partner_name = (p.player_name or "").strip()
+        if not partner_name:
+            continue
+        if partner_name.lower() == me.name.lower():
+            continue
+
+        player_row: Player | None = None
+        if p.player_id is not None:
+            player_row = db.query(Player).filter(Player.id == p.player_id).first()
+        if player_row is None:
+            player_row = db.query(Player).filter(Player.name.ilike(partner_name)).first()
+        if player_row is None:
+            player_row = Player(name=partner_name, is_app_user=False)
+            db.add(player_row)
+            db.flush()
+
         db.add(PlaySessionPartner(
             session_id=s.id,
-            player_id=p.player_id,
-            player_name=p.player_name,
+            player_id=player_row.id,
+            player_name=player_row.name,
             is_teammate=p.is_teammate,
         ))
 

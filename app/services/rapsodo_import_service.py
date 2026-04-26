@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.club import Club
 from app.models.player import Player
 from app.models.range_session import RangeSession, RangeShot
+from app.services.active_user import get_active_player
 from app.services.rapsodo_csv_parser import ParsedRangeSession
 from app.services.rapsodo_club_types import resolve_club, relink_orphaned_range_shots
 
@@ -33,12 +34,8 @@ def import_rapsodo_session(db: Session, parsed: ParsedRangeSession, csv_content:
             "message": f"This file was already imported on {existing.created_at}",
         }
 
-    # Resolve or create player
-    player = db.query(Player).filter(Player.name == parsed.player_name).first()
-    if not player:
-        player = Player(name=parsed.player_name)
-        db.add(player)
-        db.flush()
+    # Always import under the active app user (single-user today).
+    player = get_active_player(db, fallback_name=parsed.player_name)
 
     # Snapshot existing club types for this player to detect newly created clubs
     existing_club_types = set(

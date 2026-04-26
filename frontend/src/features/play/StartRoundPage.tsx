@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useGolfClubs, useCourse, useCreatePlaySession } from '../../api'
+import { useGolfClubs, useCourse, useCreatePlaySession, useMe, usePartners } from '../../api'
 import { Card, CardHeader, Button, FormGroup, Input, PickerTrigger, PickerSheet } from '../../components'
 import type { PickerOption } from '../../components'
 import { useGps } from '../../contexts/GpsContext'
@@ -20,6 +20,8 @@ const FORMATS = [
 export function StartRoundPage() {
   const navigate = useNavigate()
   const { data: clubs } = useGolfClubs()
+  const { data: me } = useMe()
+  const { data: knownPartners } = usePartners()
   const gps = useGps()
   const createSession = useCreatePlaySession()
   const [startError, setStartError] = useState<string>('')
@@ -28,7 +30,10 @@ export function StartRoundPage() {
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null)
   const [selectedTeeId, setSelectedTeeId] = useState<number | null>(null)
   const [format, setFormat] = useState('STROKE_PLAY')
-  const [players, setPlayers] = useState([''])
+  // Player 1 is the current user (read-only); this list is partners only.
+  const [partners, setPartners] = useState<{ name: string; is_teammate: boolean }[]>([])
+  const [focusedPartnerIdx, setFocusedPartnerIdx] = useState<number | null>(null)
+  const partnerInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const [clubPickerOpen, setClubPickerOpen] = useState(false)
   const [coursePickerOpen, setCoursePickerOpen] = useState(false)
   const [teePickerOpen, setTeePickerOpen] = useState(false)
@@ -89,17 +94,74 @@ export function StartRoundPage() {
   }, [selectedTeeId, courseDetail])
 
   const handleAddPlayer = () => {
-    if (players.length < 4) setPlayers([...players, ''])
+    if (partners.length < 3) setPartners([...partners, { name: '', is_teammate: false }])
   }
 
   const handleRemovePlayer = (idx: number) => {
-    setPlayers(players.filter((_, i) => i !== idx))
+    setPartners(partners.filter((_, i) => i !== idx))
   }
 
   const handlePlayerChange = (idx: number, val: string) => {
-    const next = [...players]
-    next[idx] = val
-    setPlayers(next)
+    const next = [...partners]
+    next[idx] = { ...next[idx], name: val }
+    setPartners(next)
+  }
+
+  const handleTeammateToggle = (idx: number) => {
+    const next = [...partners]
+    next[idx] = { ...next[idx], is_teammate: !next[idx].is_teammate }
+    setPartners(next)
+  }
+
+  const handleQuickAddPartner = (name: string) => {
+    if (partners.length >= 3) return
+    // If there's an empty partner slot, fill it; otherwise append a new row.
+    const emptyIdx = partners.findIndex((p) => p.name.trim().length === 0)
+    if (emptyIdx >= 0) {
+      const next = [...partners]
+      next[emptyIdx] = { ...next[emptyIdx], name }
+      setPartners(next)
+    } else {
+      setPartners([...partners, { name, is_teammate: false }])
+    }
+  }
+
+  const quickAddSuggestions = useMemo(() => {
+    if (!knownPartners) return []
+    const taken = new Set(
+      partners
+        .map((p) => p.name.trim().toLowerCase())
+        .filter((n) => n.length > 0),
+    )
+    return knownPartners
+      .filter((p) => p.times_played_with > 0)
+      .filter((p) => !taken.has(p.name.toLowerCase()))
+      .slice(0, 6)
+  }, [knownPartners, partners])
+
+  // For the focused partner input, build a typeahead list filtered by what's
+  // typed. Excludes partners already added in *other* rows (so the user can
+  // still see "John" when their current row literally says "John").
+  const getRowSuggestions = (idx: number) => {
+    if (!knownPartners) return []
+    const typed = partners[idx]?.name.trim().toLowerCase() ?? ''
+    const otherRowNames = new Set(
+      partners
+        .map((p, i) => (i === idx ? '' : p.name.trim().toLowerCase()))
+        .filter((n) => n.length > 0),
+    )
+    return knownPartners
+      .filter((p) => !otherRowNames.has(p.name.toLowerCase()))
+      .filter((p) => (typed ? p.name.toLowerCase().includes(typed) : true))
+      .slice(0, 8)
+  }
+
+  const handleSuggestionPick = (idx: number, name: string) => {
+    const next = [...partners]
+    next[idx] = { ...next[idx], name }
+    setPartners(next)
+    setFocusedPartnerIdx(null)
+    partnerInputRefs.current[idx]?.blur()
   }
 
   const canStart = selectedCourseId != null && selectedTeeId != null
@@ -113,10 +175,9 @@ export function StartRoundPage() {
         tee_id: selectedTeeId!,
         game_format: format,
         holes_played: 18,
-        partners: players
-          .map((name) => name.trim())
-          .filter((name) => name.length > 0)
-          .map((name) => ({ player_name: name })),
+        partners: partners
+          .map((p) => ({ player_name: p.name.trim(), is_teammate: p.is_teammate }))
+          .filter((p) => p.player_name.length > 0),
       })
       navigate(`/play/sessions/${session.id}`)
     } catch (e) {
@@ -222,26 +283,100 @@ export function StartRoundPage() {
       <Card>
         <CardHeader title="Players" />
         <div className={s.cardBody}>
-          {players.map((name, idx) => (
-            <div key={idx} className={s.playerRow}>
-              <FormGroup label={`Player ${idx + 1}`}>
-                <Input
-                  value={name}
-                  onChange={e => handlePlayerChange(idx, e.target.value)}
-                  placeholder="Name"
-                />
-              </FormGroup>
-              {players.length > 1 && (
+          <div className={s.selfPlayer}>
+            <span className={s.selfPlayerLabel}>Player 1 (you)</span>
+            <span className={s.selfPlayerName}>{me?.name ?? '…'}</span>
+          </div>
+
+          {partners.map((p, idx) => {
+            const suggestions = focusedPartnerIdx === idx ? getRowSuggestions(idx) : []
+            const showDropdown = focusedPartnerIdx === idx && suggestions.length > 0
+            return (
+              <div key={idx} className={s.playerRow}>
+                <FormGroup label={`Player ${idx + 2}`}>
+                  <div className={s.partnerInputWrap}>
+                    <Input
+                      ref={(el) => { partnerInputRefs.current[idx] = el }}
+                      value={p.name}
+                      onChange={e => handlePlayerChange(idx, e.target.value)}
+                      onFocus={() => setFocusedPartnerIdx(idx)}
+                      onBlur={() => setFocusedPartnerIdx((cur) => (cur === idx ? null : cur))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setFocusedPartnerIdx(null)
+                          partnerInputRefs.current[idx]?.blur()
+                        }
+                      }}
+                      placeholder="Name"
+                      autoComplete="off"
+                    />
+                    {showDropdown && (
+                      <ul className={s.partnerDropdown} role="listbox">
+                        {suggestions.map((sug) => (
+                          <li
+                            key={sug.id}
+                            role="option"
+                            aria-selected={sug.name.toLowerCase() === p.name.trim().toLowerCase()}
+                            className={s.partnerOption}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleSuggestionPick(idx, sug.name)}
+                          >
+                            <span className={s.partnerOptionName}>{sug.name}</span>
+                            <span className={s.partnerOptionMeta}>
+                              {sug.times_played_with === 0
+                                ? 'Saved partner — never played with'
+                                : `${sug.times_played_with} round${sug.times_played_with === 1 ? '' : 's'}${sug.last_played ? ` • last ${sug.last_played}` : ''}`}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </FormGroup>
+                <button
+                  type="button"
+                  className={`${s.teammateBtn} ${p.is_teammate ? s.teammateOn : ''}`}
+                  onClick={() => handleTeammateToggle(idx)}
+                  title={p.is_teammate ? 'On your team' : 'Mark as teammate'}
+                  aria-pressed={p.is_teammate}
+                >
+                  Team
+                </button>
                 <button className={s.removeBtn} onClick={() => handleRemovePlayer(idx)} title="Remove">
                   &times;
                 </button>
-              )}
-            </div>
-          ))}
-          {players.length < 4 && (
+              </div>
+            )
+          })}
+          {partners.length < 3 && (
             <Button variant="ghost" size="sm" onClick={handleAddPlayer}>
               + Add Player
             </Button>
+          )}
+
+          {quickAddSuggestions.length > 0 && partners.length < 3 && (
+            <div className={s.quickAddSection}>
+              <span className={s.quickAddLabel}>Recent</span>
+              <div className={s.quickAddChips}>
+                {quickAddSuggestions.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={s.quickAddChip}
+                    onClick={() => handleQuickAddPartner(p.name)}
+                    title={
+                      p.last_played
+                        ? `Last played ${p.last_played} • ${p.times_played_with} round${
+                            p.times_played_with === 1 ? '' : 's'
+                          } together`
+                        : `${p.times_played_with} round${p.times_played_with === 1 ? '' : 's'} together`
+                    }
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </Card>

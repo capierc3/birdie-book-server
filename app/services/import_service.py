@@ -6,17 +6,14 @@ Handles upserts for courses (match by name) and creates rounds/shots.
 from sqlalchemy.orm import Session
 
 from app.models import GolfClub, Course, CourseTee, CourseHole, Round, RoundHole, Shot, Player
+from app.services.active_user import get_active_player
 from app.services.fit_parser import ParsedRound
 from app.services.garmin_json_parser import _split_course_name
 
 
 def find_or_create_player(db: Session, name: str) -> Player:
-    player = db.query(Player).filter(Player.name == name).first()
-    if not player:
-        player = Player(name=name)
-        db.add(player)
-        db.flush()
-    return player
+    """FIT imports always belong to the active app user."""
+    return get_active_player(db, fallback_name=name)
 
 
 def find_or_create_course(db: Session, parsed: ParsedRound) -> tuple[Course, CourseTee | None]:

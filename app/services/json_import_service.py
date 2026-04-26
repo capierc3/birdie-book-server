@@ -10,6 +10,7 @@ from app.models import GolfClub, Course, CourseTee, CourseHole, Round, RoundHole
 from app.models.range_session import RangeShot
 from app.models.trackman_shot import TrackmanShot
 from collections import Counter
+from app.services.active_user import get_active_player
 from app.services.golf_course_api import _infer_tees_from_rounds, _normalize_hole_count
 from app.services.garmin_json_parser import (
     ParsedClub, ParsedCourseRef, ParsedScorecard, ParsedShot,
@@ -22,12 +23,8 @@ METERS_TO_YARDS = 1.09361
 
 
 def _find_or_create_player(db: Session, name: str) -> Player:
-    player = db.query(Player).filter(Player.name == name).first()
-    if not player:
-        player = Player(name=name)
-        db.add(player)
-        db.flush()
-    return player
+    """Garmin imports always belong to the active app user."""
+    return get_active_player(db, fallback_name=name)
 
 
 def import_clubs(db: Session, clubs: list[ParsedClub], player_name: str = "Chase Pierce") -> dict:

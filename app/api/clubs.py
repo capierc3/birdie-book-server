@@ -218,10 +218,9 @@ def list_clubs(
 @router.post("/", response_model=ClubResponse)
 def create_club(body: ClubCreate, db: Session = Depends(get_db)):
     """Create a new club manually."""
-    # Use player_id=1 as default (single-user app)
-    from app.models.player import Player
-    player = db.query(Player).first()
-    player_id = player.id if player else None
+    from app.services.active_user import get_active_player
+    player = get_active_player(db)
+    player_id = player.id
 
     club = Club(
         club_type=body.club_type,
@@ -360,8 +359,8 @@ def reassign_shot(body: ReassignShotRequest, db: Session = Depends(get_db)):
 
     # Create new club if requested
     if body.new_club and target_club_id is None:
-        from app.models.player import Player
-        player = db.query(Player).first()
+        from app.services.active_user import get_active_player
+        player = get_active_player(db)
         new_club = Club(
             club_type=body.new_club.club_type,
             name=body.new_club.name,
@@ -370,7 +369,7 @@ def reassign_shot(body: ReassignShotRequest, db: Session = Depends(get_db)):
             flex=body.new_club.flex,
             loft_deg=body.new_club.loft_deg,
             lie_deg=body.new_club.lie_deg,
-            player_id=player.id if player else None,
+            player_id=player.id,
         )
         db.add(new_club)
         db.flush()

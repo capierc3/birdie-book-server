@@ -11,6 +11,7 @@ from app.models.player import Player
 from app.models.club import Club
 from app.models.range_session import RangeSession
 from app.models.trackman_shot import TrackmanShot
+from app.services.active_user import get_active_player, record_trackman_handle
 from app.services.trackman_api import (
     fetch_trackman_report,
     extract_trackman_id,
@@ -272,17 +273,16 @@ def import_trackman_report(db: Session, url_or_id: str) -> dict:
     if not stroke_groups:
         raise ValueError("Report contains no shot data")
 
-    # Extract player info
+    # Extract player info from the report (Trackman portal handle, e.g. "Cpierce2113")
     player_info = stroke_groups[0].get("Player", {})
-    player_name = player_info.get("Name", "Unknown Player").title()
+    trackman_handle = (player_info.get("Name") or "").strip() or None
     session_date_str = stroke_groups[0].get("Date", "")
 
-    # Resolve or create player
-    player = db.query(Player).filter(Player.name == player_name).first()
-    if not player:
-        player = Player(name=player_name)
-        db.add(player)
-        db.flush()
+    # Always import under the active app user. The Trackman handle gets
+    # captured on the player row the first time we see it, so future imports
+    # can be matched without name guessing.
+    player = get_active_player(db, fallback_name=trackman_handle)
+    record_trackman_handle(db, player, trackman_handle)
 
     # Parse session date
     try:
@@ -453,14 +453,12 @@ def import_trackman_range_activity(
     if not strokes:
         raise ValueError("Activity contains no stroke data")
 
-    # Resolve player from first stroke
+    # Resolve player — always the active app user. Trackman's reported name
+    # is the portal handle (e.g. "Cpierce2113"); capture it on the row.
     first_player = strokes[0].get("player", {})
-    player_name = (first_player.get("name") or "Unknown Player").title()
-    player = db.query(Player).filter(Player.name == player_name).first()
-    if not player:
-        player = Player(name=player_name)
-        db.add(player)
-        db.flush()
+    trackman_handle = (first_player.get("name") or "").strip() or None
+    player = get_active_player(db, fallback_name=trackman_handle)
+    record_trackman_handle(db, player, trackman_handle)
 
     # Session date
     try:

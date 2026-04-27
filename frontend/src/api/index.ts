@@ -34,7 +34,7 @@ export {
   useUnlinkGarminRound,
 } from './hooks/usePlaySessions'
 export { useClubs, useClubDetail } from './hooks/useClubs'
-export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap } from './hooks/useStats'
+export { useSGSummary, useSGTrends, useSGByClub, useScoring, useHandicap, useRangeTrends } from './hooks/useStats'
 export { useRangeSessions, useRangeShots, useDeleteRangeSession, useImportCsvText, useImportCsvFile, useCreateManualSession, useOcrExtract, useTrackmanSyncSessions, useTrackmanSyncImport } from './hooks/useRange'
 export {
   usePracticePlans,
@@ -111,6 +111,8 @@ export type {
   HandicapData,
   HandicapDifferential,
   HandicapTrendPoint,
+  RangeTrendClub,
+  RangeTrendsResponse,
   RangeSessionSummary,
   RangeShotResponse,
   RangeClubGroupStats,

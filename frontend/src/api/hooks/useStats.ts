@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { get } from '../client'
-import type { SGSummary, SGTrends, SGByClubResponse, ScoringStats, HandicapData } from '../types'
+import type { SGSummary, SGTrends, SGByClubResponse, ScoringStats, HandicapData, RangeTrendsResponse } from '../types'
 
 const STATS_STALE_TIME = 10 * 60 * 1000 // 10 minutes
 
@@ -40,6 +40,14 @@ export function useHandicap() {
   return useQuery({
     queryKey: ['stats', 'handicap'],
     queryFn: () => get<HandicapData>('/stats/handicap'),
+    staleTime: STATS_STALE_TIME,
+  })
+}
+
+export function useRangeTrends(days = 30, topN = 5) {
+  return useQuery({
+    queryKey: ['stats', 'range-trends', days, topN],
+    queryFn: () => get<RangeTrendsResponse>(`/stats/range-trends?days=${days}&top_n=${topN}`),
     staleTime: STATS_STALE_TIME,
   })
 }

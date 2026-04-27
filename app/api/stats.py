@@ -1,14 +1,18 @@
 """Strokes Gained category dashboard API."""
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from datetime import date
-from typing import Optional
+import math
 from collections import defaultdict
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Round, RoundHole, Shot, CourseHole, Course, GolfClub
+from app.models.range_session import RangeSession, RangeShot
+from app.models.trackman_shot import TrackmanShot
 from app.services.strokes_gained import expected_strokes, personal_expected_strokes
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
@@ -1068,4 +1072,175 @@ def get_handicap(db: Session = Depends(get_db)):
         projections=projections,
         trend=trend,
         differentials=diffs,
+    )
+
+
+# ── Range Trends ────────────────────────────────────────────────────
+
+class RangeTrendClub(BaseModel):
+    club_type: str
+    shot_count: int
+    prior_shot_count: int
+    avg_carry: Optional[float] = None
+    prior_avg_carry: Optional[float] = None
+    carry_delta: Optional[float] = None
+    side_std_dev: Optional[float] = None
+    prior_side_std_dev: Optional[float] = None
+    side_std_dev_delta: Optional[float] = None
+
+
+class RangeTrendsResponse(BaseModel):
+    days: int
+    recent_session_count: int
+    clubs: list[RangeTrendClub]
+
+
+def _stddev(values: list[float]) -> Optional[float]:
+    if len(values) < 2:
+        return None
+    mean = sum(values) / len(values)
+    var = sum((v - mean) ** 2 for v in values) / len(values)
+    return round(math.sqrt(var), 2)
+
+
+# Maps the various raw club tokens (Trackman portal "7Iron", Rapsodo "7i",
+# Trackman Range API "PitchingWedge", etc.) to a consistent display label.
+_CLUB_LABEL_MAP: dict[str, str] = {
+    "d": "Driver",
+    "driver": "Driver",
+    "2w": "2 Wood", "3w": "3 Wood", "4w": "4 Wood", "5w": "5 Wood", "7w": "7 Wood", "9w": "9 Wood",
+    "2wood": "2 Wood", "3wood": "3 Wood", "4wood": "4 Wood", "5wood": "5 Wood", "7wood": "7 Wood", "9wood": "9 Wood",
+    "2h": "2 Hybrid", "3h": "3 Hybrid", "4h": "4 Hybrid", "5h": "5 Hybrid", "6h": "6 Hybrid",
+    "2hybrid": "2 Hybrid", "3hybrid": "3 Hybrid", "4hybrid": "4 Hybrid", "5hybrid": "5 Hybrid", "6hybrid": "6 Hybrid",
+    "1i": "1 Iron", "2i": "2 Iron", "3i": "3 Iron", "4i": "4 Iron", "5i": "5 Iron",
+    "6i": "6 Iron", "7i": "7 Iron", "8i": "8 Iron", "9i": "9 Iron",
+    "1iron": "1 Iron", "2iron": "2 Iron", "3iron": "3 Iron", "4iron": "4 Iron", "5iron": "5 Iron",
+    "6iron": "6 Iron", "7iron": "7 Iron", "8iron": "8 Iron", "9iron": "9 Iron",
+    "pw": "Pitching Wedge", "gw": "Gap Wedge", "sw": "Sand Wedge", "lw": "Lob Wedge",
+    "pitchingwedge": "Pitching Wedge", "gapwedge": "Gap Wedge",
+    "sandwedge": "Sand Wedge", "lobwedge": "Lob Wedge",
+    "putter": "Putter", "p": "Putter",
+}
+
+
+def _normalize_club_label(raw: str | None) -> str:
+    if not raw:
+        return "Unknown"
+    key = raw.strip().lower()
+    if not key:
+        return "Unknown"
+    if key in _CLUB_LABEL_MAP:
+        return _CLUB_LABEL_MAP[key]
+    # Trackman's degree-specific wedges look like "60Wedge" / "56Wedge".
+    if key.endswith("wedge") and key[:-5].isdigit():
+        return f"{key[:-5]}° Wedge"
+    return raw.strip()
+
+
+@router.get("/range-trends", response_model=RangeTrendsResponse)
+def range_trends(
+    days: int = Query(30, ge=7, le=180),
+    top_n: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+):
+    """Per-club range performance over the last N days vs the prior N days.
+
+    Aggregates shots by `club_type_raw` (or the resolved club's `club_type`
+    when available). For each club: avg carry yards and side-dispersion std
+    dev, compared against the prior window. Sorted by recent shot count
+    descending; top-N returned.
+    """
+    now = datetime.utcnow()
+    recent_start = now - timedelta(days=days)
+    prior_start = now - timedelta(days=days * 2)
+
+    # Pull shots from both Rapsodo (`range_shots`) and Trackman
+    # (`trackman_shots`) over the prior+recent window. Both tables share the
+    # `club_type_raw`, `carry_yards`, `side_carry_yards` columns we need.
+    range_rows = (
+        db.query(
+            RangeShot.club_type_raw,
+            RangeShot.carry_yards,
+            RangeShot.side_carry_yards,
+            RangeSession.session_date,
+        )
+        .join(RangeSession, RangeShot.session_id == RangeSession.id)
+        .filter(RangeSession.session_date >= prior_start)
+        .all()
+    )
+    trackman_rows = (
+        db.query(
+            TrackmanShot.club_type_raw,
+            TrackmanShot.carry_yards,
+            TrackmanShot.side_carry_yards,
+            RangeSession.session_date,
+        )
+        .join(RangeSession, TrackmanShot.session_id == RangeSession.id)
+        .filter(RangeSession.session_date >= prior_start)
+        .all()
+    )
+
+    recent_session_count = (
+        db.query(RangeSession)
+        .filter(RangeSession.session_date >= recent_start)
+        .count()
+    )
+
+    # Bucket shots by club + window. Normalize Trackman's raw names ("7Iron",
+    # "PitchingWedge") to the same display style we already use elsewhere.
+    recent_carry: dict[str, list[float]] = defaultdict(list)
+    recent_side: dict[str, list[float]] = defaultdict(list)
+    prior_carry: dict[str, list[float]] = defaultdict(list)
+    prior_side: dict[str, list[float]] = defaultdict(list)
+
+    for club_type_raw, carry, side, session_date in [*range_rows, *trackman_rows]:
+        club = _normalize_club_label(club_type_raw)
+        is_recent = session_date >= recent_start
+        if carry is not None:
+            (recent_carry if is_recent else prior_carry)[club].append(float(carry))
+        if side is not None:
+            (recent_side if is_recent else prior_side)[club].append(float(side))
+
+    # Build per-club rows, only for clubs with at least one recent shot
+    clubs: list[RangeTrendClub] = []
+    for club in recent_carry.keys() | recent_side.keys():
+        rc = recent_carry.get(club, [])
+        rs = recent_side.get(club, [])
+        pc = prior_carry.get(club, [])
+        ps = prior_side.get(club, [])
+
+        avg_carry = round(sum(rc) / len(rc), 1) if rc else None
+        prior_avg_carry = round(sum(pc) / len(pc), 1) if pc else None
+        carry_delta = (
+            round(avg_carry - prior_avg_carry, 1)
+            if avg_carry is not None and prior_avg_carry is not None
+            else None
+        )
+
+        side_sd = _stddev(rs)
+        prior_side_sd = _stddev(ps)
+        side_sd_delta = (
+            round(side_sd - prior_side_sd, 2)
+            if side_sd is not None and prior_side_sd is not None
+            else None
+        )
+
+        clubs.append(RangeTrendClub(
+            club_type=club,
+            shot_count=max(len(rc), len(rs)),
+            prior_shot_count=max(len(pc), len(ps)),
+            avg_carry=avg_carry,
+            prior_avg_carry=prior_avg_carry,
+            carry_delta=carry_delta,
+            side_std_dev=side_sd,
+            prior_side_std_dev=prior_side_sd,
+            side_std_dev_delta=side_sd_delta,
+        ))
+
+    clubs.sort(key=lambda c: c.shot_count, reverse=True)
+
+    return RangeTrendsResponse(
+        days=days,
+        recent_session_count=recent_session_count,
+        clubs=clubs[:top_n],
     )

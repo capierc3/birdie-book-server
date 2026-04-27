@@ -752,6 +752,24 @@ export interface HandicapData {
   differentials: HandicapDifferential[]
 }
 
+export interface RangeTrendClub {
+  club_type: string
+  shot_count: number
+  prior_shot_count: number
+  avg_carry: number | null
+  prior_avg_carry: number | null
+  carry_delta: number | null
+  side_std_dev: number | null
+  prior_side_std_dev: number | null
+  side_std_dev_delta: number | null
+}
+
+export interface RangeTrendsResponse {
+  days: number
+  recent_session_count: number
+  clubs: RangeTrendClub[]
+}
+
 // ============================================================
 // Practice Plans
 // ============================================================

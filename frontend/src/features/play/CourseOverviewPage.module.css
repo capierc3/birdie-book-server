@@ -57,6 +57,53 @@
   font-style: italic;
 }
 
+.cardHint {
+  margin: 0 0 4px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.saveStatus {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.rangeRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
+}
+
+.rangeRow:last-child {
+  border-bottom: none;
+}
+
+.rangeRowTop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+.rangeClubName {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rangeMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.88rem;
+}
+
+.rangeMetric {
+  white-space: nowrap;
+}
+
 .statGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

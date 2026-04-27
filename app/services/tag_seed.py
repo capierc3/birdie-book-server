@@ -80,6 +80,38 @@ INTENTION_TAGS: list[tuple[str, list[str]]] = [
     ]),
 ]
 
+# Technical / tactical focus picked on the COURSE_OVERVIEW screen — distinct
+# from the mindset tags in PRE. About outcomes and course management, not
+# how you feel.
+PERFORMANCE_TAGS: list[tuple[str, list[str]]] = [
+    ("Course management", [
+        "Play conservative off tee",
+        "Avoid water hazards",
+        "Play to safe side",
+        "Lay up on par 5s",
+        "Take less club",
+    ]),
+    ("Shot quality", [
+        "Hit more fairways",
+        "Hit more greens",
+        "Tighter wedge proximity",
+        "Fewer 3-putts",
+        "More up-and-downs",
+    ]),
+    ("Score targets", [
+        "Bogey or better",
+        "Par every par 3",
+        "No double bogeys",
+        "Sub-target score",
+    ]),
+    ("Specific situations", [
+        "Smart bunker play",
+        "Lag long putts",
+        "Commit on tee shots",
+        "Trust the wedge",
+    ]),
+]
+
 
 def _seed_category(db: Session, category: str, groups: list[tuple[str, list[str]]]) -> int:
     inserted = 0
@@ -112,6 +144,7 @@ def seed_tags(db: Session) -> dict[str, int]:
         "bring_in": _seed_category(db, "bring_in", BRING_IN_TAGS),
         "pull_out": _seed_category(db, "pull_out", PULL_OUT_TAGS),
         "intention": _seed_category(db, "intention", INTENTION_TAGS),
+        "performance": _seed_category(db, "performance", PERFORMANCE_TAGS),
     }
     if any(counts.values()):
         db.commit()

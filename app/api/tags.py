@@ -20,7 +20,7 @@ from app.models.tag import PlaySessionTag, Tag
 router = APIRouter(prefix="/api/tags", tags=["tags"])
 
 
-VALID_CATEGORIES = {"bring_in", "pull_out", "intention"}
+VALID_CATEGORIES = {"bring_in", "pull_out", "intention", "performance"}
 
 
 class TagOut(BaseModel):

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Map as MapIcon } from 'lucide-react'
+import { ArrowLeft, Check, Map as MapIcon, Plus } from 'lucide-react'
 import {
   usePlaySession,
   useUpdatePlaySession,
@@ -10,7 +10,7 @@ import {
   useTags,
   useRangeTrends,
 } from '../../api'
-import type { SGPerRound, CourseHoleStats } from '../../api'
+import type { SGPerRound, CourseHoleStats, Tag } from '../../api'
 import { Button, Card, CardHeader, useConfirm } from '../../components'
 import { TagPicker } from './TagPicker'
 import s from './CourseOverviewPage.module.css'
@@ -24,6 +24,22 @@ const SG_CATEGORIES: { key: keyof Pick<SGPerRound, 'off_the_tee' | 'approach' | 
   { key: 'short_game', label: 'Short game' },
   { key: 'putting', label: 'Putting' },
 ]
+
+// SG weakness → candidate performance tag names (priority order — first
+// match wins per signal). Tag names must match the seeded library exactly.
+const SG_WEAKNESS_TAGS: Record<string, string[]> = {
+  off_the_tee: ['Hit more fairways', 'Commit on tee shots', 'Play conservative off tee'],
+  approach: ['Hit more greens', 'Tighter wedge proximity', 'Take less club'],
+  short_game: ['More up-and-downs', 'Trust the wedge', 'Smart bunker play'],
+  putting: ['Fewer 3-putts', 'Lag long putts'],
+}
+
+const SG_LABELS: Record<string, string> = {
+  off_the_tee: 'Off-the-tee',
+  approach: 'Approach',
+  short_game: 'Short-game',
+  putting: 'Putting',
+}
 
 function formatRoundDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00')
@@ -212,6 +228,82 @@ export function CourseOverviewPage() {
     .sort((a, b) => b.avg_vs_par - a.avg_vs_par)
     .slice(0, 3)
 
+  // Auto-suggested performance tags. Each suggestion ties a data signal to
+  // a specific tag from the performance library and includes a reason the
+  // user can read. We dedupe by tag id, keeping the first (highest-priority)
+  // signal that recommended it. Capped at 3 suggestions.
+  const suggestions = useMemo<{ tag: Tag; reason: string }[]>(() => {
+    if (!allTags) return []
+    const performanceByName = new Map<string, Tag>()
+    for (const t of allTags) {
+      if (t.category === 'performance' && !t.is_archived) {
+        performanceByName.set(t.name, t)
+      }
+    }
+    if (performanceByName.size === 0) return []
+
+    const out: { tag: Tag; reason: string }[] = []
+    const seen = new Set<number>()
+
+    const push = (tagName: string, reason: string) => {
+      const tag = performanceByName.get(tagName)
+      if (!tag || seen.has(tag.id)) return
+      seen.add(tag.id)
+      out.push({ tag, reason })
+    }
+
+    // Signal 1: weakest SG category over the last 5 rounds (PGA baseline).
+    // The summary ranks this for us via biggest_opportunity_pga.
+    const weakest = sgSummary?.biggest_opportunity_pga
+    if (weakest) {
+      const recentTotal = recentRounds.reduce((sum, r) => {
+        const v = r[weakest as keyof SGPerRound]
+        if (v && typeof v === 'object' && 'sg_pga' in v && typeof v.sg_pga === 'number') {
+          return sum + v.sg_pga
+        }
+        return sum
+      }, 0)
+      const reasonBase = `${SG_LABELS[weakest] ?? weakest} SG ${formatSg(recentTotal)} over last ${recentRounds.length} rounds`
+      for (const tagName of SG_WEAKNESS_TAGS[weakest] ?? []) {
+        if (out.length >= 3) break
+        push(tagName, reasonBase)
+      }
+    }
+
+    // Signal 2: course-specific weak metrics. Only fire if you've played the
+    // course at least twice — one round is too noisy.
+    if (courseStats && courseStats.rounds_played >= 2) {
+      if (courseStats.fairway_pct != null && courseStats.fairway_pct < 50) {
+        push('Hit more fairways', `Only ${Math.round(courseStats.fairway_pct)}% fairways at this course`)
+      }
+      if (courseStats.gir_pct != null && courseStats.gir_pct < 30) {
+        push('Hit more greens', `Only ${Math.round(courseStats.gir_pct)}% GIR at this course`)
+      }
+      if (courseStats.three_putt_pct != null && courseStats.three_putt_pct > 15) {
+        push('Fewer 3-putts', `${Math.round(courseStats.three_putt_pct)}% 3-putt rate at this course`)
+      }
+    }
+
+    // Signal 3: range driver dispersion widening (a likely tee-shot
+    // commitment issue). Threshold is mild to avoid noise.
+    const driverTrend = rangeTrends?.clubs.find((c) => c.club_type === 'Driver')
+    if (driverTrend && driverTrend.side_std_dev_delta != null && driverTrend.side_std_dev_delta > 3) {
+      push(
+        'Commit on tee shots',
+        `Driver dispersion has widened by ${formatSg(driverTrend.side_std_dev_delta)}y on the range`,
+      )
+    }
+
+    return out.slice(0, 3)
+  }, [allTags, sgSummary, recentRounds, courseStats, rangeTrends])
+
+  const addSuggestedTag = (tagId: number) => {
+    if (performanceTagIds == null) return
+    if (performanceTagIds.includes(tagId)) return
+    if (performanceTagIds.length >= PERFORMANCE_MAX) return
+    setPerformanceTagIds([...performanceTagIds, tagId])
+  }
+
   return (
     <div className={s.page}>
       <button className={s.backLink} onClick={handleBackToPre}>
@@ -342,6 +434,48 @@ export function CourseOverviewPage() {
           )}
         </div>
       </Card>
+
+      {suggestions.length > 0 && (
+        <Card>
+          <CardHeader title="Suggested focus for today" />
+          <div className={s.cardBody}>
+            <p className={s.cardHint}>
+              Based on your recent SG, this course's history, and range trends.
+            </p>
+            <ul className={s.suggestedList}>
+              {suggestions.map(({ tag, reason }) => {
+                const alreadyAdded = performanceTagIds?.includes(tag.id) ?? false
+                const atCap = (performanceTagIds?.length ?? 0) >= PERFORMANCE_MAX
+                const disabled = !alreadyAdded && atCap
+                return (
+                  <li key={tag.id} className={s.suggestedItem}>
+                    <div className={s.suggestedText}>
+                      <span className={s.suggestedTagName}>{tag.name}</span>
+                      <span className={s.suggestedReason}>{reason}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`${s.suggestedBtn} ${alreadyAdded ? s.suggestedBtnDone : ''}`}
+                      onClick={() => addSuggestedTag(tag.id)}
+                      disabled={alreadyAdded || disabled}
+                      title={
+                        alreadyAdded
+                          ? 'Already added'
+                          : disabled
+                          ? `Cap of ${PERFORMANCE_MAX} reached — remove one to add this`
+                          : 'Add to performance focus'
+                      }
+                    >
+                      {alreadyAdded ? <Check size={14} /> : <Plus size={14} />}
+                      {alreadyAdded ? 'Added' : 'Add'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        </Card>
+      )}
 
       <Card>
         <CardHeader

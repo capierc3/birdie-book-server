@@ -7,7 +7,7 @@ from typing import Optional
 from app.database import get_db
 from app.models import (
     PlaySession, PlaySessionPartner, PlaySessionWeatherSample,
-    Course, CourseTee, GolfClub, Player,
+    Course, CourseTee, GolfClub, Player, Tag, PlaySessionTag,
 )
 from app.services.active_user import get_active_player
 from app.services.weather_service import fetch_current_weather, WeatherFetchError
@@ -73,12 +73,10 @@ class PlaySessionSummary(BaseModel):
 
 
 class PlaySessionDetail(PlaySessionSummary):
-    energy_rating: Optional[int] = None
-    focus_rating: Optional[int] = None
-    physical_rating: Optional[int] = None
-    pre_session_notes: Optional[str] = None
-    session_goals: Optional[str] = None
-    clubs_focused: Optional[str] = None
+    body_rating: Optional[int] = None
+    mind_rating: Optional[int] = None
+    commitment_rating: Optional[int] = None
+    intention_notes: Optional[str] = None
     what_worked: Optional[str] = None
     what_struggled: Optional[str] = None
     key_takeaway: Optional[str] = None
@@ -86,6 +84,7 @@ class PlaySessionDetail(PlaySessionSummary):
     post_session_notes: Optional[str] = None
     partners: list[PartnerOut] = []
     weather_samples: list[WeatherSampleOut] = []
+    tag_ids: list[int] = []
 
 
 class PlaySessionCreate(BaseModel):
@@ -95,13 +94,12 @@ class PlaySessionCreate(BaseModel):
     game_format: Optional[str] = "STROKE_PLAY"
     holes_played: Optional[int] = 18
     # Optional pre-round fields at creation
-    energy_rating: Optional[int] = None
-    focus_rating: Optional[int] = None
-    physical_rating: Optional[int] = None
-    pre_session_notes: Optional[str] = None
-    session_goals: Optional[str] = None
-    clubs_focused: Optional[str] = None
+    body_rating: Optional[int] = None
+    mind_rating: Optional[int] = None
+    commitment_rating: Optional[int] = None
+    intention_notes: Optional[str] = None
     partners: list[PartnerIn] = Field(default_factory=list)
+    tag_ids: list[int] = Field(default_factory=list)
 
 
 class PlaySessionUpdate(BaseModel):
@@ -112,12 +110,10 @@ class PlaySessionUpdate(BaseModel):
     holes_played: Optional[int] = None
     state: Optional[str] = None
 
-    energy_rating: Optional[int] = None
-    focus_rating: Optional[int] = None
-    physical_rating: Optional[int] = None
-    pre_session_notes: Optional[str] = None
-    session_goals: Optional[str] = None
-    clubs_focused: Optional[str] = None
+    body_rating: Optional[int] = None
+    mind_rating: Optional[int] = None
+    commitment_rating: Optional[int] = None
+    intention_notes: Optional[str] = None
 
     overall_rating: Optional[int] = None
     what_worked: Optional[str] = None
@@ -128,6 +124,9 @@ class PlaySessionUpdate(BaseModel):
     score: Optional[int] = None
 
     garmin_round_id: Optional[int] = None
+    # When provided, replaces the session's full set of attached tags.
+    # Omit to leave tags untouched.
+    tag_ids: Optional[list[int]] = None
 
 
 # --- Helpers ---
@@ -155,12 +154,10 @@ def _to_detail(s: PlaySession) -> PlaySessionDetail:
     summary = _to_summary(s)
     return PlaySessionDetail(
         **summary.model_dump(),
-        energy_rating=s.energy_rating,
-        focus_rating=s.focus_rating,
-        physical_rating=s.physical_rating,
-        pre_session_notes=s.pre_session_notes,
-        session_goals=s.session_goals,
-        clubs_focused=s.clubs_focused,
+        body_rating=s.body_rating,
+        mind_rating=s.mind_rating,
+        commitment_rating=s.commitment_rating,
+        intention_notes=s.intention_notes,
         what_worked=s.what_worked,
         what_struggled=s.what_struggled,
         key_takeaway=s.key_takeaway,
@@ -168,7 +165,33 @@ def _to_detail(s: PlaySession) -> PlaySessionDetail:
         post_session_notes=s.post_session_notes,
         partners=[PartnerOut.model_validate(p) for p in s.partners],
         weather_samples=[WeatherSampleOut.model_validate(w) for w in s.weather_samples],
+        tag_ids=[st.tag_id for st in s.session_tags],
     )
+
+
+def _sync_session_tags(db: Session, session_id: int, tag_ids: list[int]) -> None:
+    """Replace the session's attached tags with `tag_ids`. Validates that
+    each ID exists; raises 400 on any unknown ID."""
+    desired = {tid for tid in tag_ids if tid is not None}
+    if desired:
+        valid_count = db.query(Tag).filter(Tag.id.in_(desired)).count()
+        if valid_count != len(desired):
+            raise HTTPException(status_code=400, detail="One or more tag_ids do not exist")
+
+    current_rows = (
+        db.query(PlaySessionTag).filter(PlaySessionTag.session_id == session_id).all()
+    )
+    current = {row.tag_id: row for row in current_rows}
+
+    # Delete tags that were removed.
+    for tag_id, row in current.items():
+        if tag_id not in desired:
+            db.delete(row)
+
+    # Insert tags that are newly attached.
+    for tag_id in desired:
+        if tag_id not in current:
+            db.add(PlaySessionTag(session_id=session_id, tag_id=tag_id))
 
 
 # --- Endpoints ---
@@ -245,15 +268,16 @@ def create_play_session(body: PlaySessionCreate, db: Session = Depends(get_db)):
         game_format=body.game_format or "STROKE_PLAY",
         holes_played=body.holes_played if body.holes_played is not None else 18,
         state="PRE",
-        energy_rating=body.energy_rating,
-        focus_rating=body.focus_rating,
-        physical_rating=body.physical_rating,
-        pre_session_notes=body.pre_session_notes,
-        session_goals=body.session_goals,
-        clubs_focused=body.clubs_focused,
+        body_rating=body.body_rating,
+        mind_rating=body.mind_rating,
+        commitment_rating=body.commitment_rating,
+        intention_notes=body.intention_notes,
     )
     db.add(s)
     db.flush()
+
+    if body.tag_ids:
+        _sync_session_tags(db, s.id, body.tag_ids)
 
     # Resolve each partner's name to a Player row (creating one if needed) so
     # we can later show "rounds played with X" rollups. Self-as-partner is
@@ -305,8 +329,14 @@ def update_play_session(session_id: int, body: PlaySessionUpdate, db: Session = 
         if not db.query(CourseTee).filter(CourseTee.id == data["tee_id"]).first():
             raise HTTPException(status_code=400, detail="tee_id not found")
 
+    # tag_ids is sync-replace, not a column on PlaySession — pop before setattr.
+    tag_ids = data.pop("tag_ids", None)
+
     for field, value in data.items():
         setattr(s, field, value)
+
+    if tag_ids is not None:
+        _sync_session_tags(db, s.id, tag_ids)
 
     db.commit()
     db.refresh(s)

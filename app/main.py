@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills, play_sessions, players
+from app.api import rounds, courses, clubs, import_api, range_sessions, stats, round_plans, practice_plans, drills, play_sessions, players, tags
 from app.config import settings
 from app.database import Base, engine, SessionLocal
 import app.models  # noqa: F401 — registers all models with Base.metadata
@@ -58,6 +58,17 @@ def _seed_drills():
 
 _seed_drills()
 
+# Seed default pre-round tags (idempotent — only inserts missing entries)
+def _seed_tags():
+    from app.services.tag_seed import seed_tags
+    db = SessionLocal()
+    try:
+        seed_tags(db)
+    finally:
+        db.close()
+
+_seed_tags()
+
 # Automatic database backups (SQLite only — runs silently)
 from app.services.backup_service import run_backup_if_needed, start_backup_scheduler
 run_backup_if_needed()
@@ -75,6 +86,7 @@ app.include_router(practice_plans.router)
 app.include_router(drills.router)
 app.include_router(play_sessions.router)
 app.include_router(players.router)
+app.include_router(tags.router)
 
 
 @app.get("/health")

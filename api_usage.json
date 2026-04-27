@@ -6,8 +6,8 @@
       "last_call": null
     },
     "google_places": {
-      "calls": 5,
-      "last_call": "2026-04-26T19:09:47.203794",
+      "calls": 6,
+      "last_call": "2026-04-26T20:28:44.002048",
       "last_endpoint": "searchNearby"
     },
     "google_maps_static": {

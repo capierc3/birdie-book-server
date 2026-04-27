@@ -30,12 +30,10 @@ class PlaySession(Base):
     state = Column(String(20), nullable=False, default="PRE")
 
     # Pre-round journal
-    energy_rating = Column(Integer)
-    focus_rating = Column(Integer)
-    physical_rating = Column(Integer)
-    pre_session_notes = Column(Text)
-    session_goals = Column(Text)
-    clubs_focused = Column(String(200))
+    body_rating = Column(Integer)        # physical feel (1-5)
+    mind_rating = Column(Integer)        # mental clarity (1-5)
+    commitment_rating = Column(Integer)  # willingness to trust yourself (1-5)
+    intention_notes = Column(Text)       # freeform "anything else" alongside intention tags
 
     # Post-round journal
     overall_rating = Column(Integer)
@@ -67,6 +65,11 @@ class PlaySession(Base):
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="PlaySessionWeatherSample.sampled_at",
+    )
+    session_tags = relationship(
+        "PlaySessionTag",
+        cascade="all, delete-orphan",
+        backref="session",
     )
 
 

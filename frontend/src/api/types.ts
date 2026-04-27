@@ -51,12 +51,10 @@ export interface PlaySessionSummary {
 }
 
 export interface PlaySessionDetail extends PlaySessionSummary {
-  energy_rating?: number | null
-  focus_rating?: number | null
-  physical_rating?: number | null
-  pre_session_notes?: string | null
-  session_goals?: string | null
-  clubs_focused?: string | null
+  body_rating?: number | null
+  mind_rating?: number | null
+  commitment_rating?: number | null
+  intention_notes?: string | null
   what_worked?: string | null
   what_struggled?: string | null
   key_takeaway?: string | null
@@ -64,6 +62,7 @@ export interface PlaySessionDetail extends PlaySessionSummary {
   post_session_notes?: string | null
   partners: PlaySessionPartner[]
   weather_samples: PlaySessionWeatherSample[]
+  tag_ids: number[]
 }
 
 export interface PlaySessionCreate {
@@ -72,13 +71,12 @@ export interface PlaySessionCreate {
   date?: string | null
   game_format?: string | null
   holes_played?: number | null
-  energy_rating?: number | null
-  focus_rating?: number | null
-  physical_rating?: number | null
-  pre_session_notes?: string | null
-  session_goals?: string | null
-  clubs_focused?: string | null
+  body_rating?: number | null
+  mind_rating?: number | null
+  commitment_rating?: number | null
+  intention_notes?: string | null
   partners?: PlaySessionPartnerInput[]
+  tag_ids?: number[]
 }
 
 export interface PlaySessionUpdate {
@@ -88,12 +86,10 @@ export interface PlaySessionUpdate {
   game_format?: string | null
   holes_played?: number | null
   state?: PlaySessionState
-  energy_rating?: number | null
-  focus_rating?: number | null
-  physical_rating?: number | null
-  pre_session_notes?: string | null
-  session_goals?: string | null
-  clubs_focused?: string | null
+  body_rating?: number | null
+  mind_rating?: number | null
+  commitment_rating?: number | null
+  intention_notes?: string | null
   overall_rating?: number | null
   what_worked?: string | null
   what_struggled?: string | null
@@ -102,6 +98,7 @@ export interface PlaySessionUpdate {
   post_session_notes?: string | null
   score?: number | null
   garmin_round_id?: number | null
+  tag_ids?: number[]
 }
 
 // ============================================================

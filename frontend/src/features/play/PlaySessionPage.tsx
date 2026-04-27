@@ -1,19 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, CloudSun, Map as MapIcon } from 'lucide-react'
+import { ArrowLeft, Map as MapIcon } from 'lucide-react'
 import {
   usePlaySession,
   useUpdatePlaySession,
   useDeletePlaySession,
   useSampleWeather,
+  useTags,
 } from '../../api'
 import type {
   PlaySessionDetail,
   PlaySessionState,
   PlaySessionUpdate,
-  PlaySessionWeatherSample,
 } from '../../api'
 import { Button, Card, CardHeader, FormGroup, Input, useConfirm } from '../../components'
+import { TagPicker } from './TagPicker'
 import s from './PlaySessionPage.module.css'
 
 const STATE_LABEL: Record<PlaySessionState, string> = {
@@ -34,16 +35,20 @@ const AUTOSAVE_DELAY_MS = 800
 
 interface RatingRowProps {
   label: string
+  description?: string
   value: number | null | undefined
   onChange: (v: number | null) => void
   max?: number
   disabled?: boolean
 }
 
-function RatingRow({ label, value, onChange, max = 5, disabled }: RatingRowProps) {
+function RatingRow({ label, description, value, onChange, max = 5, disabled }: RatingRowProps) {
   return (
     <div className={s.ratingRow}>
-      <div className={s.ratingLabel}>{label}</div>
+      <div className={s.ratingLabelGroup}>
+        <div className={s.ratingLabel}>{label}</div>
+        {description && <div className={s.ratingDescription}>{description}</div>}
+      </div>
       <div className={s.ratingButtons}>
         {Array.from({ length: max }, (_, i) => i + 1).map((n) => (
           <button
@@ -62,12 +67,13 @@ function RatingRow({ label, value, onChange, max = 5, disabled }: RatingRowProps
 }
 
 interface LocalFields {
-  energy_rating: number | null
-  focus_rating: number | null
-  physical_rating: number | null
-  pre_session_notes: string
-  session_goals: string
-  clubs_focused: string
+  body_rating: number | null
+  mind_rating: number | null
+  commitment_rating: number | null
+  intention_notes: string
+  intention_tag_ids: number[]
+  bring_in_tag_ids: number[]
+  pull_out_tag_ids: number[]
   overall_rating: number | null
   what_worked: string
   what_struggled: string
@@ -77,14 +83,40 @@ interface LocalFields {
   score: number | null
 }
 
-function fromDetail(d: PlaySessionDetail): LocalFields {
+const INTENTION_MAX = 3
+
+function fromDetail(d: PlaySessionDetail, tagsById: Map<number, 'bring_in' | 'pull_out' | 'intention'>): LocalFields {
+  // Partition the session's tag_ids by category. Unknown ids fall through —
+  // they'll be rendered by TagPicker's "Archived" group so they're still
+  // editable.
+  const bring: number[] = []
+  const pull: number[] = []
+  const intent: number[] = []
+  const archivedByGuess: Record<'bring_in' | 'pull_out' | 'intention', number[]> = {
+    bring_in: bring,
+    pull_out: pull,
+    intention: intent,
+  }
+  for (const id of d.tag_ids ?? []) {
+    const cat = tagsById.get(id)
+    if (cat === 'bring_in') bring.push(id)
+    else if (cat === 'pull_out') pull.push(id)
+    else if (cat === 'intention') intent.push(id)
+    else {
+      // Unknown / archived tag — keep in bring_in by default so it's at
+      // least visible to the user. The TagPicker for that category will
+      // render it under "Archived" and let them remove it.
+      archivedByGuess.bring_in.push(id)
+    }
+  }
   return {
-    energy_rating: d.energy_rating ?? null,
-    focus_rating: d.focus_rating ?? null,
-    physical_rating: d.physical_rating ?? null,
-    pre_session_notes: d.pre_session_notes ?? '',
-    session_goals: d.session_goals ?? '',
-    clubs_focused: d.clubs_focused ?? '',
+    body_rating: d.body_rating ?? null,
+    mind_rating: d.mind_rating ?? null,
+    commitment_rating: d.commitment_rating ?? null,
+    intention_notes: d.intention_notes ?? '',
+    intention_tag_ids: intent,
+    bring_in_tag_ids: bring,
+    pull_out_tag_ids: pull,
     overall_rating: d.overall_rating ?? null,
     what_worked: d.what_worked ?? '',
     what_struggled: d.what_struggled ?? '',
@@ -97,12 +129,11 @@ function fromDetail(d: PlaySessionDetail): LocalFields {
 
 function toUpdate(f: LocalFields): PlaySessionUpdate {
   return {
-    energy_rating: f.energy_rating,
-    focus_rating: f.focus_rating,
-    physical_rating: f.physical_rating,
-    pre_session_notes: f.pre_session_notes || null,
-    session_goals: f.session_goals || null,
-    clubs_focused: f.clubs_focused || null,
+    body_rating: f.body_rating,
+    mind_rating: f.mind_rating,
+    commitment_rating: f.commitment_rating,
+    intention_notes: f.intention_notes || null,
+    tag_ids: [...f.intention_tag_ids, ...f.bring_in_tag_ids, ...f.pull_out_tag_ids],
     overall_rating: f.overall_rating,
     what_worked: f.what_worked || null,
     what_struggled: f.what_struggled || null,
@@ -111,43 +142,6 @@ function toUpdate(f: LocalFields): PlaySessionUpdate {
     post_session_notes: f.post_session_notes || null,
     score: f.score,
   }
-}
-
-function formatSampledAt(iso: string): string {
-  // Backend sends naive UTC timestamps (no trailing Z). JS would read those as
-  // local time, so append Z when the string has no timezone suffix.
-  const hasTz = /(Z|[+-]\d{2}:?\d{2})$/.test(iso)
-  const d = new Date(hasTz ? iso : iso + 'Z')
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
-
-function WeatherSampleRow({ sample }: { sample: PlaySessionWeatherSample }) {
-  const parts: string[] = []
-  if (sample.temp_f != null) parts.push(`${Math.round(sample.temp_f)}°F`)
-  if (sample.wind_speed_mph != null) {
-    const dir = sample.wind_dir_cardinal ? ` ${sample.wind_dir_cardinal}` : ''
-    const gust = sample.wind_gust_mph ? ` (gusts ${Math.round(sample.wind_gust_mph)})` : ''
-    parts.push(`Wind ${Math.round(sample.wind_speed_mph)}mph${dir}${gust}`)
-  }
-  if (sample.humidity_pct != null) parts.push(`${Math.round(sample.humidity_pct)}% humidity`)
-  if (sample.precipitation_in != null && sample.precipitation_in > 0) {
-    parts.push(`${sample.precipitation_in.toFixed(2)}" precip`)
-  }
-  return (
-    <div className={s.weatherRow}>
-      <div className={s.weatherDesc}>
-        {sample.weather_desc || '—'}
-        {sample.hole_number ? ` · Hole ${sample.hole_number}` : ''}
-      </div>
-      <div className={s.weatherMeta}>
-        <span>{formatSampledAt(sample.sampled_at)}</span>
-        {parts.map((p) => (
-          <span key={p}>{p}</span>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 export function PlaySessionPage() {
@@ -159,22 +153,29 @@ export function PlaySessionPage() {
   const updateMutation = useUpdatePlaySession(sessionId ?? 0)
   const deleteMutation = useDeletePlaySession()
   const sampleMutation = useSampleWeather(sessionId ?? 0)
+  const { data: allTags } = useTags()
 
   const [fields, setFields] = useState<LocalFields | null>(null)
   const [saveStatus, setSaveStatus] = useState<string>('')
-  const [sampleError, setSampleError] = useState<string>('')
 
   // Track the last snapshot synced from the server so auto-save doesn't fire on load.
   const lastSyncedRef = useRef<string>('')
   const saveTimerRef = useRef<number | null>(null)
 
+  // Map tag id -> category, used by `fromDetail` to bucket attached tags.
+  const tagCategoryById = useMemo(() => {
+    const m = new Map<number, 'bring_in' | 'pull_out' | 'intention'>()
+    for (const t of allTags ?? []) m.set(t.id, t.category)
+    return m
+  }, [allTags])
+
   useEffect(() => {
-    if (data) {
-      const next = fromDetail(data)
+    if (data && allTags) {
+      const next = fromDetail(data, tagCategoryById)
       setFields(next)
       lastSyncedRef.current = JSON.stringify(next)
     }
-  }, [data])
+  }, [data, allTags, tagCategoryById])
 
   // Auto-save: debounce PATCH whenever local fields diverge from last-synced snapshot.
   useEffect(() => {
@@ -238,6 +239,10 @@ export function PlaySessionPage() {
   const handleStartPlaying = async () => {
     await flushPending()
     await updateMutation.mutateAsync({ state: 'ACTIVE' })
+    // Capture an initial weather sample so the on-course WindIndicator and
+    // any post-round weather review have data from the moment the round
+    // starts. Failures are non-fatal (no API key, no signal, etc.).
+    sampleMutation.mutateAsync(undefined).catch(() => {})
     goToMap()
   }
 
@@ -269,15 +274,6 @@ export function PlaySessionPage() {
     navigate('/play')
   }
 
-  const handleSample = async () => {
-    setSampleError('')
-    try {
-      await sampleMutation.mutateAsync(undefined)
-    } catch (e) {
-      setSampleError((e as Error).message)
-    }
-  }
-
   return (
     <div className={s.page}>
       <button className={s.backLink} onClick={() => navigate('/play')}>
@@ -301,83 +297,72 @@ export function PlaySessionPage() {
         <Card>
           <CardHeader title="Pre-Round" />
           <div className={s.cardBody}>
-            <RatingRow
-              label="Energy"
-              value={fields.energy_rating}
-              onChange={(v) => update('energy_rating', v)}
-              disabled={isFrozen}
-            />
-            <RatingRow
-              label="Focus"
-              value={fields.focus_rating}
-              onChange={(v) => update('focus_rating', v)}
-              disabled={isFrozen}
-            />
-            <RatingRow
-              label="Physical"
-              value={fields.physical_rating}
-              onChange={(v) => update('physical_rating', v)}
-              disabled={isFrozen}
-            />
-            <FormGroup label="Goals for today">
-              <textarea
-                className={s.textarea}
-                value={fields.session_goals}
-                onChange={(e) => update('session_goals', e.target.value)}
-                placeholder="What are you working on?"
+            <section className={s.preSection}>
+              <RatingRow
+                label="Body"
+                description="How are you feeling physically?"
+                value={fields.body_rating}
+                onChange={(v) => update('body_rating', v)}
                 disabled={isFrozen}
               />
-            </FormGroup>
-            <FormGroup label="Clubs focused">
-              <Input
-                value={fields.clubs_focused}
-                onChange={(e) => update('clubs_focused', e.target.value)}
-                placeholder="Driver, 7i, wedges…"
+              <RatingRow
+                label="Mind"
+                description="How are you feeling mentally?"
+                value={fields.mind_rating}
+                onChange={(v) => update('mind_rating', v)}
                 disabled={isFrozen}
               />
-            </FormGroup>
-            <FormGroup label="Pre-round notes">
-              <textarea
-                className={s.textarea}
-                value={fields.pre_session_notes}
-                onChange={(e) => update('pre_session_notes', e.target.value)}
+              <RatingRow
+                label="Commitment"
+                description="How willing are you to trust yourself?"
+                value={fields.commitment_rating}
+                onChange={(v) => update('commitment_rating', v)}
                 disabled={isFrozen}
               />
-            </FormGroup>
+            </section>
+
+            <section className={s.preSection}>
+              <h3 className={s.preSectionTitle}>What's my intention today?</h3>
+              <TagPicker
+                category="intention"
+                selectedIds={fields.intention_tag_ids}
+                onChange={(ids) => update('intention_tag_ids', ids)}
+                disabled={isFrozen}
+                maxSelection={INTENTION_MAX}
+              />
+              <FormGroup label="Anything else? (optional)">
+                <Input
+                  value={fields.intention_notes}
+                  onChange={(e) => update('intention_notes', e.target.value)}
+                  placeholder="One-line override for this round"
+                  disabled={isFrozen}
+                />
+              </FormGroup>
+            </section>
+
+            <section className={s.preSection}>
+              <h3 className={s.preSectionTitle}>What am I bringing into this round?</h3>
+              <p className={s.preSectionDescription}>Mentally / emotionally</p>
+              <TagPicker
+                category="bring_in"
+                selectedIds={fields.bring_in_tag_ids}
+                onChange={(ids) => update('bring_in_tag_ids', ids)}
+                disabled={isFrozen}
+              />
+            </section>
+
+            <section className={s.preSection}>
+              <h3 className={s.preSectionTitle}>What could pull me out of the present today?</h3>
+              <TagPicker
+                category="pull_out"
+                selectedIds={fields.pull_out_tag_ids}
+                onChange={(ids) => update('pull_out_tag_ids', ids)}
+                disabled={isFrozen}
+              />
+            </section>
           </div>
         </Card>
       )}
-
-      <Card>
-        <CardHeader
-          title="Weather"
-          action={
-            !isFrozen ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleSample}
-                disabled={sampleMutation.isPending}
-              >
-                <CloudSun size={14} />{' '}
-                {sampleMutation.isPending ? 'Sampling…' : 'Sample now'}
-              </Button>
-            ) : undefined
-          }
-        />
-        <div className={s.cardBody}>
-          {sampleError && <p className={s.sampleError}>{sampleError}</p>}
-          {data.weather_samples.length === 0 ? (
-            <div className={s.saveStatus}>No samples yet.</div>
-          ) : (
-            <div className={s.weatherList}>
-              {data.weather_samples.map((w) => (
-                <WeatherSampleRow key={w.id} sample={w} />
-              ))}
-            </div>
-          )}
-        </div>
-      </Card>
 
       {showPost && (
         <Card>

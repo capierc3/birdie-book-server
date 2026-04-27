@@ -15,7 +15,7 @@ from app.services.weather_service import fetch_current_weather, WeatherFetchErro
 router = APIRouter(prefix="/api/play-sessions", tags=["play-sessions"])
 
 
-VALID_STATES = {"PRE", "ACTIVE", "COMPLETE", "ABANDONED"}
+VALID_STATES = {"PRE", "COURSE_OVERVIEW", "ACTIVE", "COMPLETE", "ABANDONED"}
 
 
 # --- Pydantic schemas ---

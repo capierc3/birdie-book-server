@@ -2,7 +2,7 @@
 // Play Sessions
 // ============================================================
 
-export type PlaySessionState = 'PRE' | 'ACTIVE' | 'COMPLETE' | 'ABANDONED'
+export type PlaySessionState = 'PRE' | 'COURSE_OVERVIEW' | 'ACTIVE' | 'COMPLETE' | 'ABANDONED'
 
 export interface PlaySessionPartner {
   id: number

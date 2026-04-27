@@ -5,7 +5,6 @@ import {
   usePlaySession,
   useUpdatePlaySession,
   useDeletePlaySession,
-  useSampleWeather,
   useTags,
 } from '../../api'
 import type {
@@ -19,6 +18,7 @@ import s from './PlaySessionPage.module.css'
 
 const STATE_LABEL: Record<PlaySessionState, string> = {
   PRE: 'Pre-round',
+  COURSE_OVERVIEW: 'Course review',
   ACTIVE: 'In progress',
   COMPLETE: 'Complete',
   ABANDONED: 'Abandoned',
@@ -26,6 +26,7 @@ const STATE_LABEL: Record<PlaySessionState, string> = {
 
 const STATE_CLASS: Record<PlaySessionState, string> = {
   PRE: s.statePre,
+  COURSE_OVERVIEW: s.statePre,
   ACTIVE: s.stateActive,
   COMPLETE: s.stateComplete,
   ABANDONED: s.stateAbandoned,
@@ -152,7 +153,6 @@ export function PlaySessionPage() {
   const { data, isLoading } = usePlaySession(sessionId)
   const updateMutation = useUpdatePlaySession(sessionId ?? 0)
   const deleteMutation = useDeletePlaySession()
-  const sampleMutation = useSampleWeather(sessionId ?? 0)
   const { data: allTags } = useTags()
 
   const [fields, setFields] = useState<LocalFields | null>(null)
@@ -236,14 +236,10 @@ export function PlaySessionPage() {
     navigate(`/courses/${data.course_id}/map?${params.toString()}`)
   }
 
-  const handleStartPlaying = async () => {
+  const handleContinueToOverview = async () => {
     await flushPending()
-    await updateMutation.mutateAsync({ state: 'ACTIVE' })
-    // Capture an initial weather sample so the on-course WindIndicator and
-    // any post-round weather review have data from the moment the round
-    // starts. Failures are non-fatal (no API key, no signal, etc.).
-    sampleMutation.mutateAsync(undefined).catch(() => {})
-    goToMap()
+    await updateMutation.mutateAsync({ state: 'COURSE_OVERVIEW' })
+    navigate(`/play/sessions/${sessionId}/overview`)
   }
 
   const handleCompleteRound = async () => {
@@ -432,8 +428,8 @@ export function PlaySessionPage() {
 
       <div className={s.actions}>
         {data.state === 'PRE' && (
-          <Button variant="primary" onClick={handleStartPlaying}>
-            <MapIcon size={14} /> Start Playing
+          <Button variant="primary" onClick={handleContinueToOverview}>
+            <MapIcon size={14} /> Review Course →
           </Button>
         )}
         {data.state === 'ACTIVE' && (

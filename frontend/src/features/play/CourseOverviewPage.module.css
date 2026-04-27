@@ -1,0 +1,227 @@
+.page {
+  padding: 16px;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.backLink {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 0;
+  align-self: flex-start;
+}
+
+.backLink:hover {
+  color: var(--text);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.subtitle {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.cardBody {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.empty {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+}
+
+@media (min-width: 480px) {
+  .statGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statLabel {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.statValue {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.statDelta {
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.recentRounds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.subHead {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-top: 8px;
+}
+
+.recentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recentRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.sgGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sgRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+}
+
+.sgLabel {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.sgValue {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.sgPositive {
+  color: #5dd6a4;
+}
+
+.sgNegative {
+  color: #f87a7a;
+}
+
+.sgFooter {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  padding-top: 4px;
+  text-transform: capitalize;
+}
+
+.sgFooter strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.sgToggle {
+  display: flex;
+  align-self: center;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.18));
+  border-radius: 999px;
+  overflow: hidden;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+
+.sgToggleBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 6px 18px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+  min-width: 80px;
+}
+
+.sgToggleBtn:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.sgToggleOn {
+  background: var(--accent, #6ea8ff);
+  color: var(--accent-on, #0b1220);
+  font-weight: 600;
+}
+
+.sgToggleOn:hover {
+  color: var(--accent-on, #0b1220);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 16px;
+}
+
+.teeOffBtn {
+  width: 100%;
+}
+
+.dangerBtn {
+  color: var(--danger, #ef4444);
+}
+
+.dangerBtn:hover {
+  background: rgba(239, 68, 68, 0.08);
+}

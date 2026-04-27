@@ -7,6 +7,7 @@ import s from './PlayPage.module.css'
 
 const STATE_LABEL: Record<PlaySessionState, string> = {
   PRE: 'Pre-round',
+  COURSE_OVERVIEW: 'Course review',
   ACTIVE: 'In progress',
   COMPLETE: 'Complete',
   ABANDONED: 'Abandoned',
@@ -14,6 +15,7 @@ const STATE_LABEL: Record<PlaySessionState, string> = {
 
 const STATE_CLASS: Record<PlaySessionState, string> = {
   PRE: s.statePre,
+  COURSE_OVERVIEW: s.statePre,
   ACTIVE: s.stateActive,
   COMPLETE: s.stateComplete,
   ABANDONED: s.stateAbandoned,
@@ -27,7 +29,7 @@ function formatDate(iso: string): string {
 
 export function PlayPage() {
   const navigate = useNavigate()
-  const inProgress = usePlaySessions({ state: 'PRE,ACTIVE' })
+  const inProgress = usePlaySessions({ state: 'PRE,COURSE_OVERVIEW,ACTIVE' })
   const recent = usePlaySessions({ state: 'COMPLETE,ABANDONED' })
 
   const openSession = (session: PlaySessionSummary) => {
@@ -36,6 +38,10 @@ export function PlayPage() {
       if (session.tee_id != null) params.set('tee', String(session.tee_id))
       params.set('session', String(session.id))
       navigate(`/courses/${session.course_id}/map?${params.toString()}`)
+      return
+    }
+    if (session.state === 'COURSE_OVERVIEW') {
+      navigate(`/play/sessions/${session.id}/overview`)
       return
     }
     navigate(`/play/sessions/${session.id}`)

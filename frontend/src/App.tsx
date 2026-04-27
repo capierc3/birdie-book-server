@@ -22,6 +22,7 @@ import { SettingsPage } from './features/settings/SettingsPage'
 import { StartRoundPage } from './features/play/StartRoundPage'
 import { PlayPage } from './features/play/PlayPage'
 import { PlaySessionPage } from './features/play/PlaySessionPage'
+import { CourseOverviewPage } from './features/play/CourseOverviewPage'
 
 function App() {
   return (
@@ -49,6 +50,7 @@ function App() {
         <Route path="/play" element={<PlayPage />} />
         <Route path="/play/new" element={<StartRoundPage />} />
         <Route path="/play/sessions/:id" element={<PlaySessionPage />} />
+        <Route path="/play/sessions/:id/overview" element={<CourseOverviewPage />} />
         <Route path="/import" element={<ImportPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

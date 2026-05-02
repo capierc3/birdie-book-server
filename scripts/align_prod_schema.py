@@ -25,10 +25,13 @@ def step1_add_updated_at(conn: sqlite3.Connection) -> None:
     if "updated_at" in cols:
         print("  [skip] players.updated_at already exists")
         return
-    conn.execute(
-        "ALTER TABLE players ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP"
-    )
-    print("  [add] players.updated_at")
+    # SQLite forbids CURRENT_TIMESTAMP as a default in ADD COLUMN, so add the
+    # column with no default, then backfill from created_at where possible.
+    conn.execute("ALTER TABLE players ADD COLUMN updated_at DATETIME")
+    n = conn.execute(
+        "UPDATE players SET updated_at = created_at WHERE updated_at IS NULL"
+    ).rowcount
+    print(f"  [add] players.updated_at  (backfilled {n} row(s) from created_at)")
 
 
 def step2_data_merge(conn: sqlite3.Connection) -> None:

@@ -91,7 +91,6 @@ function MobileHoleViewerInner() {
   const mapRef = useRef<MapRef>(null)
   const prevHoleRef = useRef<number | null>(null)
   const prevCameraModeRef = useRef(cameraMode)
-  const [debugCam, setDebugCam] = useState<{ zoom: number; pitch: number; bearing: number }>({ zoom: 0, pitch: 0, bearing: 0 })
 
   // Peek score state — syncs with localStorage (same store as NotesTab)
   const [peekScore, setPeekScore] = useState<number | null>(() => loadNote(ctx.courseId, ctx.currentHole).score)
@@ -281,7 +280,6 @@ function MobileHoleViewerInner() {
     const map = mapRef.current?.getMap()
     if (!map) return
     setMapBearing(map.getBearing())
-    setDebugCam({ zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing() })
   }, [setMapBearing])
 
   const handleMapClick = useCallback((evt: MapLayerMouseEvent) => {
@@ -596,13 +594,6 @@ function MobileHoleViewerInner() {
       </div>
 
       <HoleInfoBar />
-
-      <div className={s.debugBadge}>
-        z {debugCam.zoom.toFixed(2)}<br />
-        p {debugCam.pitch.toFixed(0)}°<br />
-        b {debugCam.bearing.toFixed(0)}°<br />
-        frame {holeFraming ? `z=${holeFraming.zoom.toFixed(2)}` : 'null'}
-      </div>
 
       <WindIndicator />
 

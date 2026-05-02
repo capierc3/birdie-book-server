@@ -11,7 +11,7 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-TRACKER_FILE = Path("api_usage.json")
+TRACKER_FILE = Path("data/api_usage.json")
 
 # Known API services and their daily limits
 API_LIMITS = {
@@ -48,6 +48,7 @@ def _new_day() -> dict:
 def _save(data: dict):
     """Persist tracker data to file."""
     try:
+        TRACKER_FILE.parent.mkdir(parents=True, exist_ok=True)
         TRACKER_FILE.write_text(json.dumps(data, indent=2))
     except Exception as e:
         log.warning("Failed to save API tracker: %s", e)

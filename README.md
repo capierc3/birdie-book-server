@@ -142,7 +142,7 @@ uvicorn app.main:app --reload --port 8000
 
 - Web UI: http://localhost:8000
 - API docs: http://localhost:8000/docs
-- Database: `birdie_book_dev.db` (SQLite, auto-created)
+- Database: `data/birdie_book_dev.db` (SQLite, auto-created)
 
 Local dev uses SQLite via `.env`. Docker overrides to PostgreSQL automatically — no config changes needed.
 

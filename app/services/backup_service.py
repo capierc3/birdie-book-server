@@ -17,7 +17,7 @@ from pathlib import Path
 
 from app.config import settings
 
-BACKUP_DIR = Path("backups")
+BACKUP_DIR = Path("data/backups")
 MAX_DAILY_BACKUPS = 7
 MAX_WEEKLY_BACKUPS = 4
 MAX_IMPORT_BACKUPS = 5

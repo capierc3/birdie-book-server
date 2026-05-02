@@ -4,3 +4,23 @@ __pycache__
 .git
 .venv
 venv
+
+# Local runtime data — image uses a docker volume mounted at /app/data
+data/
+
+# Frontend host artifacts — built fresh in stage 1
+frontend/node_modules/
+frontend/dist/
+frontend/dev-dist/
+
+# Misc
+.idea/
+.vscode/
+.claude/
+backups/
+docs/
+tests/
+scripts/
+*.db
+*.db-journal
+ROADMAP.md

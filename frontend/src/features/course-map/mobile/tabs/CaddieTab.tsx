@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useMobileMap } from '../MobileMapContext'
-import { haversineYards } from '../../geoUtils'
-import { determineShotContext, getTeeClubTarget, rankClubs, findNearbyHazards } from '../../caddieCalc'
+import { haversineYards, bearing } from '../../geoUtils'
+import { determineShotContext, getTeeStrategy, rankClubs, findNearbyHazards } from '../../caddieCalc'
 import type { ShotContext } from '../../caddieCalc'
 import { classifySgCategory } from '../../clubColors'
 import s from './tabs.module.css'
@@ -18,7 +18,7 @@ interface InsightItem {
 
 export function CaddieTab() {
   const ctx = useMobileMap()
-  const { strategy, gps, teePos, greenPos, hazards, formValues, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail } = ctx
+  const { strategy, gps, teePos, greenPos, hazards, fairwayPath, formValues, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail } = ctx
   const player = strategy?.player
   const par = parseInt(formValues.par) || 4
   const yardage = parseInt(formValues.yardage) || 0
@@ -36,9 +36,14 @@ export function CaddieTab() {
       ? Math.round(haversineYards(origin.lat, origin.lng, greenPos.lat, greenPos.lng))
       : yardage
 
-    // Determine context using shared function
+    // Determine context using shared function. Pass distFromTee so a long
+    // approach (>350y from green) doesn't fall back to "tee" and let Driver
+    // be recommended from the fairway.
+    const distFromTee = hasGps && teePos
+      ? haversineYards(gps.lat!, gps.lng!, teePos.lat, teePos.lng)
+      : undefined
     const context: ShotContext = hasGps && greenPos
-      ? determineShotContext(distToGreen, true)
+      ? determineShotContext(distToGreen, true, distFromTee)
       : 'tee'
 
     const result: InsightItem[] = []
@@ -56,16 +61,35 @@ export function CaddieTab() {
       header: contextLabels[context],
     })
 
+    // Aim line origin → green for non-tee hazard projection. Tee shots use
+    // dogleg-aware getTeeStrategy below (which computes its own aim line).
+    const aimBearing = (origin && greenPos)
+      ? bearing(origin.lat, origin.lng, greenPos.lat, greenPos.lng)
+      : undefined
+
     if (context === 'tee') {
-      const targetDist = getTeeClubTarget(par, yardage)
-      const ranked = rankClubs(clubs, targetDist, { count: 1 })
+      const teeStrategy = (origin && greenPos)
+        ? getTeeStrategy(par, yardage, origin, greenPos, fairwayPath, hazards, clubs)
+        : null
+      const targetDist = teeStrategy?.targetYards ?? yardage
+      const ranked = rankClubs(clubs, targetDist, { count: 1, preferLong: true })
       const bestClub = ranked[0]
 
       if (bestClub) {
         const remaining = yardage - bestClub.avg
-        result.push({ label: par === 3 ? 'Club to green' : 'Club off tee', value: `${bestClub.type} (${Math.round(bestClub.avg)}y)`, cls: 'good' })
+        const lowData = bestClub.sampleCount > 0 && bestClub.sampleCount < 10
+        const subParts: string[] = []
+        if (teeStrategy?.line === 'cut' || teeStrategy?.line === 'safe') subParts.push(teeStrategy.reason)
+        if (lowData) subParts.push(`Only ${bestClub.sampleCount} shots — low confidence`)
+        result.push({
+          label: par === 3 ? 'Club to green' : 'Club off tee',
+          value: `${bestClub.type} (${Math.round(bestClub.avg)}y)`,
+          cls: 'good',
+          sub: subParts.length > 0 ? subParts.join(' · ') : undefined,
+        })
         if (par !== 3 && remaining > 0) {
-          const approachRanked = rankClubs(clubs, remaining, { count: 1 })
+          // Second shot: never Driver.
+          const approachRanked = rankClubs(clubs, remaining, { count: 1, excludeDriver: true })
           if (approachRanked[0]) {
             result.push({ label: 'Then approach', value: `${approachRanked[0].type} (${Math.round(remaining)}y left)`, cls: '' })
           }
@@ -142,9 +166,10 @@ export function CaddieTab() {
       result.push({ label: 'Distance', value: `${distToGreen}y to pin`, cls: '' })
     }
 
-    // Nearby hazards using shared function
+    // Nearby hazards using shared function (corridor-projected so adjacent-hole
+    // hazards don't show up).
     if (context !== 'green' && origin && hazards.length > 0) {
-      const nearby = findNearbyHazards(origin, hazards, context)
+      const nearby = findNearbyHazards(origin, hazards, context, { aimBearing, corridorYards: 30 })
       for (const h of nearby) {
         result.push({
           label: `${h.type}${h.name ? ` (${h.name})` : ''}`,
@@ -321,7 +346,7 @@ export function CaddieTab() {
     }
 
     return result
-  }, [player, yardage, par, gps.lat, gps.lng, teePos, greenPos, hazards, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail])
+  }, [player, yardage, par, gps.lat, gps.lng, teePos, greenPos, hazards, fairwayPath, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail])
 
   const colorMap: Record<string, string> = {
     good: 'var(--accent)',

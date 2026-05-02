@@ -83,6 +83,43 @@ INTENTION_TAGS: list[tuple[str, list[str]]] = [
 # Technical / tactical focus picked on the COURSE_OVERVIEW screen — distinct
 # from the mindset tags in PRE. About outcomes and course management, not
 # how you feel.
+PATTERN_TAGS: list[tuple[str, list[str]]] = [
+    ("Presence", [
+        "Present",
+        "Distracted",
+        "Score-focused",
+        "Target-focused",
+    ]),
+    ("Tempo", [
+        "Free / flowing",
+        "Tight / tense",
+        "Patient",
+        "Rushed",
+        "Mechanical",
+    ]),
+    ("Emotion", [
+        "Even-keeled",
+        "Emotional",
+    ]),
+]
+
+
+RESPONSE_TAGS: list[tuple[str, list[str]]] = [
+    ("After mistakes", [
+        "Accepted quickly",
+        "Carried it forward",
+        "Reset effectively",
+        "No reset",
+    ]),
+    ("Under pressure", [
+        "Trusted",
+        "Forced",
+        "Let go",
+        "Held on",
+    ]),
+]
+
+
 PERFORMANCE_TAGS: list[tuple[str, list[str]]] = [
     ("Course management", [
         "Play conservative off tee",
@@ -145,6 +182,8 @@ def seed_tags(db: Session) -> dict[str, int]:
         "pull_out": _seed_category(db, "pull_out", PULL_OUT_TAGS),
         "intention": _seed_category(db, "intention", INTENTION_TAGS),
         "performance": _seed_category(db, "performance", PERFORMANCE_TAGS),
+        "pattern": _seed_category(db, "pattern", PATTERN_TAGS),
+        "response": _seed_category(db, "response", RESPONSE_TAGS),
     }
     if any(counts.values()):
         db.commit()

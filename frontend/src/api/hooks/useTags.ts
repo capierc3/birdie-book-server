@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { get } from '../client'
 
-export type TagCategory = 'bring_in' | 'pull_out' | 'intention' | 'performance'
+export type TagCategory = 'bring_in' | 'pull_out' | 'intention' | 'performance' | 'pattern' | 'response'
 
 export interface Tag {
   id: number

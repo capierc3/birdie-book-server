@@ -91,17 +91,16 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     }
 
     const aimEnd = destPoint(originLL.lat, originLL.lng, aimBear, club.avg)
-    const labelPt = destPoint(originLL.lat, originLL.lng, coneBearing, club.avg)
 
     const outer: Feature<Polygon> = {
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [buildRing(spreadOuter, club.p90)] },
-      properties: { color: club.color, opacity: 0.1 },
+      properties: { color: club.color, opacity: 0.22, kind: 'outer' },
     }
     const inner: Feature<Polygon> = {
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [buildRing(spreadInner, club.avg)] },
-      properties: { color: club.color, opacity: 0.18 },
+      properties: { color: club.color, opacity: 0.42, kind: 'inner' },
     }
     const aimLine: Feature<LineString> = {
       type: 'Feature',
@@ -118,7 +117,7 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
       polys: { type: 'FeatureCollection', features: [outer, inner] } as FeatureCollection,
       aim: { type: 'FeatureCollection', features: [aimLine] } as FeatureCollection,
       origin: { type: 'FeatureCollection', features: [originPoint] } as FeatureCollection,
-      label: { lat: labelPt.lat, lng: labelPt.lng, color: club.color, text: `${club.type} ${Math.round(club.avg)}y` },
+      label: { lat: originLL.lat, lng: originLL.lng, color: club.color, text: `${club.type} ${Math.round(club.avg)}y` },
     }
   }, [tool, originLL, ctx.greenPos, getSelectedClub])
 
@@ -153,7 +152,7 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     const outerBand: Feature<Polygon> = {
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[...outerArc, ...innerArcRev, outerArc[0]]] },
-      properties: { color: club.color, opacity: 0.08 },
+      properties: { color: club.color, opacity: 0.25, kind: 'outer' },
     }
 
     const innerNear = arcRing(Math.max(club.avg - club.std * 0.5, club.p10))
@@ -161,10 +160,9 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     const innerBand: Feature<Polygon> = {
       type: 'Feature',
       geometry: { type: 'Polygon', coordinates: [[...innerFarRev, ...innerNear, innerFarRev[0]]] },
-      properties: { color: club.color, opacity: 0.15 },
+      properties: { color: club.color, opacity: 0.45, kind: 'inner' },
     }
 
-    const labelPt = destPoint(originLL.lat, originLL.lng, aimBear, club.avg)
     const originPoint: Feature<Point> = {
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [originLL.lng, originLL.lat] },
@@ -176,7 +174,7 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
       avgArc: { type: 'FeatureCollection', features: [arcLine(club.avg)] } as FeatureCollection,
       sideArcs: { type: 'FeatureCollection', features: [arcLine(club.p10), arcLine(club.p90)] } as FeatureCollection,
       origin: { type: 'FeatureCollection', features: [originPoint] } as FeatureCollection,
-      label: { lat: labelPt.lat, lng: labelPt.lng, color: club.color, text: `${club.type} ${Math.round(club.p10)}-${Math.round(club.p90)}y` },
+      label: { lat: originLL.lat, lng: originLL.lng, color: club.color, text: `${club.type} ${Math.round(club.p10)}-${Math.round(club.p90)}y` },
     }
   }, [tool, originLL, ctx.greenPos, getSelectedClub])
 
@@ -199,11 +197,34 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
       geometry: { type: 'Point', coordinates: [tapTarget.lng, tapTarget.lat] },
       properties: {},
     }
+
+    // Top club for carry / recommend — shown as a chip under the player dot.
+    let topClub: { text: string; color: string } | null = null
+    const clubs = c.strategy?.player?.clubs || []
+    if (clubs.length > 0) {
+      if (tool === 'recommend') {
+        const ranked = rankClubs(clubs, tapTarget.distance, { count: 1 })
+        const top = ranked[0]
+        if (top) {
+          const clubColor = clubs.find(cl => cl.club_type === top.type)?.color || '#fff'
+          topClub = { text: `${top.type} · ${Math.round(top.matchPct)}% fit`, color: clubColor }
+        }
+      } else if (tool === 'carry') {
+        const carries = computeCarryProbabilities(clubs, tapTarget.distance, { maxResults: 1 })
+        const top = carries[0]
+        if (top) {
+          const clubColor = clubs.find(cl => cl.club_type === top.type)?.color || '#fff'
+          topClub = { text: `${top.type} · ${Math.round(top.pct)}% carry`, color: clubColor }
+        }
+      }
+    }
+
     return {
       line: { type: 'FeatureCollection', features: [line] } as FeatureCollection,
       target: { type: 'FeatureCollection', features: [target] } as FeatureCollection,
       color,
       label: { lat: tapTarget.lat, lng: tapTarget.lng, distance: tapTarget.distance },
+      playerLabel: topClub ? { lat: fromLat, lng: fromLng, ...topClub } : null,
     }
   }, [tapTarget, tool, ctx])
 
@@ -259,31 +280,60 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
               type="fill"
               paint={{ 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] }}
             />
+            {/* Glow halo behind the outline */}
+            <Layer
+              id="m-cone-polys-glow"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': 0.25, 'line-blur': 4 }}
+            />
             <Layer
               id="m-cone-polys-line"
               type="line"
-              paint={{ 'line-color': ['get', 'color'], 'line-width': 1 }}
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 }}
+            />
+            {/* 3D volumetric fill on the inner cone — only visible when pitched */}
+            <Layer
+              id="m-cone-extrude"
+              type="fill-extrusion"
+              filter={['==', ['get', 'kind'], 'inner']}
+              paint={{
+                'fill-extrusion-color': ['get', 'color'],
+                'fill-extrusion-opacity': 0.35,
+                'fill-extrusion-height': 2.5,
+                'fill-extrusion-base': 0,
+              }}
             />
           </Source>
           <Source id="m-cone-aim" type="geojson" data={coneShapes.aim}>
             <Layer
               id="m-cone-aim-line"
               type="line"
-              paint={{ 'line-color': '#fff', 'line-width': 1.5, 'line-dasharray': [4, 2.5], 'line-opacity': 0.7 }}
+              paint={{ 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [4, 2.5], 'line-opacity': 0.85 }}
             />
           </Source>
           <Source id="m-cone-origin" type="geojson" data={coneShapes.origin}>
             <Layer
+              id="m-cone-origin-halo"
+              type="circle"
+              paint={{ 'circle-color': ['get', 'color'], 'circle-radius': 12, 'circle-opacity': 0.25, 'circle-blur': 0.6 }}
+            />
+            <Layer
               id="m-cone-origin-circle"
               type="circle"
-              paint={{ 'circle-color': ['get', 'color'], 'circle-radius': 4, 'circle-opacity': 1 }}
+              paint={{
+                'circle-color': ['get', 'color'],
+                'circle-radius': 5,
+                'circle-stroke-color': '#fff',
+                'circle-stroke-width': 2,
+              }}
             />
           </Source>
-          <Marker longitude={coneShapes.label.lng} latitude={coneShapes.label.lat} anchor="center">
+          <Marker longitude={coneShapes.label.lng} latitude={coneShapes.label.lat} anchor="top" offset={[0, 14]}>
             <div style={{
-              display: 'inline-block', background: 'rgba(0,0,0,0.8)', color: coneShapes.label.color,
-              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
-              pointerEvents: 'none',
+              display: 'inline-block', background: 'rgba(0,0,0,0.85)', color: coneShapes.label.color,
+              padding: '4px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+              pointerEvents: 'none', boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+              border: `1px solid ${coneShapes.label.color}`,
             }}>{coneShapes.label.text}</div>
           </Marker>
         </>
@@ -297,27 +347,50 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
               type="fill"
               paint={{ 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] }}
             />
+            {/* Glow halo behind the outline */}
+            <Layer
+              id="m-land-polys-glow"
+              type="line"
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': 0.3, 'line-blur': 4 }}
+            />
             <Layer
               id="m-land-polys-line"
               type="line"
-              paint={{ 'line-color': ['get', 'color'], 'line-width': 1 }}
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 2, 'line-opacity': 0.9 }}
+            />
+            {/* 3D volumetric fill on the inner band — only visible when pitched */}
+            <Layer
+              id="m-land-extrude"
+              type="fill-extrusion"
+              filter={['==', ['get', 'kind'], 'inner']}
+              paint={{
+                'fill-extrusion-color': ['get', 'color'],
+                'fill-extrusion-opacity': 0.4,
+                'fill-extrusion-height': 2.5,
+                'fill-extrusion-base': 0,
+              }}
             />
           </Source>
           <Source id="m-land-avg" type="geojson" data={landingShapes.avgArc}>
             <Layer
               id="m-land-avg-line"
               type="line"
-              paint={{ 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [3, 2] }}
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [3, 2], 'line-opacity': 0.95 }}
             />
           </Source>
           <Source id="m-land-side" type="geojson" data={landingShapes.sideArcs}>
             <Layer
               id="m-land-side-line"
               type="line"
-              paint={{ 'line-color': ['get', 'color'], 'line-width': 1, 'line-opacity': 0.4 }}
+              paint={{ 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.6 }}
             />
           </Source>
           <Source id="m-land-origin" type="geojson" data={landingShapes.origin}>
+            <Layer
+              id="m-land-origin-halo"
+              type="circle"
+              paint={{ 'circle-color': ['get', 'color'], 'circle-radius': 12, 'circle-opacity': 0.25, 'circle-blur': 0.6 }}
+            />
             <Layer
               id="m-land-origin-circle"
               type="circle"
@@ -325,15 +398,16 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
                 'circle-color': ['get', 'color'],
                 'circle-stroke-color': '#fff',
                 'circle-stroke-width': 2,
-                'circle-radius': 4,
+                'circle-radius': 5,
               }}
             />
           </Source>
-          <Marker longitude={landingShapes.label.lng} latitude={landingShapes.label.lat} anchor="center">
+          <Marker longitude={landingShapes.label.lng} latitude={landingShapes.label.lat} anchor="top" offset={[0, 14]}>
             <div style={{
-              display: 'inline-block', background: 'rgba(0,0,0,0.8)', color: landingShapes.label.color,
-              padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
-              pointerEvents: 'none',
+              display: 'inline-block', background: 'rgba(0,0,0,0.85)', color: landingShapes.label.color,
+              padding: '4px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+              pointerEvents: 'none', boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+              border: `1px solid ${landingShapes.label.color}`,
             }}>{landingShapes.label.text}</div>
           </Marker>
         </>
@@ -368,6 +442,16 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
               pointerEvents: 'none',
             }}>{tapShapes.label.distance}y</div>
           </Marker>
+          {tapShapes.playerLabel && (
+            <Marker longitude={tapShapes.playerLabel.lng} latitude={tapShapes.playerLabel.lat} anchor="top" offset={[0, 14]}>
+              <div style={{
+                display: 'inline-block', background: 'rgba(0,0,0,0.85)', color: tapShapes.playerLabel.color,
+                padding: '4px 9px', borderRadius: 6, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+                pointerEvents: 'none', boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+                border: `1px solid ${tapShapes.playerLabel.color}`,
+              }}>{tapShapes.playerLabel.text}</div>
+            </Marker>
+          )}
         </>
       )}
     </>

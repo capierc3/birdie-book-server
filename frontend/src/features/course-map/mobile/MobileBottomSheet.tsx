@@ -10,8 +10,8 @@ export interface TabConfig {
   label: string
 }
 
-const PEEK_HEIGHT = 130
 const HANDLE_HEIGHT = 32
+const DEFAULT_PEEK_HEIGHT = 150
 
 interface Props {
   peekContent: ReactNode
@@ -31,24 +31,51 @@ const DEFAULT_TABS: TabConfig[] = [
 
 export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = DEFAULT_TABS, children }: Props) {
   const [snap, setSnap] = useState<SheetSnap>('peek')
+  const [peekHeight, setPeekHeight] = useState(DEFAULT_PEEK_HEIGHT)
   const sheetRef = useRef<HTMLDivElement>(null)
+  const peekRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({ startY: 0, startTranslate: 0, dragging: false })
 
   const getSnapY = useCallback((s: SheetSnap) => {
     const vh = window.innerHeight
     switch (s) {
-      case 'peek': return vh - PEEK_HEIGHT
+      case 'peek': return vh - peekHeight
       case 'half': return vh * 0.55
       case 'full': return vh * 0.15
     }
-  }, [])
+  }, [peekHeight])
 
-  const [translateY, setTranslateY] = useState(() => getSnapY('peek'))
+  const [translateY, setTranslateY] = useState(() => window.innerHeight - DEFAULT_PEEK_HEIGHT)
 
-  // Update translateY on snap change
+  // Update translateY on snap change or peek-height change (when in peek snap)
   useEffect(() => {
     setTranslateY(getSnapY(snap))
   }, [snap, getSnapY])
+
+  // Auto-measure peek content so the snap point fits whatever's rendered.
+  useEffect(() => {
+    if (!peekRef.current) return
+    const ro = new ResizeObserver(entries => {
+      const h = entries[0]?.contentRect.height ?? 0
+      if (h > 0) setPeekHeight(h + HANDLE_HEIGHT + 4)
+    })
+    ro.observe(peekRef.current)
+    return () => ro.disconnect()
+  }, [])
+
+  // Expose current sheet height to map overlays (toggles, FABs) via CSS var.
+  useEffect(() => {
+    const height = window.innerHeight - translateY
+    document.documentElement.style.setProperty('--sheet-height', `${height}px`)
+  }, [translateY])
+  // Expose snap state so map FABs can hide themselves when the sheet is expanded.
+  useEffect(() => {
+    document.body.dataset.sheetSnap = snap
+  }, [snap])
+  useEffect(() => () => {
+    document.documentElement.style.removeProperty('--sheet-height')
+    delete document.body.dataset.sheetSnap
+  }, [])
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     dragRef.current = { startY: e.touches[0].clientY, startTranslate: translateY, dragging: true }
@@ -107,7 +134,7 @@ export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = 
       </div>
 
       {/* Peek content (always visible) */}
-      <div className={s.peekContent} onClick={handlePeekTap}>
+      <div ref={peekRef} className={s.peekContent} onClick={handlePeekTap}>
         {peekContent}
       </div>
 

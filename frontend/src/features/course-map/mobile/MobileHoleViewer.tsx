@@ -56,9 +56,9 @@ type RangefinderTool = 'none' | 'cone' | 'landing' | 'carry' | 'recommend' | 'ru
 const PEEK_TOOLS: { key: RangefinderTool; label: string; needsClub: boolean }[] = [
   { key: 'cone', label: 'Dispersion', needsClub: true },
   { key: 'landing', label: 'Landing', needsClub: true },
+  { key: 'ruler', label: 'Ruler', needsClub: false },
   { key: 'carry', label: 'Carry?', needsClub: false },
   { key: 'recommend', label: 'Club Rec', needsClub: false },
-  { key: 'ruler', label: 'Ruler', needsClub: false },
 ]
 
 const PLAY_TABS: TabConfig[] = [
@@ -388,47 +388,49 @@ function MobileHoleViewerInner() {
     const hazard = rangefinderData.nearbyHazards[0]
     return (
       <>
-        <div className={s.peekGrid}>
-          <div className={s.peekDistBlock}>
-            <span className={s.peekDist}>{rangefinderData.distToGreenCenter}</span>
-            <span className={s.peekDistLabel}>yds</span>
-          </div>
-          <div className={s.peekMid}>
-            <div className={s.peekFrontBack}>
-              <span>F: {rangefinderData.distToGreenFront != null ? Math.round(rangefinderData.distToGreenFront) : '—'}</span>
-              <span>B: {rangefinderData.distToGreenBack != null ? Math.round(rangefinderData.distToGreenBack) : '—'}</span>
+        <div className={s.peekHoleLabel}>Hole {currentHole} · Par {par}</div>
+        <div className={s.peekMainRow}>
+          <div className={s.peekLeftCol}>
+            <div className={s.peekDistGroup}>
+              <div className={s.peekDistBlock}>
+                <span className={s.peekDist}>{rangefinderData.distToGreenCenter}</span>
+                <span className={s.peekDistLabel}>yds</span>
+              </div>
+              <div className={s.peekFrontBack}>
+                <span>F {rangefinderData.distToGreenFront != null ? Math.round(rangefinderData.distToGreenFront) : '—'}</span>
+                <span>B {rangefinderData.distToGreenBack != null ? Math.round(rangefinderData.distToGreenBack) : '—'}</span>
+              </div>
             </div>
-            <div className={s.peekHoleInfo}>
-              Hole {currentHole} · Par {par}
-            </div>
+            {hazard && (
+              <div className={s.peekHazardChip}>
+                <span className={s.peekHazardDot} style={{ background: (HAZARD_COLORS[hazard.type] || ['#999'])[0] }} />
+                <span className={s.peekHazardText}>
+                  {HAZARD_LABELS[hazard.type] || hazard.type}{hazard.name ? ` (${hazard.name})` : ''}
+                </span>
+                <span className={s.peekHazardDist}>{hazard.distance}y</span>
+              </div>
+            )}
           </div>
-          {rangefinderData.clubRec.length > 0 && (
-            <div className={s.peekClubs}>
-              {rangefinderData.clubRec.slice(0, 2).map(c => (
-                <span key={c.club} className={s.peekClubItem}>{c.club}</span>
+          <div className={s.peekRightCol}>
+            <div className={s.peekTools}>
+              {PEEK_TOOLS.map(tool => (
+                <button
+                  key={tool.key}
+                  className={`${ts.toolBtn} ${activeRangefinderTool === tool.key ? ts.toolBtnActive : ''}`}
+                  onClick={e => handlePeekToolToggle(tool.key, e)}
+                >
+                  {tool.label}
+                </button>
               ))}
             </div>
-          )}
-        </div>
-        {hazard && (
-          <div className={s.peekHazardRow}>
-            <span className={s.peekHazardDot} style={{ background: (HAZARD_COLORS[hazard.type] || ['#999'])[0] }} />
-            <span className={s.peekHazardText}>
-              {HAZARD_LABELS[hazard.type] || hazard.type}{hazard.name ? ` (${hazard.name})` : ''}
-            </span>
-            <span className={s.peekHazardDist}>{hazard.distance}y</span>
+            {rangefinderData.clubRec.length > 0 && (
+              <div className={s.peekClubs}>
+                {rangefinderData.clubRec.slice(0, 2).map(c => (
+                  <span key={c.club} className={s.peekClubItem}>{c.club}</span>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-        <div className={s.peekTools}>
-          {PEEK_TOOLS.map(tool => (
-            <button
-              key={tool.key}
-              className={`${ts.toolBtn} ${activeRangefinderTool === tool.key ? ts.toolBtnActive : ''}`}
-              onClick={e => handlePeekToolToggle(tool.key, e)}
-            >
-              {tool.label}
-            </button>
-          ))}
         </div>
         <div className={s.peekQuickRow}>
           <div className={s.peekQuickLeft}>

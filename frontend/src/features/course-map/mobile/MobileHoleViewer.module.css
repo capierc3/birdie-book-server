@@ -66,11 +66,12 @@
 /* ── Center on me FAB (inside MapContainer, needs high z-index) ── */
 .centerFab {
   position: fixed;
-  bottom: 146px;
+  bottom: calc(var(--sheet-height, 150px) + 16px);
   right: 12px;
   z-index: 1000;
   width: 44px;
   height: 44px;
+  transition: bottom 0.3s ease-out, opacity 0.2s ease-out;
   background: rgba(28, 31, 38, 0.9);
   backdrop-filter: blur(4px);
   border: 1px solid var(--border);
@@ -131,12 +132,36 @@
   background: var(--accent-dim);
 }
 
-/* ── Enhanced peek grid ── */
-.peekGrid {
+/* ── Peek header: hole + par on top ── */
+.peekHoleLabel {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 2px;
+}
+
+/* ── Main info + actions row ── */
+.peekMainRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   min-height: 36px;
+}
+
+.peekLeftCol {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.peekDistGroup {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .peekDistBlock {
@@ -152,33 +177,28 @@
   font-weight: 600;
 }
 
-.peekMid {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
 .peekFrontBack {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   font-size: 0.72rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-.peekHoleInfo {
-  font-size: 0.7rem;
-  color: var(--text-dim);
+.peekRightCol {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 0;
 }
 
 .peekClubs {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-  flex-shrink: 0;
+  gap: 8px;
+  align-items: baseline;
 }
 
 .peekClubItem {
@@ -188,13 +208,17 @@
   white-space: nowrap;
 }
 
-/* ── Hazard warning row in peek ── */
-.peekHazardRow {
-  display: flex;
+/* ── Hazard chip: paired text + distance ── */
+.peekHazardChip {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
   font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  align-self: flex-start;
 }
 
 .peekHazardDot {
@@ -206,21 +230,21 @@
 
 .peekHazardText {
   color: var(--text-muted);
-  flex: 1;
 }
 
 .peekHazardDist {
-  color: var(--text-muted);
-  font-weight: 600;
+  color: var(--text);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Peek tools row ── */
+/* ── Peek tools row (now inside right column) ── */
 .peekTools {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+  justify-content: flex-end;
+  max-width: 220px;
 }
 
 /* ── Peek quick controls row ── */
@@ -370,7 +394,7 @@
 /* ── Overlay toggle button (stacked above GPS FAB in bottom-right) ── */
 .overlayToggle {
   position: fixed;
-  bottom: 200px;
+  bottom: calc(var(--sheet-height, 150px) + 70px);
   right: 12px;
   z-index: 1000;
   width: 44px;
@@ -385,6 +409,7 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  transition: bottom 0.3s ease-out, opacity 0.2s ease-out;
 }
 .overlayToggle:active {
   background: rgba(28, 31, 38, 1);
@@ -396,7 +421,7 @@
 /* ── Camera mode toggle (stacked above overlay toggle) ── */
 .cameraToggle {
   position: fixed;
-  bottom: 254px;
+  bottom: calc(var(--sheet-height, 150px) + 124px);
   right: 12px;
   z-index: 1000;
   width: 44px;
@@ -411,12 +436,24 @@
   align-items: center;
   justify-content: center;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  transition: bottom 0.3s ease-out, opacity 0.2s ease-out;
 }
 .cameraToggle:active {
   background: rgba(28, 31, 38, 1);
 }
 .cameraToggleOff {
   color: var(--text-dim);
+}
+
+/* ── Hide map FABs when bottom sheet is expanded (half/full snap) ── */
+:global(body[data-sheet-snap="half"]) .centerFab,
+:global(body[data-sheet-snap="full"]) .centerFab,
+:global(body[data-sheet-snap="half"]) .overlayToggle,
+:global(body[data-sheet-snap="full"]) .overlayToggle,
+:global(body[data-sheet-snap="half"]) .cameraToggle,
+:global(body[data-sheet-snap="full"]) .cameraToggle {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ── GPS marker pulse animation ── */

@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
 import { useCourseMap } from './courseMapState'
-import { haversineYards } from './geoUtils'
-import { determineShotContext, getTeeClubTarget, rankClubs, findNearbyHazards } from './caddieCalc'
+import { haversineYards, bearing } from './geoUtils'
+import { determineShotContext, getTeeStrategy, rankClubs, findNearbyHazards } from './caddieCalc'
 import type { ShotContext } from './caddieCalc'
 import s from './panels.module.css'
 
@@ -12,7 +12,7 @@ import s from './panels.module.css'
  */
 export function InsightsPanel({ onClose }: { onClose: () => void }) {
   const ctx = useCourseMap()
-  const { strategy, teePos, greenPos, ballPos, hazards } = ctx
+  const { strategy, teePos, greenPos, ballPos, hazards, fairwayPath } = ctx
   const player = strategy?.player
 
   // Read par/yardage from form values
@@ -33,8 +33,10 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
       : 0
     const hasBallPlaced = !!ballPos
 
-    // Determine context using shared function
-    const context: ShotContext = determineShotContext(distToGreen, hasBallPlaced)
+    // Determine context using shared function. Pass distFromTee so a long
+    // approach (>350y from green) doesn't fall back to "tee" and let Driver
+    // be recommended from the fairway.
+    const context: ShotContext = determineShotContext(distToGreen, hasBallPlaced, ballPos ? distFromTee : undefined)
 
     const result: { label: string; value: string; cls: string; header?: string }[] = []
     const contextLabels = { tee: 'From the Tee', approach: 'Approach Shot', short_game: 'Short Game', green: 'On the Green' }
@@ -46,16 +48,35 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
       header: contextLabels[context],
     })
 
+    // Aim line origin → green for non-tee hazard projection. Tee shots use
+    // dogleg-aware getTeeStrategy below (which computes its own aim line).
+    const aimBearing = (ballOrigin && greenPos)
+      ? bearing(ballOrigin.lat, ballOrigin.lng, greenPos.lat, greenPos.lng)
+      : undefined
+
     if (context === 'tee') {
-      const targetDist = getTeeClubTarget(par, yardage)
-      const ranked = rankClubs(clubs, targetDist, { count: 1 })
+      const teeStrategy = (ballOrigin && greenPos)
+        ? getTeeStrategy(par, yardage, ballOrigin, greenPos, fairwayPath, hazards, clubs)
+        : null
+      const targetDist = teeStrategy?.targetYards ?? yardage
+      const ranked = rankClubs(clubs, targetDist, { count: 1, preferLong: true })
       const bestClub = ranked[0]
 
       if (bestClub) {
         const remaining = yardage - bestClub.avg
-        result.push({ label: par === 3 ? 'Club to green' : 'Club off tee', value: `${bestClub.type} (${Math.round(bestClub.avg)}y avg)`, cls: 'good' })
+        const lowData = bestClub.sampleCount > 0 && bestClub.sampleCount < 10
+        const valueParts = [`${bestClub.type} (${Math.round(bestClub.avg)}y avg${lowData ? `, only ${bestClub.sampleCount} shots` : ''})`]
+        result.push({
+          label: par === 3 ? 'Club to green' : 'Club off tee',
+          value: valueParts.join(''),
+          cls: 'good',
+        })
+        if (teeStrategy && (teeStrategy.line === 'cut' || teeStrategy.line === 'safe')) {
+          result.push({ label: 'Strategy', value: teeStrategy.reason, cls: teeStrategy.line === 'cut' ? 'good' : 'warning' })
+        }
         if (par !== 3 && remaining > 0) {
-          const approachRanked = rankClubs(clubs, remaining, { count: 1 })
+          // Second shot: never Driver.
+          const approachRanked = rankClubs(clubs, remaining, { count: 1, excludeDriver: true })
           if (approachRanked[0]) {
             result.push({ label: 'Approach club', value: `${approachRanked[0].type} (${Math.round(remaining)}y to green)`, cls: '' })
           }
@@ -138,9 +159,10 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
       result.push({ label: 'Distance', value: `${distToGreen}y to pin`, cls: '' })
     }
 
-    // Nearby hazards using shared function
+    // Nearby hazards using shared function (corridor-projected so adjacent-hole
+    // hazards don't show up).
     if (context !== 'green' && ballOrigin && hazards.length > 0) {
-      const nearby = findNearbyHazards(ballOrigin, hazards, context)
+      const nearby = findNearbyHazards(ballOrigin, hazards, context, { aimBearing, corridorYards: 30 })
       for (const h of nearby) {
         result.push({
           label: `${h.type}${h.name ? ' (' + h.name + ')' : ''}`,
@@ -151,7 +173,7 @@ export function InsightsPanel({ onClose }: { onClose: () => void }) {
     }
 
     return result
-  }, [player, yardage, par, ballPos, teePos, greenPos, hazards])
+  }, [player, yardage, par, ballPos, teePos, greenPos, hazards, fairwayPath])
 
   const colorMap: Record<string, string> = { good: 'var(--accent)', warning: 'var(--warning, #ff9800)', danger: 'var(--danger)' }
 

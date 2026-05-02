@@ -14,7 +14,24 @@ import type {
 } from '../../api'
 import { Button, Card, CardHeader, FormGroup, Input, useConfirm } from '../../components'
 import { TagPicker } from './TagPicker'
+import { loadNote } from '../course-map/mobile/tabs/NotesTab'
 import s from './PlaySessionPage.module.css'
+
+/** Sum the per-hole scores stored in localStorage by NotesTab during play.
+ * Returns null if no holes have a recorded score yet. */
+function sumPlayScores(courseId: number | undefined, holesPlayed: number): number | null {
+  if (courseId == null) return null
+  let total = 0
+  let any = false
+  for (let h = 1; h <= holesPlayed; h++) {
+    const score = loadNote(courseId, h).score
+    if (score != null) {
+      total += score
+      any = true
+    }
+  }
+  return any ? total : null
+}
 
 const STATE_LABEL: Record<PlaySessionState, string> = {
   PRE: 'Pre-round',
@@ -76,6 +93,12 @@ interface LocalFields {
   bring_in_tag_ids: number[]
   pull_out_tag_ids: number[]
   overall_rating: number | null
+  // Post-round reflection. `key_takeaway` and `next_focus` are reused as
+  // "Keep" and "Release" prompts. `what_worked` / `what_struggled` are no
+  // longer edited via the UI but stay in LocalFields so toUpdate doesn't
+  // null them out for older sessions that already have content.
+  pattern_tag_ids: number[]
+  response_tag_ids: number[]
   what_worked: string
   what_struggled: string
   key_takeaway: string
@@ -86,28 +109,27 @@ interface LocalFields {
 
 const INTENTION_MAX = 3
 
-function fromDetail(d: PlaySessionDetail, tagsById: Map<number, 'bring_in' | 'pull_out' | 'intention'>): LocalFields {
+function fromDetail(d: PlaySessionDetail, tagsById: Map<number, 'bring_in' | 'pull_out' | 'intention' | 'pattern' | 'response'>): LocalFields {
   // Partition the session's tag_ids by category. Unknown ids fall through —
   // they'll be rendered by TagPicker's "Archived" group so they're still
   // editable.
   const bring: number[] = []
   const pull: number[] = []
   const intent: number[] = []
-  const archivedByGuess: Record<'bring_in' | 'pull_out' | 'intention', number[]> = {
-    bring_in: bring,
-    pull_out: pull,
-    intention: intent,
-  }
+  const pattern: number[] = []
+  const response: number[] = []
   for (const id of d.tag_ids ?? []) {
     const cat = tagsById.get(id)
     if (cat === 'bring_in') bring.push(id)
     else if (cat === 'pull_out') pull.push(id)
     else if (cat === 'intention') intent.push(id)
+    else if (cat === 'pattern') pattern.push(id)
+    else if (cat === 'response') response.push(id)
     else {
       // Unknown / archived tag — keep in bring_in by default so it's at
       // least visible to the user. The TagPicker for that category will
       // render it under "Archived" and let them remove it.
-      archivedByGuess.bring_in.push(id)
+      bring.push(id)
     }
   }
   return {
@@ -119,6 +141,8 @@ function fromDetail(d: PlaySessionDetail, tagsById: Map<number, 'bring_in' | 'pu
     bring_in_tag_ids: bring,
     pull_out_tag_ids: pull,
     overall_rating: d.overall_rating ?? null,
+    pattern_tag_ids: pattern,
+    response_tag_ids: response,
     what_worked: d.what_worked ?? '',
     what_struggled: d.what_struggled ?? '',
     key_takeaway: d.key_takeaway ?? '',
@@ -134,7 +158,13 @@ function toUpdate(f: LocalFields): PlaySessionUpdate {
     mind_rating: f.mind_rating,
     commitment_rating: f.commitment_rating,
     intention_notes: f.intention_notes || null,
-    tag_ids: [...f.intention_tag_ids, ...f.bring_in_tag_ids, ...f.pull_out_tag_ids],
+    tag_ids: [
+      ...f.intention_tag_ids,
+      ...f.bring_in_tag_ids,
+      ...f.pull_out_tag_ids,
+      ...f.pattern_tag_ids,
+      ...f.response_tag_ids,
+    ],
     overall_rating: f.overall_rating,
     what_worked: f.what_worked || null,
     what_struggled: f.what_struggled || null,
@@ -164,14 +194,25 @@ export function PlaySessionPage() {
 
   // Map tag id -> category, used by `fromDetail` to bucket attached tags.
   const tagCategoryById = useMemo(() => {
-    const m = new Map<number, 'bring_in' | 'pull_out' | 'intention'>()
-    for (const t of allTags ?? []) m.set(t.id, t.category)
+    const m = new Map<number, 'bring_in' | 'pull_out' | 'intention' | 'pattern' | 'response'>()
+    for (const t of allTags ?? []) {
+      if (t.category === 'bring_in' || t.category === 'pull_out' || t.category === 'intention'
+          || t.category === 'pattern' || t.category === 'response') {
+        m.set(t.id, t.category)
+      }
+    }
     return m
   }, [allTags])
 
   useEffect(() => {
     if (data && allTags) {
       const next = fromDetail(data, tagCategoryById)
+      // Auto-populate Score from per-hole tap-counts saved during play, but only
+      // when the server has no score yet — never clobber a value the user typed.
+      if (next.score == null) {
+        const summed = sumPlayScores(data.course_id ?? undefined, data.holes_played ?? 18)
+        if (summed != null) next.score = summed
+      }
       setFields(next)
       lastSyncedRef.current = JSON.stringify(next)
     }
@@ -379,42 +420,52 @@ export function PlaySessionPage() {
               label="Overall rating"
               value={fields.overall_rating}
               onChange={(v) => update('overall_rating', v)}
-              max={10}
               disabled={isFrozen}
             />
-            <FormGroup label="What worked">
-              <textarea
-                className={s.textarea}
-                value={fields.what_worked}
-                onChange={(e) => update('what_worked', e.target.value)}
+
+            <section className={s.preSection}>
+              <h3 className={s.preSectionTitle}>What showed up?</h3>
+              <p className={s.preSectionDescription}>Just observe patterns — no judging.</p>
+              <TagPicker
+                category="pattern"
+                selectedIds={fields.pattern_tag_ids}
+                onChange={(ids) => update('pattern_tag_ids', ids)}
                 disabled={isFrozen}
               />
-            </FormGroup>
-            <FormGroup label="What struggled">
-              <textarea
-                className={s.textarea}
-                value={fields.what_struggled}
-                onChange={(e) => update('what_struggled', e.target.value)}
+            </section>
+
+            <section className={s.preSection}>
+              <h3 className={s.preSectionTitle}>How did I respond?</h3>
+              <p className={s.preSectionDescription}>Improvement lives here — not in what happened, but how you handled it.</p>
+              <TagPicker
+                category="response"
+                selectedIds={fields.response_tag_ids}
+                onChange={(ids) => update('response_tag_ids', ids)}
                 disabled={isFrozen}
               />
-            </FormGroup>
-            <FormGroup label="Key takeaway">
-              <textarea
-                className={s.textarea}
-                value={fields.key_takeaway}
-                onChange={(e) => update('key_takeaway', e.target.value)}
-                disabled={isFrozen}
-              />
-            </FormGroup>
-            <FormGroup label="Next focus">
-              <textarea
-                className={s.textarea}
-                value={fields.next_focus}
-                onChange={(e) => update('next_focus', e.target.value)}
-                disabled={isFrozen}
-              />
-            </FormGroup>
-            <FormGroup label="Post-round notes">
+            </section>
+
+            <section className={s.preSection}>
+              <h3 className={s.preSectionTitle}>One to keep / One to release</h3>
+              <FormGroup label="Keep">
+                <Input
+                  value={fields.key_takeaway}
+                  onChange={(e) => update('key_takeaway', e.target.value)}
+                  placeholder="Something that helped you"
+                  disabled={isFrozen}
+                />
+              </FormGroup>
+              <FormGroup label="Release">
+                <Input
+                  value={fields.next_focus}
+                  onChange={(e) => update('next_focus', e.target.value)}
+                  placeholder="Something you don't need next round"
+                  disabled={isFrozen}
+                />
+              </FormGroup>
+            </section>
+
+            <FormGroup label="Anything else? (optional)">
               <textarea
                 className={s.textarea}
                 value={fields.post_session_notes}

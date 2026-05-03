@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Select, EmptyState, FloatingPanel } from '../../components'
+import { Button, ResponsiveSelect, EmptyState, FloatingPanel } from '../../components'
 import { useRangeShots } from '../../api'
 import type { RangeShotResponse } from '../../api'
 import { formatDateTime } from '../../utils/format'
@@ -233,34 +233,34 @@ export function RangeDetailPage() {
 
       {/* Controls bar */}
       <div className={rangeStyles.controlsBar}>
-        <Select
+        <ResponsiveSelect
           value={selectedSession}
-          onChange={(e) => handleSessionChange(e.target.value)}
-          style={{ width: 'auto', minWidth: 180 }}
-        >
-          <option value="all">All Time</option>
-          {data.sessions.map((s) => (
-            <option key={s.id} value={String(s.id)}>
-              {formatDateTime(s.session_date)}{s.title ? ` \u2014 ${s.title}` : ''} ({s.shot_count} shots)
-            </option>
-          ))}
-        </Select>
+          onChange={(v) => handleSessionChange(v)}
+          options={[
+            { value: 'all', label: 'All Time' },
+            ...data.sessions.map((s) => ({
+              value: String(s.id),
+              label: `${formatDateTime(s.session_date)}${s.title ? ` \u2014 ${s.title}` : ''} (${s.shot_count} shots)`,
+            })),
+          ]}
+          title="Session"
+        />
 
-        <Select
+        <ResponsiveSelect
           value={compareSessionId ?? ''}
-          onChange={(e) => handleCompareSessionChange(e.target.value)}
-          style={{ width: 'auto', minWidth: 180 }}
-        >
-          <option value="">Compare...</option>
-          {selectedSession !== 'all' && <option value="all">All Sessions</option>}
-          {data.sessions
-            .filter((s) => String(s.id) !== selectedSession)
-            .map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {formatDateTime(s.session_date)}{s.title ? ` \u2014 ${s.title}` : ''} ({s.shot_count} shots)
-              </option>
-            ))}
-        </Select>
+          onChange={(v) => handleCompareSessionChange(v)}
+          options={[
+            { value: '', label: 'Compare...' },
+            ...(selectedSession !== 'all' ? [{ value: 'all', label: 'All Sessions' }] : []),
+            ...data.sessions
+              .filter((s) => String(s.id) !== selectedSession)
+              .map((s) => ({
+                value: String(s.id),
+                label: `${formatDateTime(s.session_date)}${s.title ? ` \u2014 ${s.title}` : ''} (${s.shot_count} shots)`,
+              })),
+          ]}
+          title="Compare Session"
+        />
       </div>
 
       {/* Club toggles */}

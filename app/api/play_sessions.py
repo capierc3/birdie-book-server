@@ -77,6 +77,7 @@ class PlaySessionDetail(PlaySessionSummary):
     mind_rating: Optional[int] = None
     commitment_rating: Optional[int] = None
     intention_notes: Optional[str] = None
+    score_goal: Optional[int] = None
     what_worked: Optional[str] = None
     what_struggled: Optional[str] = None
     key_takeaway: Optional[str] = None
@@ -114,6 +115,7 @@ class PlaySessionUpdate(BaseModel):
     mind_rating: Optional[int] = None
     commitment_rating: Optional[int] = None
     intention_notes: Optional[str] = None
+    score_goal: Optional[int] = None
 
     overall_rating: Optional[int] = None
     what_worked: Optional[str] = None
@@ -158,6 +160,7 @@ def _to_detail(s: PlaySession) -> PlaySessionDetail:
         mind_rating=s.mind_rating,
         commitment_rating=s.commitment_rating,
         intention_notes=s.intention_notes,
+        score_goal=s.score_goal,
         what_worked=s.what_worked,
         what_struggled=s.what_struggled,
         key_takeaway=s.key_takeaway,

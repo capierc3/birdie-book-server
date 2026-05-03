@@ -93,6 +93,9 @@ interface LocalFields {
   bring_in_tag_ids: number[]
   pull_out_tag_ids: number[]
   overall_rating: number | null
+  // Round goal — target score for the round, drives personal-par allocation.
+  // Edited on the COURSE_OVERVIEW page; surfaced on every play screen.
+  score_goal: number | null
   // Post-round reflection. `key_takeaway` and `next_focus` are reused as
   // "Keep" and "Release" prompts. `what_worked` / `what_struggled` are no
   // longer edited via the UI but stay in LocalFields so toUpdate doesn't
@@ -141,6 +144,7 @@ function fromDetail(d: PlaySessionDetail, tagsById: Map<number, 'bring_in' | 'pu
     bring_in_tag_ids: bring,
     pull_out_tag_ids: pull,
     overall_rating: d.overall_rating ?? null,
+    score_goal: d.score_goal ?? null,
     pattern_tag_ids: pattern,
     response_tag_ids: response,
     what_worked: d.what_worked ?? '',
@@ -158,6 +162,7 @@ function toUpdate(f: LocalFields): PlaySessionUpdate {
     mind_rating: f.mind_rating,
     commitment_rating: f.commitment_rating,
     intention_notes: f.intention_notes || null,
+    score_goal: f.score_goal,
     tag_ids: [
       ...f.intention_tag_ids,
       ...f.bring_in_tag_ids,

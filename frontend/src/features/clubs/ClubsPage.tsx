@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardHeader, Select, Button, EmptyState } from '../../components'
+import { Card, CardHeader, ResponsiveSelect, Button, EmptyState } from '../../components'
 import { useClubs } from '../../api'
 import type { Club } from '../../api'
 import { useIsMobile } from '../../hooks/useMediaQuery'
@@ -106,27 +106,25 @@ export function ClubsPage() {
           <div style={{ display: 'flex', gap: isMobile ? 8 : 16, alignItems: 'center', flexDirection: isMobile ? 'column' as const : 'row' as const }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Data:</label>
-              <Select
+              <ResponsiveSelect
                 value={dataSource}
-                onChange={(e) => handleDataSourceChange(e.target.value as DataSource)}
-                style={{ width: 'auto' }}
-              >
-                <option value="combined">Combined</option>
-                <option value="garmin">Course</option>
-                <option value="rapsodo">Range</option>
-              </Select>
+                onChange={(v) => handleDataSourceChange(v as DataSource)}
+                options={[
+                  { value: 'combined', label: 'Combined' },
+                  { value: 'garmin', label: 'Course' },
+                  { value: 'rapsodo', label: 'Range' },
+                ]}
+                title="Data source"
+              />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <label style={{ fontSize: '0.82rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Compare to:</label>
-              <Select
+              <ResponsiveSelect
                 value={compareWindow}
-                onChange={(e) => setCompareWindow(e.target.value)}
-                style={{ width: 'auto' }}
-              >
-                {compareOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </Select>
+                onChange={(v) => setCompareWindow(v)}
+                options={compareOptions}
+                title="Compare to"
+              />
             </div>
           </div>
         } />

@@ -1,0 +1,222 @@
+.scorecard {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #1a3d2a;
+  /* subtle inner shadow + a faint border so the scorecard "card" reads as
+     a separate panel inside the course card, even on dark themes. */
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.toolbarTitle {
+  flex: 1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.tableWrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 6px;
+  background: #2d2d2d;
+  /* Always show a thin scrollbar so users discover the horizontal scroll
+   * (otherwise the rightmost columns can look like they're "cut off"). */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+.tableWrap::-webkit-scrollbar {
+  height: 8px;
+}
+.tableWrap::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 4px;
+}
+.tableWrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: #1a1a1a;
+}
+
+.table th,
+.table td {
+  padding: 6px 3px;
+  text-align: center;
+  border-right: 1px solid rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  /* Wide enough for "350"-style yardage values without truncation, even
+   * when an inline input is rendered inside. Tightened to fit 18-hole
+   * scorecard within typical desktop content widths without scroll. */
+  min-width: 40px;
+  white-space: nowrap;
+}
+
+.table th:last-child,
+.table td:last-child {
+  border-right: none;
+}
+
+.cornerHeader,
+.holeHeader,
+.subtotalHeader {
+  background: #1a4d2e;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 8px 6px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.cornerHeader {
+  background: #1a4d2e;
+  text-align: left;
+  min-width: 90px;
+}
+
+.subtotalHeader {
+  background: #0f3320;
+}
+
+.rowLabel {
+  background: #f5f5f5;
+  font-weight: 700;
+  text-align: left;
+  padding-left: 8px !important;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  min-width: 90px;
+  max-width: 130px;
+}
+
+/* Allow row labels to wrap onto two lines so multi-tee HCP labels like
+ * "BLUE / WHITE / RED / SILVER" don't push the table off-screen. The
+ * .table-prefixed selector overrides the table-wide `white-space: nowrap`. */
+.table .rowLabel {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.15;
+}
+
+/* Data cells inherit background + color from the row (tee rows set theirs
+ * inline; par/hcp rows set theirs via compound selectors below). This lets
+ * the tee color flow through every cell in the row, scorecard-style. */
+.dataCell {
+  font-weight: 600;
+}
+
+.subtotalCell {
+  background: #ececec;
+  font-weight: 800;
+  color: #1a1a1a;
+}
+
+.parRow .dataCell,
+.parRow .subtotalCell,
+.parRow .rowLabel {
+  background: #b9d99c;
+  color: #1a3a14;
+}
+
+.hcpRow .dataCell,
+.hcpRow .subtotalCell,
+.hcpRow .rowLabel {
+  background: #f5d97a;
+  color: #5a4500;
+}
+
+/* Inputs blend with the cell — no border, no background, inherit row color
+ * and font so they look like static text until interacted with. */
+.cellInput {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  box-sizing: border-box;
+  /* No spinners — irrelevant for text inputs but harmless. */
+  -moz-appearance: textfield;
+  /* Subtle hint that the value is editable when hovered. */
+  cursor: text;
+  border-radius: 2px;
+}
+.cellInput::-webkit-outer-spin-button,
+.cellInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* Light hover wash on dark-row inputs so editability is discoverable. */
+.cellInput:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+/* Focused input pops to a clear edit state — white background, dark text,
+ * regardless of the row's inherited color (which can be white on dark bgs). */
+.cellInput:focus {
+  outline: 2px solid #2196F3;
+  outline-offset: 1px;
+  background: #fff;
+  color: #1a1a1a;
+}
+.cellInput:disabled {
+  opacity: 0.5;
+}
+
+@media (max-width: 768px) {
+  .scorecard {
+    padding: 8px;
+  }
+  .table th,
+  .table td {
+    padding: 4px 5px;
+    min-width: 30px;
+  }
+  .cornerHeader,
+  .rowLabel {
+    min-width: 90px;
+    font-size: 0.65rem;
+  }
+}

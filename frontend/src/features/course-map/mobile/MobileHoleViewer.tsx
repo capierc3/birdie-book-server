@@ -1,8 +1,11 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Map } from 'react-map-gl/maplibre'
 import type { MapRef, MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import type { StyleSpecification } from 'maplibre-gl'
 import { MobileMapProvider, useMobileMap } from './MobileMapContext'
+import { usePlaySession } from '../../../api'
+import { computePersonalPars } from '../personalPar'
 import { MobileMapOverlays } from './MobileMapOverlays'
 import { MobileShotOverlays } from './MobileShotOverlays'
 import { GpsRangefinder } from './GpsRangefinder'
@@ -80,6 +83,9 @@ function MobileHoleViewerInner() {
   const ctx = useMobileMap()
   const { course, gps, teePos, greenPos, strategy, formValues, playMode, activeRangefinderTool, selectedClubType,
     currentHole, totalHoles, teeId, allRoundDetails, cameraMode, setMapBearing, setCameraMode } = ctx
+  const [searchParams] = useSearchParams()
+  const sessionId = searchParams.get('session')
+  const { data: session } = usePlaySession(sessionId ? Number(sessionId) : undefined)
   const [activeTab, setActiveTab] = useState<MobileTab>(playMode ? 'gps' : 'caddie')
   const [rangefinderData, setRangefinderData] = useState<RangefinderData>({
     distToGreenCenter: null, distToGreenFront: null, distToGreenBack: null,
@@ -91,6 +97,27 @@ function MobileHoleViewerInner() {
   const mapRef = useRef<MapRef>(null)
   const prevHoleRef = useRef<number | null>(null)
   const prevCameraModeRef = useRef(cameraMode)
+
+  // Personal par per hole, derived from session.score_goal + active tee's holes.
+  // Empty when no goal is set.
+  const personalPars = useMemo(() => {
+    const goal = session?.score_goal
+    if (!goal || !course?.tees?.length) return null
+    const tee = course.tees.find(t => t.id === teeId) ?? course.tees[0]
+    const holes = (tee.holes ?? [])
+      .filter(h => h.par != null)
+      .slice()
+      .sort((a, b) => a.hole_number - b.hole_number)
+      .slice(0, totalHoles)
+      .map(h => ({
+        hole_number: h.hole_number,
+        par: h.par,
+        handicap: h.handicap ?? null,
+        yardage: h.yardage ?? null,
+      }))
+    if (holes.length === 0) return null
+    return computePersonalPars(goal, holes).byHole
+  }, [session?.score_goal, course, teeId, totalHoles])
 
   // Peek score state — syncs with localStorage (same store as NotesTab)
   const [peekScore, setPeekScore] = useState<number | null>(() => loadNote(ctx.courseId, ctx.currentHole).score)
@@ -384,9 +411,13 @@ function MobileHoleViewerInner() {
     const { currentHole } = ctx
     const par = formValues.par || '—'
     const hazard = rangefinderData.nearbyHazards[0]
+    const ppar = personalPars?.get(currentHole)
     return (
       <>
-        <div className={s.peekHoleLabel}>Hole {currentHole} · Par {par}</div>
+        <div className={s.peekHoleLabel}>
+          Hole {currentHole} · Par {par}
+          {ppar != null && ppar !== Number(par) && <> · Goal {ppar}</>}
+        </div>
         <div className={s.peekMainRow}>
           <div className={s.peekLeftCol}>
             <div className={s.peekDistGroup}>

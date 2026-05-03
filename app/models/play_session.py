@@ -35,6 +35,11 @@ class PlaySession(Base):
     commitment_rating = Column(Integer)  # willingness to trust yourself (1-5)
     intention_notes = Column(Text)       # freeform "anything else" alongside intention tags
 
+    # Round goal — target score (e.g. 99 for "break 100"). Drives personal-par
+    # allocation across holes by handicap index. Per-session for now; a Settings
+    # default may pre-fill this in a later iteration.
+    score_goal = Column(Integer, nullable=True)
+
     # Post-round journal
     overall_rating = Column(Integer)
     what_worked = Column(Text)

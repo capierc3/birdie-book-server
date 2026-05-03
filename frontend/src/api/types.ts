@@ -55,6 +55,7 @@ export interface PlaySessionDetail extends PlaySessionSummary {
   mind_rating?: number | null
   commitment_rating?: number | null
   intention_notes?: string | null
+  score_goal?: number | null
   what_worked?: string | null
   what_struggled?: string | null
   key_takeaway?: string | null
@@ -90,6 +91,7 @@ export interface PlaySessionUpdate {
   mind_rating?: number | null
   commitment_rating?: number | null
   intention_notes?: string | null
+  score_goal?: number | null
   overall_rating?: number | null
   what_worked?: string | null
   what_struggled?: string | null

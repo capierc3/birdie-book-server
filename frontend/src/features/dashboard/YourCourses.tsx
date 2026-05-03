@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardHeader, Select } from '../../components'
+import { Card, CardHeader, ResponsiveSelect } from '../../components'
 import type { Course, RoundSummary } from '../../api'
 
 interface Props {
@@ -48,14 +48,15 @@ export function YourCourses({ courses, rounds }: Props) {
         title="Your Courses"
         action={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Select
+            <ResponsiveSelect
               value={sort}
-              onChange={(e) => setSort(e.target.value as SortMode)}
-              style={{ fontSize: '0.78rem', padding: '4px 8px' }}
-            >
-              <option value="most_played">Most Played</option>
-              <option value="recent">Recent</option>
-            </Select>
+              onChange={(v) => setSort(v as SortMode)}
+              options={[
+                { value: 'most_played', label: 'Most Played' },
+                { value: 'recent', label: 'Recent' },
+              ]}
+              title="Sort"
+            />
             <span
               onClick={() => navigate('/courses')}
               style={{ fontSize: '0.78rem', color: 'var(--primary)', cursor: 'pointer', whiteSpace: 'nowrap' }}

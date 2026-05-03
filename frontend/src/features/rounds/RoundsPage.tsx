@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardHeader, DataTable, Select, MobileCardList } from '../../components'
+import { Card, DataTable, ResponsiveSelect, MobileCardList } from '../../components'
 import type { Column } from '../../components'
 import { useRounds } from '../../api'
 import type { RoundSummary } from '../../api'
@@ -175,15 +175,16 @@ export function RoundsPage() {
       </div>
 
       <div className={styles.filterBar}>
-        <Select
+        <ResponsiveSelect
           value={holesFilter}
-          onChange={(e) => setHolesFilter(e.target.value as 'all' | '18' | '9')}
-          style={{ width: 'auto' }}
-        >
-          <option value="all">All Rounds</option>
-          <option value="18">18 Hole Only</option>
-          <option value="9">9 Hole Only</option>
-        </Select>
+          onChange={(v) => setHolesFilter(v as 'all' | '18' | '9')}
+          options={[
+            { value: 'all', label: 'All Rounds' },
+            { value: '18', label: '18 Hole Only' },
+            { value: '9', label: '9 Hole Only' },
+          ]}
+          title="Holes"
+        />
       </div>
 
       <Card>

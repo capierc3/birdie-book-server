@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Modal, Button, Select, StatusMessage } from '../../components'
+import { Modal, Button, ResponsiveSelect, StatusMessage } from '../../components'
 import { useCourseMergePreview, useMergeCourse } from '../../api'
 import type { MergeConflict } from '../../api'
 import cs from './ClubDetailPage.module.css'
@@ -78,15 +78,18 @@ export function CourseMergeModal({ isOpen, onClose, sourceCourse, otherCourses }
         Select a target course to merge this course into. Rounds and tees will be moved to the target.
       </p>
 
-      <Select
-        value={targetId ?? ''}
-        onChange={(e) => setTargetId(e.target.value ? Number(e.target.value) : undefined)}
-      >
-        <option value="">Select target course...</option>
-        {otherCourses.map((c) => (
-          <option key={c.id} value={c.id}>{c.name ?? `Course #${c.id}`}</option>
-        ))}
-      </Select>
+      <ResponsiveSelect
+        value={targetId !== undefined ? String(targetId) : ''}
+        onChange={(v) => setTargetId(v ? Number(v) : undefined)}
+        options={[
+          { value: '', label: 'Select target course...' },
+          ...otherCourses.map((c) => ({
+            value: String(c.id),
+            label: c.name ?? `Course #${c.id}`,
+          })),
+        ]}
+        title="Target Course"
+      />
 
       {targetId && preview.isLoading && (
         <div style={{ marginTop: 16 }}>

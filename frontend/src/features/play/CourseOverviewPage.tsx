@@ -5,14 +5,17 @@ import {
   usePlaySession,
   useUpdatePlaySession,
   useSampleWeather,
+  useCourse,
   useCourseStats,
   useSGSummary,
   useTags,
   useRangeTrends,
 } from '../../api'
 import type { SGPerRound, CourseHoleStats, Tag } from '../../api'
-import { Button, Card, CardHeader, useConfirm } from '../../components'
+import { Button, Card, CardHeader, FormGroup, Input, useConfirm } from '../../components'
 import { TagPicker } from './TagPicker'
+import { describePersonalPars } from '../course-map/personalPar'
+import { SCORE_GOAL_STORAGE_KEY } from '../settings/SettingsPage'
 import s from './CourseOverviewPage.module.css'
 
 const PERFORMANCE_MAX = 3
@@ -71,11 +74,16 @@ export function CourseOverviewPage() {
   const { data: session, isLoading } = usePlaySession(sessionId)
   const updateMutation = useUpdatePlaySession(sessionId ?? 0)
   const sampleMutation = useSampleWeather(sessionId ?? 0)
+  const { data: course } = useCourse(session?.course_id ?? undefined)
   const { data: courseStats } = useCourseStats(session?.course_id ?? undefined)
   const { data: sgSummary } = useSGSummary()
   const { data: allTags } = useTags()
   const { data: rangeTrends } = useRangeTrends(30, 5)
   const [sgMode, setSgMode] = useState<'pga' | 'personal'>('pga')
+  // Round goal — local state mirrors session.score_goal, debounce-saved.
+  const [scoreGoal, setScoreGoal] = useState<number | null>(null)
+  const goalSyncedRef = useRef<number | null>(null)
+  const goalSaveTimerRef = useRef<number | null>(null)
 
   // Performance tags are edited on this page; tags from PRE (intention,
   // bring_in, pull_out) must be preserved in every PATCH or we'd wipe them.
@@ -104,6 +112,80 @@ export function CourseOverviewPage() {
     setPerformanceTagIds(initial)
     lastSyncedRef.current = JSON.stringify(initial)
   }, [session, allTags, tagCategoryById])
+
+  // Seed the score goal from the session, falling back to the user's
+  // saved default goal from Settings when the session has none yet. Once
+  // the local state diverges from goalSyncedRef, the auto-save effect
+  // PATCHes it to the session — so a fresh session with a default fills
+  // in and persists on first render.
+  useEffect(() => {
+    if (!session) return
+    if (session.score_goal != null) {
+      setScoreGoal(session.score_goal)
+      goalSyncedRef.current = session.score_goal
+      return
+    }
+    const stored = localStorage.getItem(SCORE_GOAL_STORAGE_KEY)
+    const fallback = stored ? parseInt(stored, 10) : null
+    setScoreGoal(Number.isFinite(fallback as number) ? (fallback as number) : null)
+    // Mark unsynced so the auto-save effect persists the default.
+    goalSyncedRef.current = null
+  }, [session?.id, session?.score_goal])
+
+  // Holes for the active tee, used to compute personal par. Falls back to
+  // the first tee when the session has no `tee_id` set. Yardage is included
+  // as a fallback difficulty signal when handicap data is missing.
+  const goalHoles = useMemo(() => {
+    if (!course?.tees?.length) return []
+    const tee = course.tees.find((t) => t.id === session?.tee_id) ?? course.tees[0]
+    const holes = (tee.holes ?? []).filter((h) => h.par != null)
+    const limit = session?.holes_played ?? 18
+    return holes
+      .slice()
+      .sort((a, b) => a.hole_number - b.hole_number)
+      .slice(0, limit)
+      .map((h) => ({
+        hole_number: h.hole_number,
+        par: h.par,
+        handicap: h.handicap ?? null,
+        yardage: h.yardage ?? null,
+      }))
+  }, [course, session?.tee_id, session?.holes_played])
+
+  const goalCoursePar = useMemo(
+    () => goalHoles.reduce((sum, h) => sum + h.par, 0),
+    [goalHoles],
+  )
+
+  const ppars = useMemo(() => {
+    if (scoreGoal == null || goalHoles.length === 0) return null
+    return describePersonalPars(scoreGoal, goalHoles)
+  }, [scoreGoal, goalHoles])
+
+  // Debounced auto-save for score goal. Skips when value matches what was
+  // last synced from the server.
+  useEffect(() => {
+    if (!session) return
+    if (session.state === 'COMPLETE' || session.state === 'ABANDONED') return
+    if (scoreGoal === goalSyncedRef.current) return
+
+    if (goalSaveTimerRef.current != null) window.clearTimeout(goalSaveTimerRef.current)
+    goalSaveTimerRef.current = window.setTimeout(async () => {
+      setSaveStatus('Saving…')
+      try {
+        await updateMutation.mutateAsync({ score_goal: scoreGoal })
+        goalSyncedRef.current = scoreGoal
+        setSaveStatus('Saved')
+        window.setTimeout(() => setSaveStatus(''), 1200)
+      } catch (e) {
+        setSaveStatus(`Error: ${(e as Error).message}`)
+      }
+    }, AUTOSAVE_DELAY_MS)
+
+    return () => {
+      if (goalSaveTimerRef.current != null) window.clearTimeout(goalSaveTimerRef.current)
+    }
+  }, [scoreGoal, session, updateMutation])
 
   // Debounced auto-save: when the user toggles performance tags, PATCH the
   // union (preserved-non-performance + edited-performance).
@@ -377,6 +459,65 @@ export function CourseOverviewPage() {
                 </div>
               )}
             </>
+          )}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="Round goal" />
+        <div className={s.cardBody}>
+          <FormGroup label={`Target score${goalCoursePar > 0 ? ` (course par ${goalCoursePar})` : ''}`}>
+            <Input
+              type="number"
+              value={scoreGoal ?? ''}
+              onChange={(e) => {
+                const v = e.target.value
+                setScoreGoal(v === '' ? null : Number(v))
+              }}
+              placeholder="e.g. 99"
+              min={36}
+              max={200}
+            />
+          </FormGroup>
+          {ppars && scoreGoal != null && (
+            <div className={s.pparPreview}>
+              <div className={s.subHead}>
+                Personal par per hole
+                {scoreGoal - goalCoursePar > 0 && (
+                  <span className={s.statDelta}>
+                    {' '}· {scoreGoal - goalCoursePar} stroke{scoreGoal - goalCoursePar === 1 ? '' : 's'} to spend, allocated by{' '}
+                    {ppars.allocationSource === 'handicap' && 'handicap'}
+                    {ppars.allocationSource === 'yardage' && 'yardage (no handicap data)'}
+                    {ppars.allocationSource === 'par' && 'par (no handicap or yardage data)'}
+                    {ppars.allocationSource === 'hole_order' && 'hole order'}
+                  </span>
+                )}
+                {scoreGoal - goalCoursePar <= 0 && (
+                  <span className={s.statDelta}> · at or under par — no allocation</span>
+                )}
+              </div>
+              <div className={s.pparGrid}>
+                {ppars.rows.map((row) => (
+                  <div
+                    key={row.hole_number}
+                    className={s.pparCell}
+                    title={`Hole ${row.hole_number} · Par ${row.par}${row.delta > 0 ? ` + ${row.delta}` : ''}`}
+                  >
+                    <span className={s.pparHole}>{row.hole_number}</span>
+                    <span className={s.pparValue}>
+                      {row.ppar}
+                      {row.delta > 0 && <span className={s.pparDelta}> +{row.delta}</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {scoreGoal == null && goalCoursePar > 0 && (
+            <p className={s.empty}>
+              Set a target score (e.g. 99 to break 100) and we'll allocate strokes to the hardest holes
+              first, so you know which holes to play conservative on.
+            </p>
           )}
         </div>
       </Card>

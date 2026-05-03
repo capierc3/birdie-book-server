@@ -242,6 +242,54 @@
   gap: 4px;
 }
 
+.pparPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
+
+.pparGrid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
+}
+
+@media (max-width: 480px) {
+  .pparGrid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+.pparCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 2px;
+  border-radius: 6px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.03));
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+}
+
+.pparHole {
+  color: var(--text-dim);
+  font-size: 0.65rem;
+}
+
+.pparValue {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pparDelta {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.65rem;
+  margin-left: 2px;
+}
+
 .recentRow {
   display: flex;
   justify-content: space-between;

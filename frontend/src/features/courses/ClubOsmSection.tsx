@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { Button, Input, Select, StatusMessage } from '../../components'
+import { Button, Input, ResponsiveSelect, StatusMessage } from '../../components'
 import { useOsmSearch, useOsmLinkClub, useOsmLinkCourse } from '../../api'
 import type { GolfClubSummary, CourseDetail, OsmSearchResult } from '../../api'
 import cs from './ClubDetailPage.module.css'
@@ -146,22 +146,22 @@ export function ClubOsmSection({ club, courseDetails }: Props) {
                   </span>
                   <span className={cs.osmCourseData}>{getDataCounts(cd)}</span>
                   {cd.osm_id == null && results.length > 0 && (
-                    <Select
-                      style={{ width: 'auto', fontSize: '0.8rem' }}
+                    <ResponsiveSelect
                       value=""
-                      onChange={(e) => {
-                        if (!e.target.value) return
-                        const [osmType, osmIdStr] = e.target.value.split(':')
+                      onChange={(v) => {
+                        if (!v) return
+                        const [osmType, osmIdStr] = v.split(':')
                         handleLinkCourse(cd.id, Number(osmIdStr), osmType)
                       }}
-                    >
-                      <option value="">Link to...</option>
-                      {results.map((r) => (
-                        <option key={`${r.osm_type}:${r.osm_id}`} value={`${r.osm_type}:${r.osm_id}`}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </Select>
+                      options={[
+                        { value: '', label: 'Link to...' },
+                        ...results.map((r) => ({
+                          value: `${r.osm_type}:${r.osm_id}`,
+                          label: r.name,
+                        })),
+                      ]}
+                      title="Link Course"
+                    />
                   )}
                 </div>
               )

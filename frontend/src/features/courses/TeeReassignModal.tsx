@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal, Button, Select } from '../../components'
+import { Modal, Button, ResponsiveSelect } from '../../components'
 import { useReassignTeeRounds } from '../../api'
 import type { TeeDeleteConflict } from '../../api'
 
@@ -61,15 +61,18 @@ export function TeeReassignModal({ isOpen, onClose, courseId, teeId, conflict }:
       </div>
 
       {conflict.available_tees.length > 0 ? (
-        <Select
-          value={targetTeeId ?? ''}
-          onChange={(e) => setTargetTeeId(e.target.value ? Number(e.target.value) : null)}
-        >
-          <option value="">Select target tee...</option>
-          {conflict.available_tees.map((t) => (
-            <option key={t.id} value={t.id}>{t.tee_name}</option>
-          ))}
-        </Select>
+        <ResponsiveSelect
+          value={targetTeeId !== null ? String(targetTeeId) : ''}
+          onChange={(v) => setTargetTeeId(v ? Number(v) : null)}
+          options={[
+            { value: '', label: 'Select target tee...' },
+            ...conflict.available_tees.map((t) => ({
+              value: String(t.id),
+              label: t.tee_name,
+            })),
+          ]}
+          title="Target Tee"
+        />
       ) : (
         <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>
           No other tees available. Add another tee before deleting this one.

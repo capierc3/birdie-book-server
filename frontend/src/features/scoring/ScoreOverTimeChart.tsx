@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, ReferenceLine, Legend,
 } from 'recharts'
-import { Card, CardHeader, Select } from '../../components'
+import { Card, CardHeader, ResponsiveSelect } from '../../components'
 import type { ScoringRound } from '../../api'
 import { CHART_COLORS } from '../../utils/chartTheme'
 import { useIsMobile } from '../../hooks/useMediaQuery'
@@ -113,36 +113,32 @@ export function ScoreOverTimeChart({ rounds }: Props) {
         title="Score Over Time"
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Select
+            <ResponsiveSelect
               value={axisMode}
-              onChange={(e) => handleAxisChange(e.target.value as AxisMode)}
-              style={{ width: 'auto' }}
-            >
-              <option value="rounds">By Round</option>
-              <option value="date">By Date</option>
-            </Select>
-            <Select
+              onChange={(v) => handleAxisChange(v as AxisMode)}
+              options={[
+                { value: 'rounds', label: 'By Round' },
+                { value: 'date', label: 'By Date' },
+              ]}
+              title="Axis"
+            />
+            <ResponsiveSelect
               value={rangeValue}
-              onChange={(e) => setRangeValue(e.target.value as RangeValue)}
-              style={{ width: 'auto' }}
-            >
-              {!isDateMode ? (
-                <>
-                  <option value="5">Last 5 Rounds</option>
-                  <option value="10">Last 10 Rounds</option>
-                  <option value="20">Last 20 Rounds</option>
-                  <option value="all">All Rounds</option>
-                </>
-              ) : (
-                <>
-                  <option value="1m">1 Month</option>
-                  <option value="3m">3 Months</option>
-                  <option value="6m">6 Months</option>
-                  <option value="1y">1 Year</option>
-                  <option value="all">All Time</option>
-                </>
-              )}
-            </Select>
+              onChange={(v) => setRangeValue(v as RangeValue)}
+              options={!isDateMode ? [
+                { value: '5', label: 'Last 5 Rounds' },
+                { value: '10', label: 'Last 10 Rounds' },
+                { value: '20', label: 'Last 20 Rounds' },
+                { value: 'all', label: 'All Rounds' },
+              ] : [
+                { value: '1m', label: '1 Month' },
+                { value: '3m', label: '3 Months' },
+                { value: '6m', label: '6 Months' },
+                { value: '1y', label: '1 Year' },
+                { value: 'all', label: 'All Time' },
+              ]}
+              title="Range"
+            />
           </div>
         }
       />

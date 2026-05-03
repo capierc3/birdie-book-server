@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Card, CardHeader, Select } from '../../components'
+import { Card, CardHeader, ResponsiveSelect } from '../../components'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import type { SGByClubResponse } from '../../api'
 import { SG_LABELS } from '../../utils/chartTheme'
@@ -53,27 +53,29 @@ export function SGByClubChart({ data, baseline }: Props) {
         title="SG by Club"
         action={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Select
+            <ResponsiveSelect
               value={minShots}
-              onChange={(e) => setMinShots(e.target.value as MinShots)}
-              style={{ width: 'auto' }}
-            >
-              <option value="0">All Shots</option>
-              <option value="3">Min 3 shots</option>
-              <option value="5">Min 5 shots</option>
-              <option value="10">Min 10 shots</option>
-            </Select>
-            <Select
+              onChange={(v) => setMinShots(v as MinShots)}
+              options={[
+                { value: '0', label: 'All Shots' },
+                { value: '3', label: 'Min 3 shots' },
+                { value: '5', label: 'Min 5 shots' },
+                { value: '10', label: 'Min 10 shots' },
+              ]}
+              title="Minimum shots"
+            />
+            <ResponsiveSelect
               value={catFilter}
-              onChange={(e) => setCatFilter(e.target.value as CategoryFilter)}
-              style={{ width: 'auto' }}
-            >
-              <option value="">All Categories</option>
-              <option value="off_the_tee">Off the Tee</option>
-              <option value="approach">Approach</option>
-              <option value="short_game">Short Game</option>
-              <option value="putting">Putting</option>
-            </Select>
+              onChange={(v) => setCatFilter(v as CategoryFilter)}
+              options={[
+                { value: '', label: 'All Categories' },
+                { value: 'off_the_tee', label: 'Off the Tee' },
+                { value: 'approach', label: 'Approach' },
+                { value: 'short_game', label: 'Short Game' },
+                { value: 'putting', label: 'Putting' },
+              ]}
+              title="Category"
+            />
           </div>
         }
       />

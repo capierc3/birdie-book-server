@@ -1,4 +1,4 @@
-import { Button, Select, Input, FormGroup } from '../../components'
+import { Button, ResponsiveSelect, Input, FormGroup } from '../../components'
 import type { WizardState, SessionSpec } from './NewPracticePage'
 import {
   SESSION_TYPE_LABELS,
@@ -80,18 +80,17 @@ export function WizardStep2({
             </div>
 
             <FormGroup label="Session Type">
-              <Select
+              <ResponsiveSelect
                 value={sess.session_type}
-                onChange={(e) =>
-                  updateSession(idx, { session_type: e.target.value })
+                onChange={(v) =>
+                  updateSession(idx, { session_type: v })
                 }
-              >
-                {SESSION_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {SESSION_TYPE_LABELS[t]}
-                  </option>
-                ))}
-              </Select>
+                options={SESSION_TYPES.map((t) => ({
+                  value: t,
+                  label: SESSION_TYPE_LABELS[t],
+                }))}
+                title="Session Type"
+              />
             </FormGroup>
 
             <div className={s.sessionFields}>

@@ -4,8 +4,7 @@ import {
   Button,
   Badge,
   ProgressBar,
-  Select,
-  Card,
+  ResponsiveSelect,
   useToast,
   useConfirm,
 } from '../../components'
@@ -248,18 +247,18 @@ export function PracticeDetailPage() {
             </>
           ) : (
             <div className={s.linkRow}>
-              <Select
-                onChange={(e) => handleLinkRange(e.target.value)}
+              <ResponsiveSelect
+                onChange={(v) => handleLinkRange(v)}
                 value=""
-              >
-                <option value="">Link a range session...</option>
-                {rangeSessions.map((rs) => (
-                  <option key={rs.id} value={rs.id}>
-                    {formatDate(rs.session_date)} — {rs.shot_count} shots
-                    {rs.title ? ` — ${rs.title}` : ''}
-                  </option>
-                ))}
-              </Select>
+                options={[
+                  { value: '', label: 'Link a range session...' },
+                  ...rangeSessions.map((rs) => ({
+                    value: String(rs.id),
+                    label: `${formatDate(rs.session_date)} — ${rs.shot_count} shots${rs.title ? ` — ${rs.title}` : ''}`,
+                  })),
+                ]}
+                title="Range Session"
+              />
             </div>
           )}
         </div>

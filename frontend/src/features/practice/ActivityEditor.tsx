@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Modal, Button, Input, Select, FormGroup } from '../../components'
+import { Modal, Button, Input, ResponsiveSelect, FormGroup } from '../../components'
 import { useClubs, useDrills } from '../../api'
 import { FOCUS_AREAS, FOCUS_LABELS } from './constants'
 
@@ -110,19 +110,20 @@ export function ActivityEditor({
       }
     >
       <FormGroup label="Club">
-        <Select
+        <ResponsiveSelect
           value={form.club_id?.toString() ?? ''}
-          onChange={(e) => handleClubChange(e.target.value)}
-        >
-          <option value="">Any / Not specified</option>
-          {clubs
-            .filter((c) => !c.retired)
-            .map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name || c.club_type}
-              </option>
-            ))}
-        </Select>
+          onChange={(v) => handleClubChange(v)}
+          options={[
+            { value: '', label: 'Any / Not specified' },
+            ...clubs
+              .filter((c) => !c.retired)
+              .map((c) => ({
+                value: String(c.id),
+                label: c.name || c.club_type,
+              })),
+          ]}
+          title="Club"
+        />
       </FormGroup>
 
       <FormGroup label="Ball Count">
@@ -141,18 +142,17 @@ export function ActivityEditor({
       </FormGroup>
 
       <FormGroup label="Focus Area">
-        <Select
+        <ResponsiveSelect
           value={form.focus_area}
-          onChange={(e) =>
-            setForm((f) => ({ ...f, focus_area: e.target.value }))
+          onChange={(v) =>
+            setForm((f) => ({ ...f, focus_area: v }))
           }
-        >
-          {FOCUS_AREAS.map((fa) => (
-            <option key={fa} value={fa}>
-              {FOCUS_LABELS[fa]}
-            </option>
-          ))}
-        </Select>
+          options={FOCUS_AREAS.map((fa) => ({
+            value: fa,
+            label: FOCUS_LABELS[fa],
+          }))}
+          title="Focus Area"
+        />
       </FormGroup>
 
       <FormGroup label="Target Metric">
@@ -170,17 +170,18 @@ export function ActivityEditor({
 
       {drills.length > 0 && (
         <FormGroup label="Drill (optional)">
-          <Select
+          <ResponsiveSelect
             value={form.drill_id?.toString() ?? ''}
-            onChange={(e) => handleDrillChange(e.target.value)}
-          >
-            <option value="">None</option>
-            {drills.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
+            onChange={(v) => handleDrillChange(v)}
+            options={[
+              { value: '', label: 'None' },
+              ...drills.map((d) => ({
+                value: String(d.id),
+                label: d.name,
+              })),
+            ]}
+            title="Drill"
+          />
         </FormGroup>
       )}
     </Modal>

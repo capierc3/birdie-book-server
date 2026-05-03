@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Select, Input, FormGroup } from '../../components'
+import { Button, ResponsiveSelect, Input, FormGroup } from '../../components'
 import { useRoundPlansAvailable } from '../../api'
 import type { WizardState } from './NewPracticePage'
 import { PREDEFINED_TAGS, TAG_DISPLAY } from './constants'
@@ -65,21 +65,22 @@ export function WizardStep1({ state, onChange, onNext }: Props) {
 
       {state.plan_type === 'round_prep' && roundPlans.length > 0 && (
         <FormGroup label="Round Plan">
-          <Select
+          <ResponsiveSelect
             value={state.round_plan_id?.toString() ?? ''}
-            onChange={(e) =>
+            onChange={(v) =>
               onChange({
-                round_plan_id: e.target.value ? Number(e.target.value) : null,
+                round_plan_id: v ? Number(v) : null,
               })
             }
-          >
-            <option value="">Select a round plan...</option>
-            {roundPlans.map((rp) => (
-              <option key={rp.id} value={rp.id}>
-                {rp.name} — {rp.course_name}
-              </option>
-            ))}
-          </Select>
+            options={[
+              { value: '', label: 'Select a round plan...' },
+              ...roundPlans.map((rp) => ({
+                value: String(rp.id),
+                label: `${rp.name} — ${rp.course_name}`,
+              })),
+            ]}
+            title="Round Plan"
+          />
         </FormGroup>
       )}
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Card, CardHeader, DataTable, Badge, Button, useConfirm } from '../../components'
 import type { Column } from '../../components'
 import { useDeleteTee, ApiError } from '../../api'
@@ -8,6 +8,7 @@ import type { CourseDetail, CourseTee, TeeDeleteConflict } from '../../api'
 import { TeeEditModal } from './TeeEditModal'
 import { TeeReassignModal } from './TeeReassignModal'
 import { CourseMergeModal } from './CourseMergeModal'
+import { ClubScorecard } from './ClubScorecard'
 import cs from './ClubDetailPage.module.css'
 
 interface Props {
@@ -30,6 +31,11 @@ export function ClubCoursesSection({ courseDetails }: Props) {
   // Merge state
   const [mergeSource, setMergeSource] = useState<{ id: number; name?: string | null } | null>(null)
   const [mergeTargets, setMergeTargets] = useState<{ id: number; name?: string | null }[]>([])
+
+  // Per-course scorecard expand state.
+  const [scorecardOpen, setScorecardOpen] = useState<Record<number, boolean>>({})
+  const toggleScorecard = (courseId: number) =>
+    setScorecardOpen(prev => ({ ...prev, [courseId]: !prev[courseId] }))
 
   const handleDeleteTee = async (courseId: number, teeId: number) => {
     const ok = await confirm({
@@ -150,11 +156,20 @@ export function ClubCoursesSection({ courseDetails }: Props) {
               <Button
                 variant="ghost"
                 size="sm"
+                onClick={() => toggleScorecard(course.id)}
+              >
+                {scorecardOpen[course.id] ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {scorecardOpen[course.id] ? ' Hide Scorecard' : ' Scorecard'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => navigate(`/courses/${course.id}/map`)}
               >
                 View Holes
               </Button>
             </div>
+            {scorecardOpen[course.id] && <ClubScorecard course={course} />}
           </Card>
         </div>
       ))}

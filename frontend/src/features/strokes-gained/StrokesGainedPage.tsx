@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Select, EmptyState, Card, CardHeader } from '../../components'
+import { ResponsiveSelect, EmptyState, Card, CardHeader } from '../../components'
 import { useSGSummary, useSGTrends, useSGByClub } from '../../api'
 import { SG_LABELS } from '../../utils/chartTheme'
 import { SGCategoryCards } from './SGCategoryCards'
@@ -29,14 +29,15 @@ export function StrokesGainedPage() {
       </div>
 
       <div className={styles.filterBar}>
-        <Select
+        <ResponsiveSelect
           value={baseline}
-          onChange={(e) => setBaseline(e.target.value as 'pga' | 'personal')}
-          style={{ width: 'auto' }}
-        >
-          <option value="pga">vs PGA Tour</option>
-          <option value="personal">vs Personal</option>
-        </Select>
+          onChange={(v) => setBaseline(v as 'pga' | 'personal')}
+          options={[
+            { value: 'pga', label: 'vs PGA Tour' },
+            { value: 'personal', label: 'vs Personal' },
+          ]}
+          title="Baseline"
+        />
       </div>
 
       <SGCategoryCards data={sgData} baseline={baseline} />

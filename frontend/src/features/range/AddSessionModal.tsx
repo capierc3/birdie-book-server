@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Modal, Button, Input, FormGroup, Select, DropZone, useToast } from '../../components'
+import { Modal, Button, Input, FormGroup, ResponsiveSelect, DropZone, useToast } from '../../components'
 import { useImportCsvText, useImportCsvFile, useCreateManualSession, useClubs } from '../../api'
 
 interface Props {
@@ -298,16 +298,15 @@ export function AddSessionModal({ isOpen, onClose }: Props) {
                   <tr key={idx}>
                     <td style={tdStyle}>{idx + 1}</td>
                     <td style={tdStyle}>
-                      <Select
+                      <ResponsiveSelect
                         value={shot.club}
-                        onChange={e => updateShot(idx, 'club', e.target.value)}
-                        style={{ minWidth: 110, fontSize: '0.82rem', padding: '4px 6px' }}
-                      >
-                        <option value="">-- Club --</option>
-                        {sortedClubs.map(c => (
-                          <option key={c.id} value={c.club_type}>{c.club_type}</option>
-                        ))}
-                      </Select>
+                        onChange={v => updateShot(idx, 'club', v)}
+                        options={[
+                          { value: '', label: '-- Club --' },
+                          ...sortedClubs.map(c => ({ value: c.club_type, label: c.club_type })),
+                        ]}
+                        title="Club"
+                      />
                     </td>
                     <td style={tdStyle}>
                       <Input

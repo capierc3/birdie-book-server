@@ -2,10 +2,11 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "8100:8000"
     environment:
       DATABASE_URL: sqlite:///data/birdie_book.db
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      GOLF_COURSE_API_KEY: ${GOLF_COURSE_API_KEY:-}
     volumes:
       - appdata:/app/data
       - hole_images:/app/images/holes

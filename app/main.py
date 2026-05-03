@@ -28,8 +28,60 @@ if _cors_origins:
         allow_headers=["*"],
     )
 
-# Create tables if they don't exist (dev mode — no alembic needed)
-Base.metadata.create_all(bind=engine)
+# Initialize schema: run alembic migrations, then create_all for any tables
+# the model defines that haven't been migrated yet (belt and suspenders).
+def _init_schema():
+    """Bring the DB schema in line with the current models on every startup.
+
+    Behaviour by case:
+      • Fresh DB (no alembic_version table): run create_all to materialize
+        the current model schema, then stamp alembic at head. No migrations
+        actually execute (would fail since pre-existing tables aren't in
+        revision history; this codebase grew up with create_all rather than
+        an initial-schema migration).
+      • Tracked DB at older revision: alembic upgrade head applies pending
+        migrations; create_all then ensures any newer tables exist.
+      • Tracked DB at head: upgrade is a no-op; startup is fast.
+
+    Failures are loud — if a migration breaks, we crash the boot rather
+    than serve traffic against an inconsistent schema. The deployer can
+    then debug from the container logs.
+    """
+    from pathlib import Path
+    from sqlalchemy import inspect, text
+    from alembic.config import Config
+    from alembic import command as alembic_command
+
+    alembic_ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+    if not alembic_ini.exists():
+        # No alembic configured (e.g. running tests with a stripped-down
+        # checkout) — fall back to legacy behaviour.
+        Base.metadata.create_all(bind=engine)
+        return
+
+    cfg = Config(str(alembic_ini))
+
+    insp = inspect(engine)
+    has_tracking = "alembic_version" in insp.get_table_names()
+
+    if not has_tracking:
+        # First-ever startup against this DB. Build the schema from the
+        # current models, then mark alembic at head so future migrations
+        # apply cleanly.
+        Base.metadata.create_all(bind=engine)
+        alembic_command.stamp(cfg, "head")
+        return
+
+    # DB is alembic-tracked. Apply any pending migrations.
+    alembic_command.upgrade(cfg, "head")
+
+    # Belt-and-suspenders: create any tables the current model defines
+    # that aren't yet in revision history (rare, but covers the gap until
+    # every new table also lands an alembic migration).
+    Base.metadata.create_all(bind=engine)
+
+
+_init_schema()
 
 # Seed default drills on first startup
 def _seed_drills():

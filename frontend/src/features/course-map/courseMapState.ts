@@ -4,7 +4,7 @@ import type { CourseStrategyData } from './useCourseStrategy'
 
 // ── Panel IDs ──
 export type PanelId =
-  | 'scorecard' | 'overview' | 'shots' | 'insights' | 'strategy' | 'planning'
+  | 'scorecard' | 'overview' | 'shots' | 'insights' | 'strategy' | 'planning' | 'clubs'
   | 'hole' | 'draw' | 'data'
 
 // ── Geo point ──

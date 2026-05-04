@@ -27,6 +27,7 @@ import { StrategyToolsPanel } from './StrategyToolsPanel'
 import { PlanningPanel } from './PlanningPanel'
 import { DesktopPlanOverlays } from './DesktopPlanOverlays'
 import { DataImportPanel } from './DataImportPanel'
+import { ClubDistancesPanel } from './ClubDistancesPanel'
 import { MobileHoleViewer } from './mobile/MobileHoleViewer'
 import { bearing as computeBearing, haversineYards, pointToSegmentDist } from './geoUtils'
 import type { OSMHole } from '../../api'
@@ -87,6 +88,10 @@ const PANEL_ICONS: Record<PanelId, { title: string; svg: React.ReactNode }> = {
     title: 'Round Planning',
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="M9 14l2 2 4-4" /></svg>,
   },
+  clubs: {
+    title: 'Club Distances',
+    svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3v6" /><path d="M11 3v6" /><path d="M14 3v6" /><rect x="6" y="9" width="11" height="12" rx="2" /><path d="M9 13h5" /></svg>,
+  },
   hole: {
     title: 'Edit Hole',
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 21V3l12 5-12 5" /></svg>,
@@ -101,7 +106,7 @@ const PANEL_ICONS: Record<PanelId, { title: string; svg: React.ReactNode }> = {
   },
 }
 
-const ANALYSIS_PANELS: PanelId[] = ['scorecard', 'overview', 'shots', 'insights', 'strategy', 'planning']
+const ANALYSIS_PANELS: PanelId[] = ['scorecard', 'overview', 'shots', 'insights', 'strategy', 'planning', 'clubs']
 const EDITING_PANELS: PanelId[] = ['hole', 'draw', 'data']
 const MUTUALLY_EXCLUSIVE: [PanelId, PanelId][] = [['draw', 'strategy']]
 
@@ -811,6 +816,7 @@ function DesktopCourseMapPage() {
         {openPanels.has('insights') && <InsightsPanel onClose={() => closePanel('insights')} />}
         {openPanels.has('strategy') && <StrategyToolsPanel onClose={() => closePanel('strategy')} />}
         {openPanels.has('planning') && <PlanningPanel onClose={() => closePanel('planning')} />}
+        {openPanels.has('clubs') && <ClubDistancesPanel onClose={() => closePanel('clubs')} />}
         {openPanels.has('data') && <DataImportPanel onClose={() => closePanel('data')} />}
       </div>
     </CourseMapContext.Provider>

@@ -11,7 +11,6 @@ import {
   Dumbbell,
   Upload,
   Settings,
-  ExternalLink,
 } from 'lucide-react'
 import { cn } from '../../utils/cn'
 import styles from './Sidebar.module.css'
@@ -58,13 +57,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <span>{item.label}</span>
           </NavLink>
         ))}
-
-        <div className={styles.divider} />
-
-        <a href="/" className={styles.navItem}>
-          <ExternalLink className={styles.navIcon} size={20} />
-          <span>Legacy App</span>
-        </a>
       </nav>
 
       <div className={styles.footer}>

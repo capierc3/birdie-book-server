@@ -33,7 +33,8 @@ export function StrategyToolsPanel({ onClose }: { onClose: () => void }) {
   const clubs = useMemo(() => strategy?.player?.clubs || [], [strategy])
 
   const handleToolSelect = (tool: StrategyTool) => {
-    setActiveTool(tool)
+    // Click the active tool again to deselect it.
+    setActiveTool(activeTool === tool ? ('' as StrategyTool) : tool)
     // Hide results section when switching tools
     const el = document.getElementById('strategy-results-section')
     if (el) el.style.display = 'none'

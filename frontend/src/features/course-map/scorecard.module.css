@@ -45,6 +45,14 @@
 .parRow .cell { color: var(--text-muted); }
 .hcpRow .cell { color: var(--text-dim); font-size: 0.65rem; }
 
+/* GP (Goal Par) row — bumped legibility vs the dim HCP row, and bold so the
+   per-hole allocation reads at a glance. Used only when a plan score goal is set. */
+.gpCell {
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
 .goalCell { cursor: pointer; }
 .goalCell:hover { background: var(--bg-hover); }
 
@@ -65,9 +73,11 @@
 
 .avgRow .cell { color: var(--text-dim); font-size: 0.68rem; }
 
-/* Score colors */
-.eagle { color: #FFD700; font-weight: 700; }
-.birdie { color: #f44336; font-weight: 700; }
-.par { color: var(--accent); }
-.bogey { color: #42a5f5; }
-.double { color: #7b1fa2; }
+/* Score colors — temperature scale: cool (under par) → warm (over par).
+   Used by both the Score/Best row (vs hole par) and the Goal/GP rows
+   (vs goal par when a plan goal is active). */
+.eagle  { color: #29b6f6; font-weight: 700; }  /* bright blue, ≥2 under */
+.birdie { color: #42a5f5; font-weight: 700; }  /* blue, 1 under */
+.par    { color: #66bb6a; font-weight: 700; }  /* green, even */
+.bogey  { color: #ffc107; font-weight: 700; }  /* amber/yellow, +1 */
+.double { color: #ef5350; font-weight: 700; }  /* red, +2 or more */

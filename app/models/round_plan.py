@@ -15,6 +15,7 @@ class RoundPlan(Base):
     name = Column(String(200), nullable=False)
     planned_date = Column(Date, nullable=True)
     status = Column(String(20), default="draft")  # draft, active, played
+    score_goal = Column(Integer, nullable=True)  # target round score (drives per-hole personal-par allocation)
     focus_areas = Column(Text)  # JSON array of focus tags
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())

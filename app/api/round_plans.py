@@ -72,6 +72,7 @@ class UpdatePlanRequest(BaseModel):
     name: Optional[str] = None
     planned_date: Optional[date] = None
     status: Optional[str] = None
+    score_goal: Optional[int] = None
     notes: Optional[str] = None
     focus_areas: Optional[str] = None
     round_id: Optional[int] = None
@@ -185,6 +186,9 @@ def update_plan(plan_id: int, req: UpdatePlanRequest, db: Session = Depends(get_
         plan.planned_date = req.planned_date
     if req.status is not None:
         plan.status = req.status
+    if req.score_goal is not None:
+        # 0 / negative clears it (lets the UI "remove goal" with one input).
+        plan.score_goal = req.score_goal if req.score_goal > 0 else None
     if req.notes is not None:
         plan.notes = req.notes if req.notes.strip() else None
     if req.focus_areas is not None:
@@ -433,6 +437,7 @@ def _plan_detail(plan: RoundPlan) -> dict:
         "name": plan.name,
         "planned_date": plan.planned_date.isoformat() if plan.planned_date else None,
         "status": plan.status,
+        "score_goal": plan.score_goal,
         "focus_areas": plan.focus_areas,
         "notes": plan.notes,
         "created_at": plan.created_at.isoformat() if plan.created_at else None,

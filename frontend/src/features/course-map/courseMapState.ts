@@ -62,6 +62,36 @@ export function parseHazardBoundary(json: string | null | undefined): {
   return { outer: toRing(parsed), holes: [] }
 }
 
+// ── Round plan types (shared between PlanningPanel and ScorecardPanel) ──
+export interface PlanShot {
+  shot_number: number
+  club?: string | null
+  aim_lat?: number | null
+  aim_lng?: number | null
+  notes?: string | null
+}
+
+export interface PlanHole {
+  hole_number: number
+  strategy_notes?: string | null
+  shots?: PlanShot[]
+}
+
+export interface Plan {
+  id: number
+  name: string
+  tee_id: number
+  course_id: number
+  planned_date?: string | null
+  status?: string
+  /** Target round score (e.g. 99 for "break 100"). Drives per-hole personal-par
+   * allocation in the scorecard. Null = no goal set; scorecard falls back to
+   * stock par for coloring/comparison. */
+  score_goal?: number | null
+  round_id?: number | null
+  holes?: PlanHole[]
+}
+
 // ── Drawing tool types ──
 export type DrawTool = 'tee' | 'green' | 'fairway' | 'fairway-boundary' | 'green-boundary' | 'hazard'
 export type HazardType = 'bunker' | 'water' | 'out_of_bounds' | 'trees' | 'waste_area'
@@ -136,6 +166,7 @@ export interface CourseMapState {
 
   // Planning
   currentPlanId: number | null
+  currentPlan: Plan | null  // hydrated plan with holes/shots — drives ScorecardPanel's Goal row
   planAiming: { club: string; ballPos: LatLng } | null  // non-null = aiming mode active
 
   // Round view mode (shared across scorecard/overview/shots)
@@ -174,6 +205,7 @@ export interface CourseMapActions {
   setBallPos: (pos: LatLng | null) => void
   setActiveStrategyTool: (tool: string) => void
   setCurrentPlanId: (id: number | null) => void
+  setCurrentPlan: (plan: Plan | null) => void
   setPlanAiming: (aiming: { club: string; ballPos: LatLng } | null) => void
   setViewMode: (mode: 'historic' | number) => void
   setRoundDetail: (detail: import('../../api').RoundDetail | null) => void

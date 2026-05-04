@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
 import { useCourseMap } from './courseMapState'
 import { useCourseRounds } from './useCourseRounds'
+import { computePersonalPars } from './personalPar'
 import type { RoundDetail } from '../../api'
 import { get } from '../../api'
 import s from './panels.module.css'
@@ -9,7 +10,7 @@ import sc from './scorecard.module.css'
 
 export function ScorecardPanel({ onClose }: { onClose: () => void }) {
   const ctx = useCourseMap()
-  const { course, currentHole, teeId, viewMode, roundDetail, allRoundDetails } = ctx
+  const { course, currentHole, teeId, viewMode, roundDetail, allRoundDetails, currentPlan } = ctx
 
   const { data: rounds = [] } = useCourseRounds(course?.id)
   const teeRounds = useMemo(() => rounds.filter((r) => r.tee_id === teeId), [rounds, teeId])
@@ -91,8 +92,40 @@ export function ScorecardPanel({ onClose }: { onClose: () => void }) {
     localStorage.setItem(`birdie_book_goals_${course.id}`, JSON.stringify(goals))
   }, [course, getGoals])
 
-  const [goals, setGoals] = useState<Record<number, number>>(() => getGoals())
+  const [manualGoals, setManualGoals] = useState<Record<number, number>>(() => getGoals())
   const [editingGoal, setEditingGoal] = useState<number | null>(null)
+
+  // When a round plan is active, derive Goals from its shot counts (one row per
+  // planned shot per hole). Otherwise fall back to the manual localStorage values.
+  const planGoals = useMemo<Record<number, number>>(() => {
+    if (!currentPlan) return {}
+    const out: Record<number, number> = {}
+    for (const h of currentPlan.holes || []) {
+      const n = h.shots?.length || 0
+      if (n > 0) out[h.hole_number] = n
+    }
+    return out
+  }, [currentPlan])
+
+  const goals = currentPlan ? planGoals : manualGoals
+  const goalsFromPlan = !!currentPlan
+
+  // When the active plan has a target round score, allocate personal par per hole
+  // (same handicap-driven algorithm the mobile Play view uses). Falls back to
+  // stock par when there's no goal — Goal cells just compare against par as before.
+  const personalPars = useMemo<Map<number, number> | null>(() => {
+    const tee = course?.tees?.find((t) => t.id === teeId)
+    const goal = currentPlan?.score_goal
+    if (!tee || !goal || goal <= 0) return null
+    const holes = (tee.holes || []).map((h) => ({
+      hole_number: h.hole_number,
+      par: h.par || 0,
+      handicap: h.handicap ?? null,
+      yardage: h.yardage ?? null,
+    }))
+    if (holes.length === 0) return null
+    return computePersonalPars(goal, holes).byHole
+  }, [course, teeId, currentPlan?.score_goal])
 
   // Build scorecard data
   const tee = course?.tees?.find((t) => t.id === teeId)
@@ -191,40 +224,109 @@ export function ScorecardPanel({ onClose }: { onClose: () => void }) {
               {is18 && <td className={sc.total}>{sumRange(courseHoles.map((h) => h.par || 0)) || ''}</td>}
             </tr>
 
-            {/* HCP row */}
+            {/* HCP row — repurposed as "Goal Par" when the active plan has a score goal:
+                shows allocated par with delta, e.g. "5(+2)" for a par-3 hole that
+                got 2 extra strokes. Falls back to stock HCP index otherwise. */}
             <tr className={sc.hcpRow}>
-              <td className={sc.label}>HCP</td>
+              <td
+                className={sc.label}
+                title={personalPars
+                  ? `Goal Par per hole, allocated by handicap from your plan's score goal of ${currentPlan?.score_goal}`
+                  : 'Handicap difficulty index (1 = hardest)'
+                }
+              >
+                {personalPars ? 'GP' : 'HCP'}
+              </td>
               {Array.from({ length: numHoles }, (_, i) => i + 1).map((n) => {
                 const ch = courseHoles.find((h) => h.hole_number === n)
+                let cellContent: string = ''
+                let deltaClass = ''
+                if (personalPars) {
+                  const ppar = personalPars.get(n)
+                  const par = ch?.par || 0
+                  if (ppar != null && par) {
+                    const delta = ppar - par
+                    const sign = delta > 0 ? '+' : delta < 0 ? '' : '±'
+                    cellContent = delta === 0 ? `${ppar}` : `${ppar}(${sign}${delta})`
+                    // Color the cell by how many extra strokes the goal allocates
+                    // here — same scale used by the Score row, so a "+2" hole reads
+                    // red (lots of cushion), "+1" yellow, "0" green.
+                    deltaClass = scoreColor(ppar, par)
+                  }
+                } else {
+                  cellContent = ch?.handicap ? String(ch.handicap) : ''
+                }
+                const cellClasses = personalPars
+                  ? `${sc.cell} ${sc.gpCell} ${deltaClass}`
+                  : sc.cell
                 return (
                   <>
-                    {is18 && n === 10 && <td key="out" className={sc.total} />}
-                    <td key={n} className={sc.cell}>{ch?.handicap || ''}</td>
+                    {is18 && n === 10 && (
+                      <td key="out" className={sc.total}>
+                        {personalPars
+                          ? sumRange(Array.from({ length: 9 }, (_, i) => personalPars.get(i + 1) || 0)) || ''
+                          : ''}
+                      </td>
+                    )}
+                    <td
+                      key={n}
+                      className={cellClasses}
+                      style={{ fontSize: personalPars && cellContent.length > 2 ? '0.72rem' : undefined }}
+                    >
+                      {cellContent}
+                    </td>
                   </>
                 )
               })}
-              <td className={sc.total} />
-              {is18 && <td className={sc.total} />}
+              <td className={sc.total}>
+                {personalPars
+                  ? sumRange(Array.from({ length: numHoles }, (_, i) => personalPars.get(i + 1) || 0).slice(is18 ? 9 : 0)) || ''
+                  : ''}
+              </td>
+              {is18 && (
+                <td className={sc.total}>
+                  {personalPars
+                    ? sumRange(Array.from({ length: 18 }, (_, i) => personalPars.get(i + 1) || 0)) || ''
+                    : ''}
+                </td>
+              )}
             </tr>
 
             {/* Goal row */}
             <tr className={sc.goalRow}>
-              <td className={sc.label}>Goal</td>
+              <td className={sc.label} title={goalsFromPlan ? `From active plan: ${currentPlan?.name}` : undefined}>
+                Goal{goalsFromPlan ? ' *' : ''}
+              </td>
               {Array.from({ length: numHoles }, (_, i) => i + 1).map((n) => {
                 const g = goals[n]
                 const ch = courseHoles.find((h) => h.hole_number === n)
-                const par = ch?.par || 0
-                const cls = g && par ? scoreColor(g, par) : ''
+                const stockPar = ch?.par || 0
+                // When a score goal is active, color cells against the personal par
+                // for that hole (so a planned 5 on a goal-par-5 hole reads as "par"
+                // even though stock par is 3). Otherwise compare to stock par as before.
+                const refPar = personalPars?.get(n) ?? stockPar
+                const cls = g && refPar ? scoreColor(g, refPar) : ''
+                const cellTitle = goalsFromPlan
+                  ? (g
+                      ? `${g} planned shot${g === 1 ? '' : 's'}${personalPars ? ` vs goal par ${refPar}` : ''}`
+                      : 'No shots planned for this hole')
+                  : undefined
                 return (
                   <>
                     {is18 && n === 10 && <td key="out" className={sc.total}>{sumRange(Object.entries(goals).filter(([k]) => Number(k) <= 9).map(([, v]) => v)) || ''}</td>}
-                    <td key={n} className={`${sc.cell} ${cls} ${sc.goalCell}`} onClick={() => setEditingGoal(n)}>
-                      {editingGoal === n ? (
+                    <td
+                      key={n}
+                      className={`${sc.cell} ${cls} ${sc.goalCell}`}
+                      title={cellTitle}
+                      style={goalsFromPlan ? { cursor: 'default', opacity: g ? 1 : 0.4 } : undefined}
+                      onClick={() => { if (!goalsFromPlan) setEditingGoal(n) }}
+                    >
+                      {editingGoal === n && !goalsFromPlan ? (
                         <input
                           type="number" min={1} max={12} autoFocus
                           className={sc.goalInput}
                           defaultValue={g || ''}
-                          onBlur={(e) => { saveGoal(n, e.target.value); setGoals(getGoals()); setEditingGoal(null) }}
+                          onBlur={(e) => { saveGoal(n, e.target.value); setManualGoals(getGoals()); setEditingGoal(null) }}
                           onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditingGoal(null) }}
                         />
                       ) : (g || '')}

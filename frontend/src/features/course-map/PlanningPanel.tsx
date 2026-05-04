@@ -2,36 +2,12 @@ import { useState, useCallback, useMemo, useEffect } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
 import { useConfirm } from '../../components'
 import { useCourseMap } from './courseMapState'
+import type { Plan, PlanShot } from './courseMapState'
 import { get, post, put, del } from '../../api'
 import { getClubColor } from './clubColors'
 import { haversineYards, normalCDF } from './geoUtils'
 import { useCourseRounds } from './useCourseRounds'
 import s from './panels.module.css'
-
-interface Plan {
-  id: number
-  name: string
-  tee_id: number
-  course_id: number
-  planned_date?: string | null
-  status?: string
-  round_id?: number | null
-  holes?: PlanHole[]
-}
-
-interface PlanHole {
-  hole_number: number
-  strategy_notes?: string | null
-  shots?: PlanShot[]
-}
-
-interface PlanShot {
-  shot_number: number
-  club?: string | null
-  aim_lat?: number | null
-  aim_lng?: number | null
-  notes?: string | null
-}
 
 interface PlanInsights {
   holes?: Record<string, {
@@ -48,7 +24,8 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
   const { course, currentHole, teeId, teePos, greenPos, strategy } = ctx
 
   const [plans, setPlans] = useState<Plan[]>([])
-  const [currentPlan, setCurrentPlan] = useState<Plan | null>(null)
+  const currentPlan = ctx.currentPlan
+  const setCurrentPlan = ctx.setCurrentPlan
   const [insights, setInsights] = useState<PlanInsights | null>(null)
   const [selectedClub, setSelectedClub] = useState('')
 
@@ -164,21 +141,35 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
   // Enter aiming mode — PlanAimOverlay handles the map interaction
   const [aiming, setAiming] = useState(false)
 
-  const handlePlaceShot = useCallback((club: string) => {
+  const handlePlaceShot = useCallback(async (club: string) => {
     if (!currentPlan) return
-    // Determine ball position (tee or last shot aim point)
     const planHoleData = (currentPlan.holes || []).find((h) => h.hole_number === currentHole)
-    const shots = (planHoleData?.shots || []).sort((a, b) => a.shot_number - b.shot_number)
+    const shots = [...(planHoleData?.shots || [])].sort((a, b) => a.shot_number - b.shot_number)
+
+    // Putts have no aim — append directly with the green as the nominal target.
+    // Skips the map-aim step entirely (consistent with handleAddPutts).
+    if (club === 'Putter') {
+      shots.push({
+        shot_number: shots.length + 1,
+        club: 'Putter',
+        aim_lat: greenPos?.lat || null,
+        aim_lng: greenPos?.lng || null,
+        notes: null,
+      })
+      await savePlanShots(shots)
+      return
+    }
+
+    // Determine ball position (tee or last shot aim point) for full shots.
     const ballPosition = shots.length === 0
       ? teePos
       : (shots[shots.length - 1].aim_lat ? { lat: shots[shots.length - 1].aim_lat!, lng: shots[shots.length - 1].aim_lng! } : teePos)
 
     if (!ballPosition) return
 
-    // Activate aiming mode via context
     ctx.setPlanAiming({ club, ballPos: ballPosition })
     setAiming(true)
-  }, [currentPlan, currentHole, teePos, ctx])
+  }, [currentPlan, currentHole, teePos, greenPos, savePlanShots, ctx])
 
   // Listen for aim completion from PlanAimOverlay
   useEffect(() => {
@@ -201,6 +192,19 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
       window.removeEventListener('plan-aim-cancel', onCancel)
     }
   }, [currentPlan, currentHole, savePlanShots, ctx.planAiming, selectedClub])
+
+  // Save plan-level score goal (drives personal-par allocation on the scorecard).
+  // Empty string clears the goal (sent as 0 — backend interprets <=0 as null).
+  const handleSaveScoreGoal = useCallback(async (raw: string) => {
+    if (!currentPlan) return
+    const trimmed = raw.trim()
+    const goal = trimmed === '' ? 0 : parseInt(trimmed, 10)
+    if (Number.isNaN(goal)) return
+    try {
+      await put(`/plans/${currentPlan.id}`, { score_goal: goal })
+      await loadPlan(currentPlan.id)
+    } catch { /* ignore */ }
+  }, [currentPlan, loadPlan])
 
   // Save strategy notes
   const handleSaveNotes = useCallback(async (notes: string) => {
@@ -244,10 +248,14 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
       .sort((a, b) => (b.avg_yards || 0) - (a.avg_yards || 0)),
     [strategy])
 
+  // Synthetic Putter option — appended so the user can manually add a putt when
+  // the auto-detected "Putting" stage hasn't kicked in (e.g. green boundary missing).
+  const PUTTER_OPTION = useMemo(() => ({ club_type: 'Putter', avg_yards: 5 }), [])
+
   const filteredClubs = useMemo(() => {
-    if (shotType === 'tee') return allClubs
-    return allClubs.filter((c) => c.club_type !== 'Driver')
-  }, [allClubs, shotType])
+    const base = shotType === 'tee' ? allClubs : allClubs.filter((c) => c.club_type !== 'Driver')
+    return base.some((c) => c.club_type === 'Putter') ? base : [...base, PUTTER_OPTION]
+  }, [allClubs, shotType, PUTTER_OPTION])
 
   // Recommended club
   const recommendedClub = useMemo(() => {
@@ -347,6 +355,29 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
                 {new Date(currentPlan.planned_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
               </div>
             )}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 6 }}>
+              <label style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }} title="Target round score — drives the scorecard's per-hole goal par allocation by handicap.">
+                Score Goal
+              </label>
+              <input
+                type="number"
+                min={36}
+                max={200}
+                className={s.fieldInput}
+                style={{ width: 70, fontSize: '0.78rem', padding: '2px 6px' }}
+                placeholder={(() => {
+                  const def = parseInt(localStorage.getItem('birdie_book_default_score_goal') || '', 10)
+                  return Number.isFinite(def) ? String(def) : '99'
+                })()}
+                defaultValue={currentPlan.score_goal ?? ''}
+                key={`goal-${currentPlan.id}-${currentPlan.score_goal ?? ''}`}
+                onBlur={(e) => handleSaveScoreGoal(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+              />
+              {currentPlan.score_goal == null && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-dim)' }}>(no goal set)</span>
+              )}
+            </div>
           </div>
 
           {/* Hole header */}
@@ -457,7 +488,7 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
                 <button className={s.actionBtn} style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }} disabled={aiming} onClick={() => handlePlaceShot(selectedClub)}>
-                  {aiming ? 'Aiming... (Esc)' : 'Place Shot'}
+                  {aiming ? 'Aiming... (Esc)' : selectedClub === 'Putter' ? 'Add Putt' : 'Place Shot'}
                 </button>
               </div>
             )}

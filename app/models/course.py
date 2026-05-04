@@ -99,11 +99,15 @@ class CourseHole(Base):
 
 
 class OSMHole(Base):
-    """Raw OSM hole data — stored at club level, linked to CourseHoles by user or auto-match."""
+    """Raw OSM hole data. Always belongs to a club; `course_id` further scopes it
+    to a specific course at multi-course facilities (set when the user OSM-links a
+    course; NULL if the row predates that import path or came in via a club-level
+    OSM link)."""
     __tablename__ = "osm_holes"
 
     id = Column(Integer, primary_key=True)
     golf_club_id = Column(Integer, ForeignKey("golf_clubs.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id", ondelete="SET NULL"), nullable=True, index=True)
     osm_id = Column(Integer, index=True)  # OSM way/relation ID
     hole_number = Column(Integer)  # from OSM ref tag
     par = Column(Integer)

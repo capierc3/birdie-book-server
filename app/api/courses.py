@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func as sqlfunc
+from sqlalchemy import func as sqlfunc, or_
 from pydantic import BaseModel
 from typing import Optional
 
@@ -2348,29 +2348,65 @@ def _import_osm_features_to_course(db: Session, course: Course, features) -> dic
         ))
         result["water"] += 1
 
-    # Save OSM holes at club level
+    # Save OSM holes scoped to this course (the user picked the OSM relation, so we
+    # know exactly which course these came from — don't lose that info to club-level
+    # pooling).
     for h in features.holes:
         existing = db.query(OSMHole).filter(
             OSMHole.golf_club_id == golf_club_id,
             OSMHole.osm_id == h.osm_id,
         ).first()
-        if not existing:
-            db.add(OSMHole(
-                golf_club_id=golf_club_id,
-                osm_id=h.osm_id,
-                hole_number=h.hole_number,
-                par=h.par,
-                tee_lat=h.tee_lat,
-                tee_lng=h.tee_lng,
-                green_lat=h.green_lat,
-                green_lng=h.green_lng,
-                waypoints=jsonlib.dumps(h.waypoints),
-            ))
-            result["osm_holes_saved"] += 1
+        if existing:
+            # Late-binding: an earlier club-level import may have stored this row
+            # with course_id=NULL. Now that we know which course it belongs to,
+            # tag it. (Don't reassign if it's already pointing at a different
+            # course — that would be a data conflict the user should resolve.)
+            if existing.course_id is None:
+                existing.course_id = course.id
+            continue
+        db.add(OSMHole(
+            golf_club_id=golf_club_id,
+            course_id=course.id,
+            osm_id=h.osm_id,
+            hole_number=h.hole_number,
+            par=h.par,
+            tee_lat=h.tee_lat,
+            tee_lng=h.tee_lng,
+            green_lat=h.green_lat,
+            green_lng=h.green_lng,
+            waypoints=jsonlib.dumps(h.waypoints),
+        ))
+        result["osm_holes_saved"] += 1
 
     db.commit()
 
-    # Auto-match OSM holes to course holes
+    # Recovery for the historical bug: if any of this course's holes are linked
+    # to OSM holes that turn out to belong to a *different* course, drop those
+    # links and any geometry that came from them. Then re-match with the now-
+    # correctly-scoped candidate set.
+    stale_links = (
+        db.query(CourseHole)
+          .join(CourseTee, CourseHole.tee_id == CourseTee.id)
+          .join(OSMHole, OSMHole.id == CourseHole.osm_hole_id)
+          .filter(CourseTee.course_id == course.id)
+          .filter(OSMHole.course_id.isnot(None))
+          .filter(OSMHole.course_id != course.id)
+          .all()
+    )
+    for h in stale_links:
+        h.osm_hole_id = None
+        # Only wipe geometry the matcher itself populated; preserve manual edits.
+        if h.data_source == 'osm':
+            h.tee_lat = None
+            h.tee_lng = None
+            h.flag_lat = None
+            h.flag_lng = None
+            h.fairway_path = None
+            h.green_boundary = None
+            h.data_source = None
+    if stale_links:
+        db.commit()
+
     _match_osm_holes_to_course(db, course)
 
     return result
@@ -2463,8 +2499,12 @@ def _match_osm_holes_to_course(db: Session, course: Course) -> dict:
     Sets osm_hole_id FK and applies tee/green/fairway GPS when missing. Idempotent —
     skips holes already linked. Returns per-strategy counts for telemetry.
     """
+    # Only consider OSM holes that either belong to this course or haven't been
+    # tagged with a course yet. Anything tagged to a *sibling* course at the same
+    # club must not be a candidate — that's the multi-course collision bug.
     osm_holes = db.query(OSMHole).filter(
-        OSMHole.golf_club_id == course.golf_club_id
+        OSMHole.golf_club_id == course.golf_club_id,
+        or_(OSMHole.course_id == course.id, OSMHole.course_id.is_(None)),
     ).all()
     if not osm_holes:
         return {"matched": 0, "by_strategy": {"gps": 0, "ref": 0}, "unlinked": 0}
@@ -2576,6 +2616,10 @@ def _match_osm_holes_to_course(db: Session, course: Course) -> dict:
 
             if best_osm:
                 hole.osm_hole_id = best_osm.id
+                # Lock the OSM hole to this course so sibling courses can't claim
+                # it later via the legacy `course_id IS NULL` candidate path.
+                if best_osm.course_id is None:
+                    best_osm.course_id = course.id
                 if best_osm.tee_lat and not hole.tee_lat:
                     hole.tee_lat = best_osm.tee_lat
                     hole.tee_lng = best_osm.tee_lng

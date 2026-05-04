@@ -10,7 +10,7 @@ import { useToast } from '../../components'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import { useCourseStrategy } from './useCourseStrategy'
 import { CourseMapContext, parseHoleData } from './courseMapState'
-import type { CourseMapContextType, LatLng, DrawTool, HazardType, EditorHazard, PanelId } from './courseMapState'
+import type { CourseMapContextType, LatLng, DrawTool, HazardType, EditorHazard, PanelId, Plan } from './courseMapState'
 import { setClubColorCache } from './clubColors'
 import { DesktopMapLibreOverlays } from './DesktopMapLibreOverlays'
 import { DesktopEditingOverlays } from './DesktopEditingOverlays'
@@ -225,6 +225,7 @@ function DesktopCourseMapPage() {
 
   // Planning
   const [currentPlanId, setCurrentPlanId] = useState<number | null>(null)
+  const [currentPlan, setCurrentPlan] = useState<Plan | null>(null)
   const [planAiming, setPlanAiming] = useState<{ club: string; ballPos: LatLng } | null>(null)
 
   // Shared round view state (used by scorecard, overview, shots)
@@ -672,14 +673,14 @@ function DesktopCourseMapPage() {
     drawPanelOpen, activeTool, hazardType, showUnlinkedOsm,
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries,
     currentFwBoundary, greenBoundary, hazards, currentHazard, ballPos,
-    activeStrategyTool, currentPlanId, planAiming, viewMode, roundDetail, allRoundDetails,
+    activeStrategyTool, currentPlanId, currentPlan, planAiming, viewMode, roundDetail, allRoundDetails,
 
     setCurrentHole, setTeeId, setDirty,
     setDrawPanelOpen, setActiveTool, setHazardType, setShowUnlinkedOsm,
     assignOsmHoleToHole,
     setTeePos, setGreenPos, setTeePositions, setFairwayPath, setFairwayBoundaries,
     setCurrentFwBoundary, setGreenBoundary, setHazards, setCurrentHazard, setBallPos,
-    setActiveStrategyTool, setCurrentPlanId, setPlanAiming, setViewMode, setRoundDetail, setAllRoundDetails,
+    setActiveStrategyTool, setCurrentPlanId, setCurrentPlan, setPlanAiming, setViewMode, setRoundDetail, setAllRoundDetails,
 
     selectHole, saveCurrentHole, reloadCourse, finishHazard, finishFwBoundary,
     redrawKey, triggerRedraw,
@@ -690,7 +691,7 @@ function DesktopCourseMapPage() {
     drawPanelOpen, activeTool, hazardType, showUnlinkedOsm,
     teePos, greenPos, teePositions, fairwayPath, fairwayBoundaries,
     currentFwBoundary, greenBoundary, hazards, currentHazard, ballPos,
-    activeStrategyTool, currentPlanId, planAiming, viewMode, roundDetail, allRoundDetails,
+    activeStrategyTool, currentPlanId, currentPlan, planAiming, viewMode, roundDetail, allRoundDetails,
     assignOsmHoleToHole,
     selectHole, saveCurrentHole, reloadCourse, finishHazard, finishFwBoundary,
     redrawKey, triggerRedraw,

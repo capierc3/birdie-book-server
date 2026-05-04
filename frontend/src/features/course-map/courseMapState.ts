@@ -93,7 +93,11 @@ export interface Plan {
 }
 
 // ── Drawing tool types ──
-export type DrawTool = 'tee' | 'green' | 'fairway' | 'fairway-boundary' | 'green-boundary' | 'hazard'
+// 'edit-nodes' is the modify-existing-geometry mode (drag/right-click handles
+// on tees, fairway path, boundaries). It's a draw tool by typing so the
+// single-tool-at-a-time setter wrapper auto-clears it when any other tool
+// (placement or strategy) is selected.
+export type DrawTool = 'tee' | 'green' | 'fairway' | 'fairway-boundary' | 'green-boundary' | 'hazard' | 'edit-nodes'
 export type HazardType = 'bunker' | 'water' | 'out_of_bounds' | 'trees' | 'waste_area'
 
 // ── Tee color map ──

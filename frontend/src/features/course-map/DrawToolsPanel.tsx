@@ -6,6 +6,7 @@ import { haversineYards } from './geoUtils'
 import s from './panels.module.css'
 
 const TOOLS: { id: DrawTool; label: string }[] = [
+  { id: 'edit-nodes', label: 'Edit Nodes' },
   { id: 'tee', label: 'Place Tee' },
   { id: 'green', label: 'Place Green' },
   { id: 'fairway', label: 'FW Line' },

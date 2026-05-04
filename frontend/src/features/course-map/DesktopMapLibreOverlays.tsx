@@ -29,9 +29,11 @@ export function DesktopMapLibreOverlays() {
   const ctx = useCourseMap()
   const {
     teePos, greenPos, fairwayPath, teePositions, fairwayBoundaries,
-    greenBoundary, hazards, course, teeId, drawPanelOpen, ballPos,
+    greenBoundary, hazards, course, teeId, drawPanelOpen, activeTool, ballPos,
     setTeePos, setTeePositions, setGreenPos, setDirty, triggerRedraw,
   } = ctx
+  // Tees/green are draggable only in Edit Nodes mode (Drawing Tools panel).
+  const editNodes = drawPanelOpen && activeTool === 'edit-nodes'
 
   const activeTeeName = course?.tees?.find(t => t.id === teeId)?.tee_name ?? ''
 
@@ -142,7 +144,7 @@ export function DesktopMapLibreOverlays() {
         const color = TEE_COLORS[name.split(' ')[0]] || '#999'
         const size = isActive ? 24 : 18
         const textColor = color === '#fff' ? '#333' : '#fff'
-        const draggable = isActive && drawPanelOpen
+        const draggable = isActive && editNodes
         return (
           <Marker
             key={name}
@@ -180,8 +182,8 @@ export function DesktopMapLibreOverlays() {
           longitude={greenPos.lng}
           latitude={greenPos.lat}
           anchor="bottom"
-          draggable={drawPanelOpen}
-          onDragEnd={drawPanelOpen ? (evt) => {
+          draggable={editNodes}
+          onDragEnd={editNodes ? (evt) => {
             setGreenPos({ lat: evt.lngLat.lat, lng: evt.lngLat.lng })
             setDirty(true)
             triggerRedraw()
@@ -192,8 +194,8 @@ export function DesktopMapLibreOverlays() {
             height="24"
             viewBox="0 0 20 24"
             style={{
-              cursor: drawPanelOpen ? 'move' : 'default',
-              pointerEvents: drawPanelOpen ? 'auto' : 'none',
+              cursor: editNodes ? 'move' : 'default',
+              pointerEvents: editNodes ? 'auto' : 'none',
             }}
           >
             <line x1="4" y1="2" x2="4" y2="22" stroke="#fff" strokeWidth="2" />

@@ -45,7 +45,7 @@ function ringFromLatLng(pts: LatLng[]): Position[] {
 export function DesktopEditingOverlays() {
   const ctx = useCourseMap()
   const {
-    drawPanelOpen, course, showUnlinkedOsm, currentHole,
+    drawPanelOpen, activeTool, course, showUnlinkedOsm, currentHole,
     fairwayPath, setFairwayPath,
     fairwayBoundaries, setFairwayBoundaries,
     currentFwBoundary,
@@ -54,6 +54,10 @@ export function DesktopEditingOverlays() {
     setDirty, triggerRedraw,
     assignOsmHoleToHole,
   } = ctx
+  // Drag handles for fairway path / boundaries / green boundary render only
+  // when Edit Nodes is the active tool. Keeps planning workflows safe from
+  // accidental drags while the panel stays open.
+  const editNodes = drawPanelOpen && activeTool === 'edit-nodes'
 
   // Local UI state for OSM-assign popups (which marker is open + selected hole)
   const [openOsmPopup, setOpenOsmPopup] = useState<{ id: number; kind: 'tee' | 'green'; lat: number; lng: number } | null>(null)
@@ -199,7 +203,12 @@ export function DesktopEditingOverlays() {
               }} />
             </Marker>
           ))}
+        </>
+      )}
 
+      {/* Drag handles — Edit Nodes mode only */}
+      {editNodes && (
+        <>
           {/* Fairway waypoint drag handles (gold) */}
           {fairwayPath.map((p, i) => (
             <Marker

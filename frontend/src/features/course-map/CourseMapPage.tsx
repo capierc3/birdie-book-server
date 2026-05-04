@@ -108,7 +108,11 @@ const PANEL_ICONS: Record<PanelId, { title: string; svg: React.ReactNode }> = {
 
 const ANALYSIS_PANELS: PanelId[] = ['scorecard', 'overview', 'shots', 'insights', 'strategy', 'planning', 'clubs']
 const EDITING_PANELS: PanelId[] = ['hole', 'draw', 'data']
-const MUTUALLY_EXCLUSIVE: [PanelId, PanelId][] = [['draw', 'strategy']]
+// Panels that can't be open together. Strategy + Draw used to be exclusive at
+// the panel level — they're now allowed to coexist; the active-tool setters
+// (setActiveTool / setActiveStrategyTool) enforce single-tool-at-a-time across
+// both panels.
+const MUTUALLY_EXCLUSIVE: [PanelId, PanelId][] = []
 
 // ── Map auto-center ──
 /**
@@ -208,7 +212,7 @@ function DesktopCourseMapPage() {
   const dirtyRef = useRef(false)
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
   const [drawPanelOpen, setDrawPanelOpen] = useState(false)
-  const [activeTool, setActiveTool] = useState<DrawTool | null>(null)
+  const [activeTool, _setActiveTool] = useState<DrawTool | null>(null)
   const [hazardType, setHazardType] = useState<HazardType>('bunker')
   const [teePos, setTeePos] = useState<LatLng | null>(null)
   const [greenPos, setGreenPos] = useState<LatLng | null>(null)
@@ -226,7 +230,18 @@ function DesktopCourseMapPage() {
   const [showUnlinkedOsm, setShowUnlinkedOsm] = useState(false)
 
   // Strategy tools
-  const [activeStrategyTool, setActiveStrategyTool] = useState('cone')
+  const [activeStrategyTool, _setActiveStrategyTool] = useState('cone')
+
+  // Single-tool-at-a-time across Drawing + Strategy panels: selecting a tool
+  // in either panel clears the active tool in the other.
+  const setActiveTool = useCallback((tool: DrawTool | null) => {
+    _setActiveTool(tool)
+    if (tool !== null) _setActiveStrategyTool('')
+  }, [])
+  const setActiveStrategyTool = useCallback((tool: string) => {
+    _setActiveStrategyTool(tool)
+    if (tool !== '') _setActiveTool(null)
+  }, [])
 
   // Planning
   const [currentPlanId, setCurrentPlanId] = useState<number | null>(null)

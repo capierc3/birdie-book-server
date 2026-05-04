@@ -143,6 +143,10 @@ export function PlanningPanel({ onClose }: { onClose: () => void }) {
 
   const handlePlaceShot = useCallback(async (club: string) => {
     if (!currentPlan) return
+    // Free the map for the aim flow — clear any active Strategy/Draw tool so
+    // the next click is consumed by PlanAimOverlay, not Ruler/Cone/Place Tee.
+    ctx.setActiveStrategyTool('')
+    ctx.setActiveTool(null)
     const planHoleData = (currentPlan.holes || []).find((h) => h.hole_number === currentHole)
     const shots = [...(planHoleData?.shots || [])].sort((a, b) => a.shot_number - b.shot_number)
 

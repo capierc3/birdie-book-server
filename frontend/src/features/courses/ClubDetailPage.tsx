@@ -9,6 +9,7 @@ import { ClubRoundsSection } from './ClubRoundsSection'
 import { ClubCoursesSection } from './ClubCoursesSection'
 import { ClubActionsSection } from './ClubActionsSection'
 import { ClubOsmSection } from './ClubOsmSection'
+import { ClubGolfApiSection } from './ClubGolfApiSection'
 import { PhotoPickerModal } from './PhotoPickerModal'
 import styles from '../../styles/pages.module.css'
 
@@ -94,6 +95,10 @@ export function ClubDetailPage() {
       )}
 
       <ClubActionsSection clubId={club.id} />
+
+      <div className={styles.section}>
+        <ClubGolfApiSection club={club} courseDetails={courseDetails} />
+      </div>
 
       <div className={styles.section}>
         <ClubOsmSection club={club} courseDetails={courseDetails} />

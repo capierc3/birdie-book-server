@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models import GolfClub, Course, CourseTee, CourseHole, CourseHazard, OSMHole, Round, RoundHole, Shot
-from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees
+from app.services.golf_course_api import search_course_candidates, apply_golf_course_data, sync_club_courses, match_rounds_to_tees, search_courses, _haversine_miles as _gca_haversine_miles
 from app.services.places_service import fetch_club_photo, get_all_photo_resources, download_photo_thumbnail, _download_photo, _do_places_nearby, _do_places_text_search_all, _do_places_autocomplete, _haversine_miles
 from app.services.osm_golf_service import search_golf_courses, fetch_features_by_osm_id, fetch_osm_boundary
 from app.services.course_calc_service import recalc_hole_shots, recalc_course_shots
@@ -1119,6 +1119,68 @@ def apply_match(course_id: int, req: ApplyMatchRequest, db: Session = Depends(ge
     return result
 
 
+class GolfApiSearchRequest(BaseModel):
+    query: str
+    club_id: Optional[int] = None  # if provided, distance to this club is computed
+
+
+@router.post("/golf-api/search")
+def golf_api_search(req: GolfApiSearchRequest, db: Session = Depends(get_db)):
+    """Free-text search of the Golf Course API. Lets the user manually find a
+    course when auto-sync didn't pick up tees (e.g. wrong name match or no
+    nearby results). Mirrors the OSM manual-search pattern."""
+    import httpx
+    query = (req.query or "").strip()
+    if not query:
+        return {"results": [], "error": "Query is required"}
+
+    # Optional reference location for distance ranking
+    ref_lat = ref_lng = None
+    if req.club_id is not None:
+        club = db.query(GolfClub).filter(GolfClub.id == req.club_id).first()
+        if club and club.lat and club.lng:
+            ref_lat, ref_lng = club.lat, club.lng
+
+    try:
+        raw = search_courses(query)
+    except httpx.HTTPStatusError as e:
+        if getattr(e, "response", None) is not None and e.response.status_code == 429:
+            return {"results": [], "rate_limited": True,
+                    "error": "Golf course API daily limit reached. Try again tomorrow."}
+        return {"results": [], "error": f"Golf course API error: {e}"}
+    except (httpx.ConnectError, httpx.TimeoutException, OSError):
+        return {"results": [], "error": "Golf course API is unreachable. Check your network or try again later."}
+    except httpx.HTTPError as e:
+        return {"results": [], "error": str(e)}
+
+    results = []
+    for r in raw:
+        loc = r.get("location") or {}
+        lat = loc.get("latitude")
+        lng = loc.get("longitude")
+        dist = None
+        if ref_lat is not None and lat is not None and lng is not None:
+            dist = round(_gca_haversine_miles(ref_lat, ref_lng, lat, lng), 1)
+        results.append({
+            "api_id": r.get("id"),
+            "club_name": r.get("club_name", ""),
+            "course_name": r.get("course_name", ""),
+            "address": loc.get("address", ""),
+            "city": loc.get("city", ""),
+            "state": loc.get("state", ""),
+            "country": loc.get("country", ""),
+            "lat": lat,
+            "lng": lng,
+            "distance_miles": dist,
+        })
+
+    # Sort by distance when available, otherwise preserve API order
+    if ref_lat is not None:
+        results.sort(key=lambda r: (r["distance_miles"] is None, r["distance_miles"] or 0))
+
+    return {"results": results}
+
+
 @router.post("/{course_id}/fetch-photo")
 def fetch_photo(course_id: int, force: bool = False, db: Session = Depends(get_db)):
     """Fetch a photo from Google Places for this course's club."""
@@ -1246,10 +1308,29 @@ def create_tee(course_id: int, req: TeeCreateRequest, db: Session = Depends(get_
     db.add(tee)
     db.flush()
 
-    # Create empty holes
+    # Seed par/handicap from an existing tee if one is available — otherwise
+    # par would have to be NOT NULL-violating defaults. This lets the new tee
+    # row in the scorecard show meaningful par values immediately.
+    sibling = (
+        db.query(CourseTee)
+        .filter(CourseTee.course_id == course_id, CourseTee.id != tee.id)
+        .order_by(CourseTee.total_yards.desc().nullslast())
+        .first()
+    )
+    sibling_holes: dict[int, CourseHole] = {}
+    if sibling:
+        for h in sibling.holes:
+            sibling_holes[h.hole_number] = h
+
     num_holes = course.holes or 18
     for i in range(1, num_holes + 1):
-        db.add(CourseHole(tee_id=tee.id, hole_number=i))
+        src = sibling_holes.get(i)
+        db.add(CourseHole(
+            tee_id=tee.id,
+            hole_number=i,
+            par=(src.par if src and src.par is not None else 4),
+            handicap=src.handicap if src else None,
+        ))
 
     db.commit()
     return {"status": "ok", "tee_id": tee.id}

@@ -125,6 +125,22 @@ export function ClubCoursesSection({ courseDetails }: Props) {
     },
   ]
 
+  // Course-level `par` is often null until someone explicitly sets it. Fall
+  // back to a tee's par_total (preferring the longest tee), then to a sum of
+  // per-hole pars across that tee, before showing '?'.
+  const derivePar = (course: CourseDetail): number | string => {
+    if (course.par != null) return course.par
+    const sorted = course.tees.slice().sort((a, b) => (b.total_yards ?? 0) - (a.total_yards ?? 0))
+    for (const t of sorted) {
+      if (t.par_total != null) return t.par_total
+    }
+    for (const t of sorted) {
+      const sum = t.holes.reduce((acc, h) => acc + (h.par ?? 0), 0)
+      if (sum > 0) return sum
+    }
+    return '?'
+  }
+
   return (
     <>
       {courseDetails.map((course) => (
@@ -134,7 +150,7 @@ export function ClubCoursesSection({ courseDetails }: Props) {
               title={course.course_name ?? course.display_name}
               onTitleClick={() => navigate(`/courses/${course.id}`)}
               action={
-                <Badge>{course.holes ?? '?'} holes &middot; Par {course.par ?? '?'}</Badge>
+                <Badge>{course.holes ?? '?'} holes &middot; Par {derivePar(course)}</Badge>
               }
             />
             <DataTable

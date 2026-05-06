@@ -38,6 +38,19 @@ export function useUpdateTee() {
   })
 }
 
+export function useCreateTee() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ courseId, body }: {
+      courseId: number; body: TeeCreateBody
+    }) => post<{ status: string; tee_id: number }>(`/courses/${courseId}/tees`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['golf-clubs'] })
+      qc.invalidateQueries({ queryKey: ['courses'] })
+    },
+  })
+}
+
 export function useDeleteTee() {
   const qc = useQueryClient()
   return useMutation({
@@ -106,6 +119,27 @@ export function useOsmSearch() {
   return useMutation({
     mutationFn: (body: { query: string; near_lat?: number; near_lng?: number }) =>
       post<OsmSearchResult[]>('/courses/osm/search', body),
+  })
+}
+
+export function useGolfApiSearch() {
+  return useMutation({
+    mutationFn: (body: { query: string; club_id?: number }) =>
+      post<GolfApiSearchResponse>('/courses/golf-api/search', body),
+  })
+}
+
+export function useApplyGolfApiMatch() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ courseId, apiId }: { courseId: number; apiId: number }) =>
+      post<GolfApiApplyResult>(`/courses/${courseId}/apply-match`, { api_id: apiId }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ['golf-clubs'] })
+      qc.invalidateQueries({ queryKey: ['courses'] })
+      qc.invalidateQueries({ queryKey: ['courses', vars.courseId] })
+      qc.invalidateQueries({ queryKey: ['rounds'] })
+    },
   })
 }
 
@@ -193,6 +227,41 @@ export interface TeeUpdateBody {
   total_yards?: number | null
   course_rating?: number | null
   slope_rating?: number | null
+}
+
+export interface TeeCreateBody {
+  tee_name: string
+  par_total?: number | null
+  total_yards?: number | null
+  course_rating?: number | null
+  slope_rating?: number | null
+}
+
+export interface GolfApiSearchResult {
+  api_id: number
+  club_name: string
+  course_name: string
+  address?: string
+  city?: string
+  state?: string
+  country?: string
+  lat?: number | null
+  lng?: number | null
+  distance_miles?: number | null
+}
+
+export interface GolfApiSearchResponse {
+  results: GolfApiSearchResult[]
+  rate_limited?: boolean
+  error?: string
+}
+
+export interface GolfApiApplyResult {
+  status: string
+  reason?: string
+  tees_created?: number
+  holes_created?: number
+  rounds_matched_to_tees?: number
 }
 
 export interface MergePreview {

@@ -1,9 +1,10 @@
 import { useMemo, useState, useCallback } from 'react'
-import { Pencil, Check, X } from 'lucide-react'
+import { Pencil, Check, X, Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { put } from '../../api'
 import type { CourseDetail, CourseTee, CourseHole } from '../../api'
 import { TEE_COLORS } from '../course-map/courseMapState'
+import { TeeEditModal } from './TeeEditModal'
 import s from './ClubScorecard.module.css'
 
 interface Props {
@@ -89,6 +90,7 @@ export function ClubScorecard({ course }: Props) {
   const [editing, setEditing] = useState(false)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set())
+  const [addTeeOpen, setAddTeeOpen] = useState(false)
 
   const totalHoles = course.holes ?? 18
   const holeNumbers = useMemo(
@@ -381,6 +383,9 @@ export function ClubScorecard({ course }: Props) {
         <span className={s.toolbarTitle}>Scorecard</span>
         {editing ? (
           <>
+            <button className={s.iconBtn} onClick={() => setAddTeeOpen(true)} title="Add tee" aria-label="Add tee">
+              <Plus size={16} />
+            </button>
             <button className={s.iconBtn} onClick={flushEdits} title="Save changes" aria-label="Save">
               <Check size={16} />
             </button>
@@ -425,7 +430,7 @@ export function ClubScorecard({ course }: Props) {
                 </td>
               ))}
               {showSplit && totalHoles > half && <td className={s.subtotalCell}>{parSubtotal(half + 1, totalHoles)?.toString() ?? '—'}</td>}
-              <td className={s.subtotalCell}>{course.par ?? '—'}</td>
+              <td className={s.subtotalCell}>{parSubtotal(1, totalHoles) ?? course.par ?? '—'}</td>
             </tr>
 
             {/* Women's HCP — hugs PAR from below */}
@@ -436,6 +441,13 @@ export function ClubScorecard({ course }: Props) {
           </tbody>
         </table>
       </div>
+
+      <TeeEditModal
+        isOpen={addTeeOpen}
+        onClose={() => setAddTeeOpen(false)}
+        tee={null}
+        courseId={course.id}
+      />
     </div>
   )
 }

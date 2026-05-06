@@ -55,6 +55,7 @@ export {
   useClubPhotos,
   useCourseMergePreview,
   useUpdateTee,
+  useCreateTee,
   useDeleteTee,
   useReassignTeeRounds,
   useMergeCourse,
@@ -62,16 +63,22 @@ export {
   useOsmSearch,
   useOsmLinkClub,
   useOsmLinkCourse,
+  useGolfApiSearch,
+  useApplyGolfApiMatch,
   useSetPhotoFromPlaces,
   useSetPhotoUpload,
   useUpdateRoundTee,
 } from './hooks/useGolfClubDetail'
 export type {
   TeeUpdateBody,
+  TeeCreateBody,
   MergePreview,
   MergeConflict,
   OsmSearchResult,
   TeeDeleteConflict,
+  GolfApiSearchResult,
+  GolfApiSearchResponse,
+  GolfApiApplyResult,
 } from './hooks/useGolfClubDetail'
 
 // Types

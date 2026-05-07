@@ -53,10 +53,11 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
     return accuracyRingPolygon(gps.lat, gps.lng, acc)
   }, [gps.lat, gps.lng, gps.accuracy])
 
-  // Compute distances — use GPS when available, fall back to ballPos in review mode
+  // Compute distances — play mode uses live GPS; review mode uses ballPos
+  // (defaults to tee, user-movable) so distances aren't ruined by off-course GPS.
   useEffect(() => {
-    const originLat = gps.lat ?? (!playMode ? ballPos?.lat : null) ?? null
-    const originLng = gps.lng ?? (!playMode ? ballPos?.lng : null) ?? null
+    const originLat = playMode ? gps.lat : (ballPos?.lat ?? gps.lat ?? null)
+    const originLng = playMode ? gps.lng : (ballPos?.lng ?? gps.lng ?? null)
 
     if (originLat == null || originLng == null) {
       onDataRef.current({
@@ -121,7 +122,9 @@ export function GpsRangefinder({ onData }: { onData: (data: RangefinderData) => 
     })
   }, [gps.lat, gps.lng, greenPos, greenBoundary, hazards, strategy, ballPos, playMode, teePos, formValues.par, formValues.yardage, fairwayPath])
 
-  if (gps.lat == null || gps.lng == null) return null
+  // GPS dot + accuracy ring only render in play mode — in review the user
+  // isn't on the course, so showing their off-course location is misleading.
+  if (!playMode || gps.lat == null || gps.lng == null) return null
 
   return (
     <>

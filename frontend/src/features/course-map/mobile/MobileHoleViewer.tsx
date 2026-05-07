@@ -340,11 +340,19 @@ function MobileHoleViewerInner() {
 
   const handleCenterOnMe = useCallback(() => {
     const map = mapRef.current?.getMap()
-    if (!map || gps.lat == null || gps.lng == null) return
+    if (!map) return
+    // Review mode centers on the placed ball (defaults to tee); play mode centers on live GPS.
+    if (!playMode) {
+      if (!ctx.ballPos) return
+      followingRef.current = true
+      map.flyTo({ center: [ctx.ballPos.lng, ctx.ballPos.lat], zoom: 18, duration: 500 })
+      return
+    }
+    if (gps.lat == null || gps.lng == null) return
     followingRef.current = true
     map.flyTo({ center: [gps.lng, gps.lat], zoom: 18, duration: 500 })
     gps.refresh()
-  }, [gps])
+  }, [gps, playMode, ctx.ballPos])
 
   const handleToggleCamera = useCallback(() => {
     setCameraMode(cameraMode === 'top-down' ? 'perspective' : 'top-down')
@@ -663,8 +671,8 @@ function MobileHoleViewerInner() {
         </svg>
       </button>
 
-      {/* Center on me FAB — only when GPS active */}
-      {gps.watching && gps.lat != null && (
+      {/* Center FAB — play: live GPS; review: placed ball */}
+      {((playMode && gps.watching && gps.lat != null) || (!playMode && ctx.ballPos)) && (
         <div
           className={s.centerFab}
           onClick={handleCenterOnMe}

@@ -18,7 +18,7 @@ interface InsightItem {
 
 export function CaddieTab() {
   const ctx = useMobileMap()
-  const { strategy, gps, teePos, greenPos, hazards, fairwayPath, formValues, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail } = ctx
+  const { strategy, gps, teePos, greenPos, hazards, fairwayPath, formValues, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail, playMode, ballPos } = ctx
   const player = strategy?.player
   const par = parseInt(formValues.par) || 4
   const yardage = parseInt(formValues.yardage) || 0
@@ -29,20 +29,22 @@ export function CaddieTab() {
 
     const clubs = player.clubs
 
-    // Determine distance to green (from GPS or from tee)
-    const hasGps = gps.lat != null && gps.lng != null
-    const origin = hasGps ? { lat: gps.lat!, lng: gps.lng! } : teePos
-    const distToGreen = (origin && greenPos)
-      ? Math.round(haversineYards(origin.lat, origin.lng, greenPos.lat, greenPos.lng))
+    // Origin: play mode uses live GPS; review mode uses the placed ball
+    // (defaults to tee) so off-course GPS doesn't poison distances.
+    const origin = playMode
+      ? (gps.lat != null && gps.lng != null ? { lat: gps.lat, lng: gps.lng } : teePos)
+      : (ballPos ?? teePos)
+    const hasOriginAndGreen = origin != null && greenPos != null
+    const distToGreen = hasOriginAndGreen
+      ? Math.round(haversineYards(origin!.lat, origin!.lng, greenPos!.lat, greenPos!.lng))
       : yardage
 
-    // Determine context using shared function. Pass distFromTee so a long
-    // approach (>350y from green) doesn't fall back to "tee" and let Driver
-    // be recommended from the fairway.
-    const distFromTee = hasGps && teePos
-      ? haversineYards(gps.lat!, gps.lng!, teePos.lat, teePos.lng)
+    // Pass distFromTee so a long approach (>350y from green) doesn't fall
+    // back to "tee" and let Driver be recommended from the fairway.
+    const distFromTee = origin && teePos
+      ? haversineYards(origin.lat, origin.lng, teePos.lat, teePos.lng)
       : undefined
-    const context: ShotContext = hasGps && greenPos
+    const context: ShotContext = hasOriginAndGreen
       ? determineShotContext(distToGreen, true, distFromTee)
       : 'tee'
 
@@ -55,7 +57,7 @@ export function CaddieTab() {
     }
 
     result.push({
-      label: hasGps ? `${distToGreen}y to green` : `${yardage}y hole`,
+      label: hasOriginAndGreen ? `${distToGreen}y to green` : `${yardage}y hole`,
       value: `Par ${par}`,
       cls: '',
       header: contextLabels[context],
@@ -346,7 +348,7 @@ export function CaddieTab() {
     }
 
     return result
-  }, [player, yardage, par, gps.lat, gps.lng, teePos, greenPos, hazards, fairwayPath, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail])
+  }, [player, yardage, par, gps.lat, gps.lng, teePos, greenPos, hazards, fairwayPath, allRoundDetails, teeId, currentHole, course, viewMode, roundDetail, playMode, ballPos])
 
   const colorMap: Record<string, string> = {
     good: 'var(--accent)',

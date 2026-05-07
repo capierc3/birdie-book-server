@@ -4,7 +4,7 @@ import type { FeatureCollection, Feature, Polygon, LineString, Point, Position }
 import type { MapLayerMouseEvent } from 'react-map-gl/maplibre'
 import { useMobileMap } from './MobileMapContext'
 import { haversineYards, destPoint, bearing } from '../geoUtils'
-import { getClubStats, rankClubs, computeCarryProbabilities } from '../caddieCalc'
+import { getClubStats, rankClubs, computeCarryProbabilities, getTeeStrategy, determineShotContext } from '../caddieCalc'
 import type { ClubStats, RankedClub, CarryResult } from '../caddieCalc'
 
 export interface ToolResult {
@@ -61,19 +61,39 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
 
   const originLL = useMemo<{ lat: number; lng: number } | null>(() => {
     const c = ctx
-    const lat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? null
-    const lng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? null
+    const lat = c.playMode ? c.gps.lat : (c.ballPos?.lat ?? c.gps.lat ?? null)
+    const lng = c.playMode ? c.gps.lng : (c.ballPos?.lng ?? c.gps.lng ?? null)
     if (lat == null || lng == null) return null
     return { lat, lng }
   }, [ctx])
 
-  // ── Cone (auto: origin → green) ─────────────────────────────────────────
+  // ── Cone (origin → tap > fairway-aware tee strategy > green) ────────────
   const coneShapes = useMemo(() => {
     if (tool !== 'cone' || !originLL || !ctx.greenPos) return null
     const club = getSelectedClub()
     if (!club) return null
 
-    const aimBear = bearing(originLL.lat, originLL.lng, ctx.greenPos.lat, ctx.greenPos.lng)
+    // Aim priority: explicit tap overrides everything; otherwise tee shots
+    // route through getTeeStrategy (handles doglegs); else aim straight at green.
+    let aimBear: number
+    if (tapTarget) {
+      aimBear = bearing(originLL.lat, originLL.lng, tapTarget.lat, tapTarget.lng)
+    } else {
+      const distToGreen = haversineYards(originLL.lat, originLL.lng, ctx.greenPos.lat, ctx.greenPos.lng)
+      const distFromTee = ctx.teePos
+        ? haversineYards(originLL.lat, originLL.lng, ctx.teePos.lat, ctx.teePos.lng)
+        : undefined
+      const context = determineShotContext(distToGreen, true, distFromTee)
+      const clubs = ctx.strategy?.player?.clubs || []
+      let aimPoint = ctx.greenPos
+      if (context === 'tee' && clubs.length > 0) {
+        const par = parseInt(ctx.formValues.par || '4', 10) || 4
+        const yardage = parseInt(ctx.formValues.yardage || '0', 10) || distToGreen
+        const teeStrategy = getTeeStrategy(par, yardage, originLL, ctx.greenPos, ctx.fairwayPath, ctx.hazards, clubs)
+        aimPoint = teeStrategy.aimPoint
+      }
+      aimBear = bearing(originLL.lat, originLL.lng, aimPoint.lat, aimPoint.lng)
+    }
     const spreadInner = Math.atan2(club.lateralStd, club.avg)
     const spreadOuter = Math.atan2(club.lateralStd * 2, club.avg)
     const biasAngle = ((club.missRight - club.missLeft) / 100) * spreadOuter * 0.5
@@ -90,7 +110,11 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
       return ring
     }
 
-    const aimEnd = destPoint(originLL.lat, originLL.lng, aimBear, club.avg)
+    // Aim line ends at the tap point when overridden; otherwise extends `club.avg`
+    // along the aim bearing for a sensible default length.
+    const aimEnd = tapTarget
+      ? { lat: tapTarget.lat, lng: tapTarget.lng }
+      : destPoint(originLL.lat, originLL.lng, aimBear, club.avg)
 
     const outer: Feature<Polygon> = {
       type: 'Feature',
@@ -119,7 +143,7 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
       origin: { type: 'FeatureCollection', features: [originPoint] } as FeatureCollection,
       label: { lat: originLL.lat, lng: originLL.lng, color: club.color, text: `${club.type} ${Math.round(club.avg)}y` },
     }
-  }, [tool, originLL, ctx.greenPos, getSelectedClub])
+  }, [tool, originLL, ctx.greenPos, ctx.teePos, ctx.fairwayPath, ctx.hazards, ctx.strategy, ctx.formValues.par, ctx.formValues.yardage, tapTarget, getSelectedClub])
 
   // ── Landing-zone arcs (auto: from origin) ───────────────────────────────
   const landingShapes = useMemo(() => {
@@ -182,8 +206,8 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
   const tapShapes = useMemo(() => {
     if (!tapTarget || (tool !== 'ruler' && tool !== 'carry' && tool !== 'recommend')) return null
     const c = ctx
-    const fromLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? c.teePos?.lat
-    const fromLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? c.teePos?.lng
+    const fromLat = c.playMode ? (c.gps.lat ?? c.teePos?.lat) : (c.ballPos?.lat ?? c.teePos?.lat)
+    const fromLng = c.playMode ? (c.gps.lng ?? c.teePos?.lng) : (c.ballPos?.lng ?? c.teePos?.lng)
     if (fromLat == null || fromLng == null) return null
 
     const color = tapToolColor(tool)
@@ -237,16 +261,16 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
     }
   }, [tool, coneShapes, landingShapes])
 
-  // ── Map tap handler for ruler / carry / recommend ──────────────────────
+  // ── Map tap handler for ruler / carry / recommend / cone ───────────────
   useEffect(() => {
     if (!map) return
-    if (tool !== 'ruler' && tool !== 'carry' && tool !== 'recommend') return
+    if (tool !== 'ruler' && tool !== 'carry' && tool !== 'recommend' && tool !== 'cone') return
 
     const onClick = (e: MapLayerMouseEvent) => {
       const c = ctx
       if (c.editMode) return
-      const fromLat = c.gps.lat ?? (!c.playMode ? c.ballPos?.lat : null) ?? c.teePos?.lat
-      const fromLng = c.gps.lng ?? (!c.playMode ? c.ballPos?.lng : null) ?? c.teePos?.lng
+      const fromLat = c.playMode ? (c.gps.lat ?? c.teePos?.lat) : (c.ballPos?.lat ?? c.teePos?.lat)
+      const fromLng = c.playMode ? (c.gps.lng ?? c.teePos?.lng) : (c.ballPos?.lng ?? c.teePos?.lng)
       if (fromLat == null || fromLng == null) return
 
       const distance = Math.round(haversineYards(fromLat, fromLng, e.lngLat.lat, e.lngLat.lng))
@@ -261,6 +285,7 @@ export function MobileStrategyOverlays({ onToolResult }: Props) {
         const clubs = c.strategy?.player?.clubs || []
         onToolResultRef.current({ type: 'recommend', distance, clubResults: rankClubs(clubs, distance, { count: 5 }) })
       }
+      // Cone: tap just sets aim — coneShapes re-derives the bearing/aim line.
     }
 
     map.on('click', onClick)

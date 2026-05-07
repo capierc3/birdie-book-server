@@ -428,13 +428,44 @@
   color: var(--text-dim);
 }
 
+/* ── Bag toggle (stacked above camera toggle) — opens Club Distances panel ── */
+.bagToggle {
+  position: fixed;
+  bottom: calc(var(--sheet-height, 150px) + 178px);
+  right: 12px;
+  z-index: 1000;
+  width: 44px;
+  height: 44px;
+  background: rgba(28, 31, 38, 0.9);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  transition: bottom 0.3s ease-out, opacity 0.2s ease-out;
+}
+.bagToggle:active {
+  background: rgba(28, 31, 38, 1);
+}
+.bagToggleActive {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
 /* ── Hide map FABs when bottom sheet is expanded (half/full snap) ── */
 :global(body[data-sheet-snap="half"]) .centerFab,
 :global(body[data-sheet-snap="full"]) .centerFab,
 :global(body[data-sheet-snap="half"]) .overlayToggle,
 :global(body[data-sheet-snap="full"]) .overlayToggle,
 :global(body[data-sheet-snap="half"]) .cameraToggle,
-:global(body[data-sheet-snap="full"]) .cameraToggle {
+:global(body[data-sheet-snap="full"]) .cameraToggle,
+:global(body[data-sheet-snap="half"]) .bagToggle,
+:global(body[data-sheet-snap="full"]) .bagToggle {
   opacity: 0;
   pointer-events: none;
 }

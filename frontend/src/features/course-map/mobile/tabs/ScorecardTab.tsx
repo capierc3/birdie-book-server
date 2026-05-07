@@ -4,6 +4,7 @@ import { useCourseRounds } from '../../useCourseRounds'
 import { get } from '../../../../api'
 import type { RoundDetail } from '../../../../api'
 import { RoundScorecard } from '../../../rounds/RoundScorecard'
+import { ResponsiveSelect } from '../../../../components'
 import s from './tabs.module.css'
 import sc from '../../../rounds/RoundScorecard.module.css'
 
@@ -83,33 +84,30 @@ export function ScorecardTab() {
     ? historicHoles
     : (roundDetail?.holes || [])
 
+  const roundOptions = useMemo(() => {
+    const opts = [{
+      value: 'historic',
+      label: loading ? 'Loading...' : `Historic (${teeRounds.length} round${teeRounds.length !== 1 ? 's' : ''})`,
+    }]
+    for (const r of teeRounds) {
+      const d = new Date(r.date)
+      const label = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${r.total_strokes ?? ''}(${(r.score_vs_par ?? 0) >= 0 ? '+' : ''}${r.score_vs_par ?? ''})`
+      opts.push({ value: String(r.id), label })
+    }
+    return opts
+  }, [teeRounds, loading])
+
   return (
     <div>
       {/* Round selector */}
       <div className={s.section}>
         <div className={s.sectionTitle}>Round</div>
-        <select
-          style={{
-            width: '100%',
-            padding: '6px 8px',
-            fontSize: '0.82rem',
-            background: 'var(--bg)',
-            border: '1px solid var(--border)',
-            borderRadius: '4px',
-            color: 'var(--text)',
-          }}
-          value={viewMode === 'historic' ? 'historic' : viewMode}
-          onChange={(e) => handleRoundChange(e.target.value)}
-        >
-          <option value="historic">
-            {loading ? 'Loading...' : `Historic (${teeRounds.length} round${teeRounds.length !== 1 ? 's' : ''})`}
-          </option>
-          {teeRounds.map((r) => {
-            const d = new Date(r.date)
-            const label = `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} ${r.total_strokes ?? ''}(${(r.score_vs_par ?? 0) >= 0 ? '+' : ''}${r.score_vs_par ?? ''})`
-            return <option key={r.id} value={r.id}>{label}</option>
-          })}
-        </select>
+        <ResponsiveSelect
+          value={viewMode === 'historic' ? 'historic' : String(viewMode)}
+          onChange={handleRoundChange}
+          options={roundOptions}
+          title="Select round"
+        />
       </div>
 
       {/* Scorecard — reuse RoundScorecard's stacked front/back 9 */}

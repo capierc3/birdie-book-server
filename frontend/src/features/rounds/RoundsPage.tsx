@@ -69,11 +69,15 @@ export function RoundsPage() {
     refetch()
   }
 
-  const setFormat = async (e: React.ChangeEvent<HTMLSelectElement>, round: RoundSummary) => {
-    e.stopPropagation()
-    await patch(`/rounds/${round.id}`, { game_format: e.target.value })
+  const setFormat = async (value: string, round: RoundSummary) => {
+    await patch(`/rounds/${round.id}`, { game_format: value })
     refetch()
   }
+
+  const formatOptions = useMemo(
+    () => FORMAT_OPTIONS.map(f => ({ value: f, label: formatGameFormat(f) })),
+    [],
+  )
 
   const columns: Column<RoundSummary>[] = [
     {
@@ -126,25 +130,14 @@ export function RoundsPage() {
       render: (r) => {
         const fmtColor = FORMAT_COLORS[r.game_format ?? 'STROKE_PLAY'] ?? '#888'
         return (
-          <select
-            value={r.game_format ?? 'STROKE_PLAY'}
-            onChange={(e) => setFormat(e, r)}
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--bg, #13161b)',
-              color: fmtColor,
-              border: `1px solid ${fmtColor}`,
-              borderRadius: 4,
-              fontSize: '0.78rem',
-              fontWeight: 600,
-              padding: '2px 6px',
-              cursor: 'pointer',
-            }}
-          >
-            {FORMAT_OPTIONS.map((f) => (
-              <option key={f} value={f} style={{ background: '#1e2128', color: '#ccc' }}>{formatGameFormat(f)}</option>
-            ))}
-          </select>
+          <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-block', color: fmtColor }}>
+            <ResponsiveSelect
+              value={r.game_format ?? 'STROKE_PLAY'}
+              onChange={(v) => setFormat(v, r)}
+              options={formatOptions}
+              title="Game format"
+            />
+          </span>
         )
       },
     },

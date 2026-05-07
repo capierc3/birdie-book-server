@@ -79,26 +79,50 @@ export function MobileShotOverlays() {
   return (
     <>
       <Source id="m-shot-lines" type="geojson" data={linesFC}>
+        {/* Soft glow halo behind each shot for visual pop */}
+        <Layer
+          id="m-shot-lines-glow"
+          type="line"
+          paint={{
+            'line-color': ['get', 'color'],
+            'line-width': isHistoric ? 8 : 12,
+            'line-opacity': isHistoric ? 0.18 : 0.30,
+            'line-blur': 5,
+          }}
+        />
+        {/* Solid main line on top of the glow */}
         <Layer
           id="m-shot-lines-line"
           type="line"
           paint={{
             'line-color': ['get', 'color'],
-            'line-width': isHistoric ? 2 : 3,
-            'line-opacity': isHistoric ? 0.4 : 0.8,
+            'line-width': isHistoric ? 3.5 : 5,
+            'line-opacity': isHistoric ? 0.85 : 0.95,
           }}
+          layout={{ 'line-cap': 'round', 'line-join': 'round' }}
         />
       </Source>
       <Source id="m-shot-ends" type="geojson" data={endsFC}>
+        {/* Glow halo behind the endpoint */}
+        <Layer
+          id="m-shot-ends-halo"
+          type="circle"
+          paint={{
+            'circle-color': ['get', 'color'],
+            'circle-radius': isHistoric ? 9 : 12,
+            'circle-opacity': 0.25,
+            'circle-blur': 0.6,
+          }}
+        />
         <Layer
           id="m-shot-ends-circle"
           type="circle"
           paint={{
             'circle-color': ['get', 'color'],
-            'circle-stroke-color': ['get', 'color'],
-            'circle-stroke-width': 1,
-            'circle-radius': isHistoric ? 3 : 5,
-            'circle-opacity': isHistoric ? 0.5 : 0.8,
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 1.5,
+            'circle-radius': isHistoric ? 4 : 6,
+            'circle-opacity': isHistoric ? 0.85 : 0.95,
           }}
         />
       </Source>

@@ -19,6 +19,11 @@ interface Props {
   onTabChange: (tab: MobileTab) => void
   tabs?: TabConfig[]
   children: ReactNode
+  /** When true, the sheet auto-expands and shows `bagContent` instead of the
+   *  active tab. Snapping back to peek (or tapping a tab) clears the mode. */
+  bagPanelOpen?: boolean
+  onBagClose?: () => void
+  bagContent?: ReactNode
 }
 
 const DEFAULT_TABS: TabConfig[] = [
@@ -29,8 +34,21 @@ const DEFAULT_TABS: TabConfig[] = [
   { key: 'edit', label: 'Edit' },
 ]
 
-export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = DEFAULT_TABS, children }: Props) {
+export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = DEFAULT_TABS, children, bagPanelOpen = false, onBagClose, bagContent }: Props) {
   const [snap, setSnap] = useState<SheetSnap>('peek')
+
+  // Auto-expand the sheet when bag mode opens; transitioning back to peek closes it.
+  const prevSnapRef = useRef<SheetSnap>(snap)
+  useEffect(() => {
+    if (bagPanelOpen && snap === 'peek') setSnap('half')
+  }, [bagPanelOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const prev = prevSnapRef.current
+    prevSnapRef.current = snap
+    if (bagPanelOpen && snap === 'peek' && prev !== 'peek') {
+      onBagClose?.()
+    }
+  }, [snap, bagPanelOpen, onBagClose])
   const [peekHeight, setPeekHeight] = useState(DEFAULT_PEEK_HEIGHT)
   const sheetRef = useRef<HTMLDivElement>(null)
   const peekRef = useRef<HTMLDivElement>(null)
@@ -107,9 +125,10 @@ export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = 
   }, [translateY, getSnapY])
 
   const handleTabClick = useCallback((tab: MobileTab) => {
+    if (bagPanelOpen) onBagClose?.()
     onTabChange(tab)
     if (snap === 'peek') setSnap('half')
-  }, [snap, onTabChange])
+  }, [snap, onTabChange, bagPanelOpen, onBagClose])
 
   const handlePeekTap = useCallback(() => {
     setSnap(prev => prev === 'peek' ? 'half' : 'peek')
@@ -138,13 +157,14 @@ export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = 
         {peekContent}
       </div>
 
-      {/* Tab bar (visible when expanded) */}
+      {/* Tab bar (visible when expanded). Stays visible in bag mode so tapping
+          a tab dismisses the bag and switches to that tab. */}
       {isExpanded && (
         <div className={s.tabBar}>
           {tabs.map(tab => (
             <button
               key={tab.key}
-              className={`${s.tab} ${activeTab === tab.key ? s.tabActive : ''}`}
+              className={`${s.tab} ${!bagPanelOpen && activeTab === tab.key ? s.tabActive : ''}`}
               onClick={() => handleTabClick(tab.key)}
             >
               {tab.label}
@@ -153,10 +173,10 @@ export function MobileBottomSheet({ peekContent, activeTab, onTabChange, tabs = 
         </div>
       )}
 
-      {/* Tab content */}
+      {/* Body — bag mode swaps in the club distances list. */}
       {isExpanded && (
         <div className={s.content}>
-          {children}
+          {bagPanelOpen && bagContent ? bagContent : children}
         </div>
       )}
     </div>

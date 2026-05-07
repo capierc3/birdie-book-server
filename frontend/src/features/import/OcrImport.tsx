@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { DropZone, Button, Input, FormGroup, useToast } from '../../components'
+import { DropZone, Button, Input, FormGroup, useToast, ResponsiveSelect } from '../../components'
 import { useOcrExtract, useClubs, useImportCsvText } from '../../api'
 import type { OcrCell } from '../../api'
 import styles from './import.module.css'
@@ -98,27 +98,6 @@ function cellStyle(conf: number): React.CSSProperties {
     return { ...base, background: 'rgba(255, 167, 38, 0.15)', color: 'var(--warning, #ffa726)', fontWeight: 600 }
   }
   return { ...base, color: 'var(--text)' }
-}
-
-const selectStyle: React.CSSProperties = {
-  padding: '4px 8px',
-  fontSize: '0.78rem',
-  fontWeight: 600,
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-sm)',
-  background: 'var(--bg-input, var(--bg))',
-  color: 'var(--text)',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-}
-
-const clubSelectStyle: React.CSSProperties = {
-  ...selectStyle,
-  width: 'auto',
-  minWidth: 100,
-  fontSize: '0.8rem',
-  fontWeight: 400,
-  padding: '5px 6px',
 }
 
 export function OcrImport({ sessionDate, title, notes }: OcrImportProps) {
@@ -570,17 +549,12 @@ export function OcrImport({ sessionDate, title, notes }: OcrImportProps) {
                   </th>
                   {Array.from({ length: maxCols }, (_, j) => (
                     <th key={j} style={{ padding: '6px 8px' }}>
-                      <select
+                      <ResponsiveSelect
                         value={headers[j] ?? ''}
-                        onChange={(e) => handleHeaderChange(j, e.target.value)}
-                        style={selectStyle}
-                      >
-                        {COLUMN_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => handleHeaderChange(j, v)}
+                        options={COLUMN_OPTIONS}
+                        title="Column"
+                      />
                     </th>
                   ))}
                 </tr>
@@ -589,17 +563,12 @@ export function OcrImport({ sessionDate, title, notes }: OcrImportProps) {
                 {rows.map((row, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '4px 8px' }}>
-                      <select
+                      <ResponsiveSelect
                         value={rowClubs[i] ?? ''}
-                        onChange={(e) => handleClubChange(i, e.target.value)}
-                        style={clubSelectStyle}
-                      >
-                        {clubOptions.map((club) => (
-                          <option key={club} value={club}>
-                            {club || '—'}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => handleClubChange(i, v)}
+                        options={clubOptions.map((club) => ({ value: club, label: club || '—' }))}
+                        title="Club"
+                      />
                     </td>
                     {row.map((cell: OcrCell, j: number) => (
                       <td

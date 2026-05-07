@@ -12,6 +12,7 @@ import { GpsRangefinder } from './GpsRangefinder'
 import type { RangefinderData } from './GpsRangefinder'
 import { MobileStrategyOverlays } from './MobileStrategyOverlays'
 import type { ToolResult } from './MobileStrategyOverlays'
+import { ClubDistancesContent } from '../ClubDistancesPanel'
 import { HoleInfoBar } from './HoleInfoBar'
 import { WindIndicator } from './WindIndicator'
 import { MobileBottomSheet } from './MobileBottomSheet'
@@ -93,6 +94,7 @@ function MobileHoleViewerInner() {
   })
   const [toolResult, setToolResult] = useState<ToolResult | null>(null)
   const [clubPickerOpen, setClubPickerOpen] = useState(false)
+  const [bagPanelOpen, setBagPanelOpen] = useState(false)
   const followingRef = useRef(true)
   const mapRef = useRef<MapRef>(null)
   const prevHoleRef = useRef<number | null>(null)
@@ -639,6 +641,19 @@ function MobileHoleViewerInner() {
 
       <WindIndicator />
 
+      {/* Bag toggle — stacked above camera toggle, opens Club Distances panel */}
+      <button
+        className={`${s.bagToggle} ${bagPanelOpen ? s.bagToggleActive : ''}`}
+        onClick={() => setBagPanelOpen(o => !o)}
+        title="Club distances"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 3v6" /><path d="M11 3v6" /><path d="M14 3v6" />
+          <rect x="6" y="9" width="11" height="12" rx="2" />
+          <path d="M9 13h5" />
+        </svg>
+      </button>
+
       {/* Camera mode toggle — stacked above overlay toggle */}
       <button
         className={`${s.cameraToggle} ${cameraMode === 'top-down' ? s.cameraToggleOff : ''}`}
@@ -690,7 +705,15 @@ function MobileHoleViewerInner() {
         </div>
       )}
 
-      <MobileBottomSheet peekContent={peekContent} activeTab={activeTab} onTabChange={setActiveTab} tabs={playMode ? PLAY_TABS : REVIEW_TABS}>
+      <MobileBottomSheet
+        peekContent={peekContent}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        tabs={playMode ? PLAY_TABS : REVIEW_TABS}
+        bagPanelOpen={bagPanelOpen}
+        onBagClose={() => setBagPanelOpen(false)}
+        bagContent={<ClubDistancesContent />}
+      >
         {activeTab === 'gps' && <RangefinderTab data={rangefinderData} toolResult={toolResult} />}
         {activeTab === 'caddie' && <CaddieTab />}
         {activeTab === 'shots' && !playMode && <ShotsTab />}

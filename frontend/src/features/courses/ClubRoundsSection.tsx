@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, CardHeader, DataTable, Badge } from '../../components'
+import { Card, CardHeader, DataTable, Badge, ResponsiveSelect } from '../../components'
 import type { Column } from '../../components'
 import { useRounds, useUpdateRoundTee } from '../../api'
 import type { RoundSummary, CourseDetail } from '../../api'
@@ -85,21 +85,20 @@ export function ClubRoundsSection({ courseIds, courseDetails }: Props) {
       render: (r) => {
         const tees = r.course_id != null ? teeLookup.get(r.course_id) : undefined
         if (!tees || tees.length === 0) return r.tee_name ?? '--'
+        const options = [
+          { value: '', label: '--' },
+          ...tees.map((t) => ({ value: String(t.id), label: t.tee_name })),
+        ]
         return (
-          <select
-            className={cs.teeSelect}
-            value={r.tee_id ?? ''}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              e.stopPropagation()
-              if (e.target.value) handleTeeChange(r.id, Number(e.target.value))
-            }}
-          >
-            <option value="">--</option>
-            {tees.map((t) => (
-              <option key={t.id} value={t.id}>{t.tee_name}</option>
-            ))}
-          </select>
+          <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-block' }}>
+            <ResponsiveSelect
+              className={cs.teeSelect}
+              value={r.tee_id != null ? String(r.tee_id) : ''}
+              onChange={(v) => { if (v) handleTeeChange(r.id, Number(v)) }}
+              options={options}
+              title="Tee"
+            />
+          </span>
         )
       },
     },

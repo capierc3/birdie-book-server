@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
+import { ResponsiveSelect } from '../../components'
 import { useClubs } from '../../api/hooks/useClubs'
 import { formatNum } from '../../utils/format'
 import type { Club } from '../../api'
@@ -72,7 +73,11 @@ function fmtYards(v: number | null | undefined): string {
   return v != null ? `${formatNum(v, 0)} yds` : '—'
 }
 
-export function ClubDistancesPanel({ onClose }: { onClose: () => void }) {
+/**
+ * Club distances list, no chrome. Used both inside the desktop FloatingPanel
+ * and embedded directly into the mobile bottom sheet.
+ */
+export function ClubDistancesContent() {
   const [viewMode, setViewMode] = useState<ViewMode>('combined')
   const view = VIEWS[viewMode]
   const { data: clubs, isLoading } = useClubs(view.windowType, view.windowValue)
@@ -95,66 +100,66 @@ export function ClubDistancesPanel({ onClose }: { onClose: () => void }) {
   }
   const cellTd: React.CSSProperties = { padding: '6px 4px' }
 
+  const dataOptions = useMemo(
+    () => (Object.keys(VIEWS) as ViewMode[]).map(k => ({ value: k, label: VIEWS[k].label })),
+    [],
+  )
+
+  return (
+    <div style={{ padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Data:</label>
+        <ResponsiveSelect
+          value={viewMode}
+          onChange={(v) => setViewMode(v as ViewMode)}
+          options={dataOptions}
+          title="Data source"
+        />
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          Loading…
+        </div>
+      ) : rows.length === 0 ? (
+        <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+          No clubs found.
+        </div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border, #333)' }}>
+              <th style={{ ...cellTh, textAlign: 'left' }}>Club</th>
+              <th style={{ ...cellTh, textAlign: 'right' }}>Avg</th>
+              <th style={{ ...cellTh, textAlign: 'right' }}>Max</th>
+              <th style={{ ...cellTh, textAlign: 'right' }}>Median</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ club, stats }) => (
+              <tr key={club.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <td style={{ ...cellTd, fontWeight: 600 }}>
+                  <span style={{ color: club.color ?? 'var(--text)' }}>{club.club_type}</span>
+                  {club.name && (
+                    <span style={{ color: 'var(--accent)', fontSize: '0.78rem', marginLeft: 4 }}>"{club.name}"</span>
+                  )}
+                </td>
+                <td style={{ ...cellTd, textAlign: 'right' }}>{fmtYards(stats.avg)}</td>
+                <td style={{ ...cellTd, textAlign: 'right' }}>{fmtYards(stats.max)}</td>
+                <td style={{ ...cellTd, textAlign: 'right' }}>{fmtYards(stats.median)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
+
+export function ClubDistancesPanel({ onClose }: { onClose: () => void }) {
   return (
     <FloatingPanel title="Club Distances" onClose={onClose} width={420}>
-      <div style={{ padding: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Data:</label>
-          <select
-            value={viewMode}
-            onChange={(e) => setViewMode(e.target.value as ViewMode)}
-            style={{
-              width: 'auto',
-              background: 'var(--bg, #1a1a1a)',
-              color: 'var(--text)',
-              border: '1px solid var(--border, #333)',
-              borderRadius: 4,
-              padding: '4px 8px',
-              fontSize: '0.85rem',
-            }}
-          >
-            {(Object.keys(VIEWS) as ViewMode[]).map((k) => (
-              <option key={k} value={k}>{VIEWS[k].label}</option>
-            ))}
-          </select>
-        </div>
-
-        {isLoading ? (
-          <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Loading…
-          </div>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            No clubs found.
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border, #333)' }}>
-                <th style={{ ...cellTh, textAlign: 'left' }}>Club</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Avg</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Max</th>
-                <th style={{ ...cellTh, textAlign: 'right' }}>Median</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ club, stats }) => (
-                <tr key={club.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <td style={{ ...cellTd, fontWeight: 600 }}>
-                    <span style={{ color: club.color ?? 'var(--text)' }}>{club.club_type}</span>
-                    {club.name && (
-                      <span style={{ color: 'var(--accent)', fontSize: '0.78rem', marginLeft: 4 }}>"{club.name}"</span>
-                    )}
-                  </td>
-                  <td style={{ ...cellTd, textAlign: 'right' }}>{fmtYards(stats.avg)}</td>
-                  <td style={{ ...cellTd, textAlign: 'right' }}>{fmtYards(stats.max)}</td>
-                  <td style={{ ...cellTd, textAlign: 'right' }}>{fmtYards(stats.median)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <ClubDistancesContent />
     </FloatingPanel>
   )
 }

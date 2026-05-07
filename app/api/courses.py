@@ -507,6 +507,7 @@ def get_course_strategy(course_id: int, db: Session = Depends(get_db)):
         db.query(Club)
         .options(joinedload(Club.stats))
         .filter(Club.retired == False)  # noqa: E712
+        .filter(Club.in_bag != False)  # noqa: E712  — null treated as in bag
         .order_by(Club.sort_order)
         .all()
     )

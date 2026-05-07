@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { Card, CardHeader, ResponsiveSelect, Button, EmptyState } from '../../components'
-import { useClubs } from '../../api'
+import { useClubs, put } from '../../api'
 import type { Club } from '../../api'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import { ClubDistanceTable } from './ClubDistanceTable'
@@ -78,6 +79,18 @@ export function ClubsPage() {
     setCompareWindow('')
   }
 
+  const queryClient = useQueryClient()
+  const handleToggleInBag = async (club: Club) => {
+    try {
+      await put(`/clubs/${club.id}`, { in_bag: club.in_bag === false })
+      // Invalidate clubs list and any course strategies (caddie suggestions read from there).
+      await queryClient.invalidateQueries({ queryKey: ['clubs'] })
+      await queryClient.invalidateQueries({ queryKey: ['courses'] })
+    } catch {
+      // If it fails, the next clubs refetch will just show the original state.
+    }
+  }
+
   if (isLoading) return <div className={styles.loading}>Loading...</div>
   if (clubs.length === 0) {
     return (
@@ -134,6 +147,7 @@ export function ClubsPage() {
           compareWindow={compareWindow}
           onRowClick={(club) => navigate(`/clubs/${club.id}`)}
           onMerge={(club) => setMergeTarget(club)}
+          onToggleInBag={handleToggleInBag}
         />
       </Card>
 

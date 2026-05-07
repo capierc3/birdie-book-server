@@ -432,6 +432,7 @@ export interface Club {
   lie_deg?: number | null
   color?: string | null
   retired: boolean
+  in_bag: boolean
   sort_order: number
   source: string
   garmin_id?: number | null

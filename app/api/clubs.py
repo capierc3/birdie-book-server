@@ -66,6 +66,7 @@ class ClubResponse(BaseModel):
     lie_deg: Optional[float] = None
     color: Optional[str] = None
     retired: bool = False
+    in_bag: bool = True
     sort_order: int = 0
     source: str = "manual"
     garmin_id: Optional[int] = None
@@ -96,6 +97,7 @@ class ClubUpdate(BaseModel):
     loft_deg: Optional[float] = None
     lie_deg: Optional[float] = None
     retired: Optional[bool] = None
+    in_bag: Optional[bool] = None
 
 
 class ReassignShotRequest(BaseModel):
@@ -160,6 +162,7 @@ def _build_club_response(c: Club, windowed: dict = None) -> ClubResponse:
         lie_deg=c.lie_deg,
         color=c.color or _default_club_color(c.club_type),
         retired=c.retired or False,
+        in_bag=False if c.in_bag is False else True,
         sort_order=c.sort_order or 0,
         source=c.source or "manual",
         garmin_id=c.garmin_id,

@@ -9,6 +9,7 @@ interface Props {
   compareWindow: string
   onRowClick?: (club: Club) => void
   onMerge?: (club: Club) => void
+  onToggleInBag?: (club: Club) => void
 }
 
 const SOURCE_BADGES: Record<string, { label: string; color: string }> = {
@@ -106,7 +107,7 @@ function clubSortKey(type: string): number {
   return 700
 }
 
-export function ClubDistanceTable({ clubs, dataSource, compareWindow, onRowClick, onMerge }: Props) {
+export function ClubDistanceTable({ clubs, dataSource, compareWindow, onRowClick, onMerge, onToggleInBag }: Props) {
   const sorted = [...clubs]
     .filter((c) => !c.retired)
     .sort((a, b) => clubSortKey(a.club_type) - clubSortKey(b.club_type))
@@ -209,6 +210,33 @@ export function ClubDistanceTable({ clubs, dataSource, compareWindow, onRowClick
             {count}
             {wCount != null && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}> ({wCount})</span>}
           </span>
+        )
+      },
+    },
+    {
+      key: 'in_bag',
+      header: 'Bag',
+      align: 'center',
+      render: (c) => {
+        const inBag = c.in_bag !== false
+        return (
+          <button
+            className="btn btn-sm"
+            onClick={(e) => { e.stopPropagation(); onToggleInBag?.(c) }}
+            title={inBag ? 'In bag — used for caddie suggestions' : 'Standby — excluded from caddie suggestions'}
+            style={{
+              fontSize: '0.72rem',
+              padding: '2px 8px',
+              borderRadius: 999,
+              border: `1px solid ${inBag ? 'var(--accent)' : 'var(--border)'}`,
+              background: inBag ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'transparent',
+              color: inBag ? 'var(--accent)' : 'var(--text-muted)',
+              fontWeight: 600,
+              minWidth: 64,
+            }}
+          >
+            {inBag ? 'In Bag' : 'Standby'}
+          </button>
         )
       },
     },

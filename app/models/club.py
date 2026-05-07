@@ -22,6 +22,7 @@ class Club(Base):
     color = Column(String(7))  # Hex color e.g. "#42a5f5", assigned on creation
     source = Column(String(30), default="manual")  # "garmin", "rapsodo", "trackman", "manual"
     retired = Column(Boolean, default=False)
+    in_bag = Column(Boolean, default=True)  # False = on standby, excluded from caddie suggestions
     sort_order = Column(Integer, default=0)
     garmin_last_modified = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())

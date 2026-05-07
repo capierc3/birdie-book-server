@@ -372,12 +372,15 @@ function MobileHoleViewerInner() {
     return () => window.clearInterval(id)
   }, [playMode, gpsSample])
 
-  // Auto-select the recommended club when club rec changes
+  // Auto-select the recommended club when the recommendation actually changes.
+  // Dep on the club string (not the array ref) so GPS ticks that produce an
+  // identical recommendation don't stomp the user's manual pick.
+  const topRecClub = rangefinderData.clubRec[0]?.club
   useEffect(() => {
-    if (rangefinderData.clubRec.length > 0) {
-      ctx.setSelectedClubType(rangefinderData.clubRec[0].club)
+    if (topRecClub) {
+      ctx.setSelectedClubType(topRecClub)
     }
-  }, [rangefinderData.clubRec])
+  }, [topRecClub])
 
   const handlePeekToolToggle = useCallback((tool: RangefinderTool, e: React.MouseEvent) => {
     e.stopPropagation()

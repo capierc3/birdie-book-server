@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { FloatingPanel } from '../../components/ui/FloatingPanel'
+import { get, post } from '../../api'
 import { useCourseMap } from './courseMapState'
 import { getClubColor } from './clubColors'
 import { CourseShotDetailPanel } from './CourseShotDetailPanel'
-import type { Shot } from '../../api'
+import type { Shot, RoundDetail } from '../../api'
 import s from './panels.module.css'
 
 /** Bag order for sorting clubs (driver first → lob wedge last) */
@@ -25,8 +26,57 @@ const SHOT_TYPE_LABELS: Record<string, string> = {
 
 export function ShotsPanel({ onClose }: { onClose: () => void }) {
   const ctx = useCourseMap()
-  const { currentHole, teeId, viewMode, roundDetail, allRoundDetails, strategy } = ctx
+  const { currentHole, teeId, viewMode, roundDetail, allRoundDetails, strategy, setRoundDetail, setAllRoundDetails } = ctx
   const [selectedShot, setSelectedShot] = useState<Shot | null>(null)
+
+  const handleShotUpdated = useCallback((updated: Shot) => {
+    setSelectedShot(updated)
+    const patchRound = (r: RoundDetail): RoundDetail => ({
+      ...r,
+      holes: (r.holes || []).map((h) => ({
+        ...h,
+        shots: (h.shots || []).map((sh) => sh.id === updated.id ? { ...sh, ...updated } : sh),
+      })),
+    })
+    if (roundDetail && (roundDetail.holes || []).some((h) => (h.shots || []).some((sh) => sh.id === updated.id))) {
+      setRoundDetail(patchRound(roundDetail))
+    }
+    setAllRoundDetails(
+      allRoundDetails.map((r) =>
+        (r.holes || []).some((h) => (h.shots || []).some((sh) => sh.id === updated.id)) ? patchRound(r) : r
+      )
+    )
+  }, [roundDetail, allRoundDetails, setRoundDetail, setAllRoundDetails])
+
+  // Move recomputes spatial metrics & SG server-side and renumbers shots on
+  // both holes — refetch instead of patching locally so we get the new state.
+  const handleShotMoved = useCallback(async () => {
+    if (!roundDetail) return
+    const fresh = await get<RoundDetail>(`/rounds/${roundDetail.id}`)
+    setRoundDetail(fresh)
+    setAllRoundDetails(allRoundDetails.map((r) => r.id === fresh.id ? fresh : r))
+  }, [roundDetail, allRoundDetails, setRoundDetail, setAllRoundDetails])
+
+  const [rechaining, setRechaining] = useState(false)
+  const handleRechain = useCallback(async () => {
+    if (!roundDetail) return
+    setRechaining(true)
+    try {
+      await post(`/rounds/${roundDetail.id}/holes/${currentHole}/rechain`)
+      const fresh = await get<RoundDetail>(`/rounds/${roundDetail.id}`)
+      setRoundDetail(fresh)
+      setAllRoundDetails(allRoundDetails.map((r) => r.id === fresh.id ? fresh : r))
+    } finally {
+      setRechaining(false)
+    }
+  }, [roundDetail, currentHole, allRoundDetails, setRoundDetail, setAllRoundDetails])
+
+  const holeNumbers = useMemo(() => {
+    if (!roundDetail) return [] as number[]
+    const set = new Set<number>()
+    for (const h of roundDetail.holes || []) set.add(h.hole_number)
+    return Array.from(set).sort((a, b) => a - b)
+  }, [roundDetail])
 
   const teeRounds = useMemo(() => allRoundDetails.filter((r) => r.tee_id === teeId), [allRoundDetails, teeId])
   const isHistoric = viewMode === 'historic'
@@ -98,8 +148,20 @@ export function ShotsPanel({ onClose }: { onClose: () => void }) {
           </>
         ) : (
           <>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8 }}>
-              Hole {currentHole} · {roundShots.length} shot{roundShots.length !== 1 ? 's' : ''}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                Hole {currentHole} · {roundShots.length} shot{roundShots.length !== 1 ? 's' : ''}
+              </span>
+              {roundShots.length > 0 && (
+                <button
+                  onClick={handleRechain}
+                  disabled={rechaining}
+                  title="Snap each shot's end to the next shot's start, and the last shot's end to the pin"
+                  className={s.ghostBtn}
+                >
+                  {rechaining ? 'Recalc…' : 'Recalc'}
+                </button>
+              )}
             </div>
             {roundShots.map((sh, i) => {
               const color = getClubColor(sh.club)
@@ -153,7 +215,15 @@ export function ShotsPanel({ onClose }: { onClose: () => void }) {
     <>
       {panel}
       {!isHistoric && selectedShot && (
-        <CourseShotDetailPanel shot={selectedShot} onClose={() => setSelectedShot(null)} />
+        <CourseShotDetailPanel
+          shot={selectedShot}
+          onClose={() => setSelectedShot(null)}
+          onShotUpdated={handleShotUpdated}
+          onShotMoved={handleShotMoved}
+          currentHole={currentHole}
+          roundId={roundDetail?.id}
+          holeNumbers={holeNumbers}
+        />
       )}
     </>
   )

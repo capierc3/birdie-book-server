@@ -33,6 +33,7 @@ export function SettingsPage() {
   const [teePickerOpen, setTeePickerOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
+  const [resyncingTees, setResyncingTees] = useState(false)
   const queryClient = useQueryClient()
   const { toast } = useToast()
   const { confirm } = useConfirm()
@@ -99,6 +100,19 @@ export function SettingsPage() {
       setRebuilding(false)
     }
   }, [toast])
+
+  const handleResyncTees = useCallback(async () => {
+    setResyncingTees(true)
+    try {
+      const data = await post<{ tees_processed: number }>('/settings/recompute-tee-positions')
+      toast(`Tee positions recomputed across ${data.tees_processed} tee(s).`)
+      queryClient.invalidateQueries({ queryKey: ['courses'] })
+    } catch (e) {
+      toast('Failed to recompute tee positions: ' + (e as Error).message, 'error')
+    } finally {
+      setResyncingTees(false)
+    }
+  }, [toast, queryClient])
 
   return (
     <div className={styles.page}>
@@ -197,6 +211,17 @@ export function SettingsPage() {
             </p>
             <Button size="sm" onClick={handleRebuildBaseline} disabled={rebuilding}>
               {rebuilding ? 'Rebuilding\u2026' : 'Rebuild Personal Baseline'}
+            </Button>
+          </div>
+
+          <div className={styles.divider}>
+            <p className={styles.actionDesc}>
+              Recompute every tee's GPS position from the median of recorded tee-shot starts
+              across rounds attached to it. Use this after an OSM sync or course re-link to
+              snap tee markers back to where you actually played from.
+            </p>
+            <Button size="sm" onClick={handleResyncTees} disabled={resyncingTees}>
+              {resyncingTees ? 'Recomputing\u2026' : 'Recompute Tee Positions'}
             </Button>
           </div>
         </Card>

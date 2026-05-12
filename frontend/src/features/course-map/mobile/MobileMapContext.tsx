@@ -245,13 +245,16 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
       if (!teeHole) continue
       const body: Record<string, unknown> = { par, yardage, handicap }
       if (greenPos) { body.flag_lat = greenPos.lat; body.flag_lng = greenPos.lng }
-      if (tee.id === teeId && teePos) { body.tee_lat = teePos.lat; body.tee_lng = teePos.lng }
+      // Don't persist Place-Tee in play mode — the round's recorded shot data
+      // is the authoritative tee position and gets median-aggregated on tee
+      // reassignment. Place-Tee in play mode stays as a transient visual only.
+      if (tee.id === teeId && teePos && !playMode) { body.tee_lat = teePos.lat; body.tee_lng = teePos.lng }
       body.fairway_path = fairwayPath.length >= 2 ? JSON.stringify(fairwayPath.map(p => [p.lat, p.lng])) : ''
       await put(`/courses/${course.id}/holes/${teeHole.id}`, body)
     }
     queryClient.invalidateQueries({ queryKey: ['courses', courseId] })
     setDirty(false)
-  }, [course, currentHole, teeId, teePos, greenPos, fairwayPath, courseId, queryClient])
+  }, [course, currentHole, teeId, teePos, greenPos, fairwayPath, courseId, queryClient, playMode])
 
   // Select hole
   const selectHole = useCallback(async (holeNum: number) => {

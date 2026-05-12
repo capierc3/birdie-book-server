@@ -182,6 +182,27 @@ def rebuild_personal_baseline_endpoint():
         db.close()
 
 
+@app.post("/api/settings/recompute-tee-positions")
+def recompute_tee_positions_endpoint():
+    """Recompute every CourseTee's per-hole tee_lat/tee_lng from the median of
+    `shot_number == 1` start positions across all rounds attached to that tee.
+    Holes with no shot data are left untouched (preserves OSM/API fallbacks).
+    """
+    from app.database import SessionLocal
+    from app.api.rounds import _recompute_tee_positions
+    from app.models.course import CourseTee
+
+    db = SessionLocal()
+    try:
+        tees = db.query(CourseTee.id).all()
+        for (tee_id,) in tees:
+            _recompute_tee_positions(db, tee_id)
+        db.commit()
+        return {"status": "ok", "tees_processed": len(tees)}
+    finally:
+        db.close()
+
+
 @app.post("/api/settings/recompute-scores")
 def recompute_scores_endpoint():
     """Recompute score_vs_par for all rounds from hole strokes and course par."""

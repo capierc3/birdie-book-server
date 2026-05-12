@@ -25,13 +25,12 @@ export function WindIndicator() {
   if (latest.wind_speed_mph == null) return null
 
   const dirDeg = latest.wind_dir_deg ?? 0
-  // wind_dir_deg is the direction the wind comes FROM (meteorological). Our
-  // SVG arrow points up at 0°, so the base rotation is dirDeg — arrow points
-  // toward the source. Subtracting the live map bearing keeps that direction
-  // geographically correct after the map rotates: when the map turns 90° CW,
-  // "north" is now on screen-left, so a wind-from-N arrow must rotate 90° CCW
-  // to keep pointing at the actual N. Without this, the indicator would lie.
-  const arrowRotation = ((dirDeg - mapBearing) % 360 + 360) % 360
+  // wind_dir_deg is the direction the wind comes FROM (meteorological). We
+  // want the arrow to show which way the wind is BLOWING (downwind) — golfer
+  // intuition: "this is where my ball gets pushed". So flip 180° from the
+  // source bearing, then subtract map bearing so the arrow stays geographically
+  // pinned after the map rotates (e.g. in player view).
+  const arrowRotation = ((dirDeg + 180 - mapBearing) % 360 + 360) % 360
 
   const speed = Math.round(latest.wind_speed_mph)
   const gust = latest.wind_gust_mph != null ? Math.round(latest.wind_gust_mph) : null

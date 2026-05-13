@@ -2813,6 +2813,22 @@ def merge_courses(
         {CourseTee.course_id: target_id}, synchronize_session="fetch"
     )
 
+    # Re-point every other FK to courses.id before deleting the source. Without
+    # this, blocking FKs (PlaySession, …) raise IntegrityError, and cascading
+    # ones (RoundPlan CASCADE, OSMHole SET NULL) silently destroy or null data
+    # that should have been preserved against the surviving target course.
+    from app.models.play_session import PlaySession
+    from app.models.round_plan import RoundPlan
+    play_sessions_moved = db.query(PlaySession).filter(PlaySession.course_id == source_id).update(
+        {PlaySession.course_id: target_id}, synchronize_session="fetch"
+    )
+    round_plans_moved = db.query(RoundPlan).filter(RoundPlan.course_id == source_id).update(
+        {RoundPlan.course_id: target_id}, synchronize_session="fetch"
+    )
+    osm_holes_moved = db.query(OSMHole).filter(OSMHole.course_id == source_id).update(
+        {OSMHole.course_id: target_id}, synchronize_session="fetch"
+    )
+
     # Resolve holes: use explicit resolution, or fill in missing values
     if resolve_holes is not None:
         target.holes = resolve_holes
@@ -2829,13 +2845,21 @@ def merge_courses(
     db.delete(source)
     db.commit()
 
-    logger.info(f"Merged course {source_id} into {target_id}: {rounds_moved} rounds, {tees_moved} tees moved")
+    logger.info(
+        f"Merged course {source_id} into {target_id}: "
+        f"{rounds_moved} rounds, {tees_moved} tees, "
+        f"{play_sessions_moved} play sessions, {round_plans_moved} plans, "
+        f"{osm_holes_moved} osm holes moved"
+    )
     return {
         "status": "merged",
         "target_id": target_id,
         "source_id": source_id,
         "rounds_moved": rounds_moved,
         "tees_moved": tees_moved,
+        "play_sessions_moved": play_sessions_moved,
+        "round_plans_moved": round_plans_moved,
+        "osm_holes_moved": osm_holes_moved,
     }
 
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { StatCard, DataTable, Card, CardHeader, EmptyState, MobileCardList } from '../../components'
 import type { Column } from '../../components'
@@ -7,6 +8,7 @@ import { formatNum, formatDate } from '../../utils/format'
 import { useIsMobile } from '../../hooks/useMediaQuery'
 import { HandicapTrendChart } from './HandicapTrendChart'
 import { HandicapProjections } from './HandicapProjections'
+import type { AxisMode, RangeValue } from './handicapFilter'
 import styles from '../../styles/pages.module.css'
 
 const USED_ROW_STYLE: React.CSSProperties = { background: 'rgba(34, 197, 94, 0.06)' }
@@ -15,6 +17,11 @@ export function HandicapPage() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const { data, isLoading } = useHandicap()
+
+  // Filter state is owned by the page so the chart and the projection card
+  // stay in sync — changing the dropdown re-scopes both views.
+  const [axisMode, setAxisMode] = useState<AxisMode>('rounds')
+  const [rangeValue, setRangeValue] = useState<RangeValue>('all')
 
   if (isLoading) return <div className={styles.loading}>Loading...</div>
   if (!data) return <EmptyState message="No handicap data" description="Import rounds with course rating and slope to calculate your handicap." />
@@ -62,11 +69,17 @@ export function HandicapPage() {
       </div>
 
       <div className={styles.section}>
-        <HandicapTrendChart data={data} />
+        <HandicapTrendChart
+          data={data}
+          axisMode={axisMode}
+          rangeValue={rangeValue}
+          onAxisModeChange={setAxisMode}
+          onRangeValueChange={setRangeValue}
+        />
       </div>
 
       <div className={styles.section}>
-        <HandicapProjections data={data} />
+        <HandicapProjections data={data} axisMode={axisMode} rangeValue={rangeValue} />
       </div>
 
       <div className={styles.section}>

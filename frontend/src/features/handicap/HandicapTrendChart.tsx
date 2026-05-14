@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip,
   CartesianGrid, Legend, ReferenceLine,
@@ -8,13 +8,15 @@ import type { HandicapData } from '../../api'
 import { CHART_COLORS } from '../../utils/chartTheme'
 import { formatNum } from '../../utils/format'
 import { useIsMobile } from '../../hooks/useMediaQuery'
+import type { AxisMode, RangeValue } from './handicapFilter'
 
 interface Props {
   data: HandicapData
+  axisMode: AxisMode
+  rangeValue: RangeValue
+  onAxisModeChange: (mode: AxisMode) => void
+  onRangeValueChange: (range: RangeValue) => void
 }
-
-type AxisMode = 'rounds' | 'date'
-type RangeValue = '5' | '10' | '20' | 'all' | '1m' | '3m' | '6m' | '1y'
 
 function dateToEpoch(iso: string): number {
   return new Date(iso + 'T12:00:00Z').getTime()
@@ -28,14 +30,14 @@ function formatEpochFull(epoch: number): string {
   return new Date(epoch).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
-export function HandicapTrendChart({ data }: Props) {
+export function HandicapTrendChart({
+  data, axisMode, rangeValue, onAxisModeChange, onRangeValueChange,
+}: Props) {
   const isMobile = useIsMobile()
-  const [axisMode, setAxisMode] = useState<AxisMode>('rounds')
-  const [rangeValue, setRangeValue] = useState<RangeValue>('all')
 
   const handleAxisChange = (mode: AxisMode) => {
-    setAxisMode(mode)
-    setRangeValue('all')
+    onAxisModeChange(mode)
+    onRangeValueChange('all')
   }
 
   const isDateMode = axisMode === 'date'
@@ -126,7 +128,7 @@ export function HandicapTrendChart({ data }: Props) {
             />
             <ResponsiveSelect
               value={rangeValue}
-              onChange={(v) => setRangeValue(v as RangeValue)}
+              onChange={(v) => onRangeValueChange(v as RangeValue)}
               options={!isDateMode ? [
                 { value: '5', label: 'Last 5 Rounds' },
                 { value: '10', label: 'Last 10 Rounds' },

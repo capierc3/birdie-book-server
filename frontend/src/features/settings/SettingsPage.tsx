@@ -21,6 +21,7 @@ const TEE_OPTIONS: PickerOption[] = [
 
 const STORAGE_KEY = 'birdie_book_default_tee'
 export const SCORE_GOAL_STORAGE_KEY = 'birdie_book_default_score_goal'
+export const PLAY_WAKE_LOCK_STORAGE_KEY = 'birdie_book_play_wake_lock'
 
 export function SettingsPage() {
   const isMobile = useIsMobile()
@@ -29,6 +30,9 @@ export function SettingsPage() {
   )
   const [defaultScoreGoal, setDefaultScoreGoal] = useState<string>(
     () => localStorage.getItem(SCORE_GOAL_STORAGE_KEY) ?? '',
+  )
+  const [playWakeLock, setPlayWakeLock] = useState<boolean>(
+    () => localStorage.getItem(PLAY_WAKE_LOCK_STORAGE_KEY) !== '0',
   )
   const [teePickerOpen, setTeePickerOpen] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -45,6 +49,12 @@ export function SettingsPage() {
     } else {
       localStorage.setItem(STORAGE_KEY, value)
     }
+  }, [])
+
+  const handlePlayWakeLockChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const next = e.target.checked
+    setPlayWakeLock(next)
+    localStorage.setItem(PLAY_WAKE_LOCK_STORAGE_KEY, next ? '1' : '0')
   }, [])
 
   const handleScoreGoalChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -177,6 +187,21 @@ export function SettingsPage() {
             <p className={styles.fieldHelp}>
               Pre-fills the round goal on new play sessions so personal-par allocation is ready
               to go. Each round can still override.
+            </p>
+          </div>
+
+          <div className={styles.divider}>
+            <label className={styles.toggleRow}>
+              <input
+                type="checkbox"
+                checked={playWakeLock}
+                onChange={handlePlayWakeLockChange}
+              />
+              <span className={styles.fieldLabel}>Keep screen on during Play</span>
+            </label>
+            <p className={styles.fieldHelp}>
+              Prevents your phone from sleeping while Play mode is open. Released automatically
+              when you leave the round. Requires browser support (most modern mobile browsers).
             </p>
           </div>
         </Card>

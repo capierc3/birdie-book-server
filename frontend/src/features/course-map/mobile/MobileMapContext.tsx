@@ -275,6 +275,9 @@ export function MobileMapProvider({ children }: { children: ReactNode }) {
     setHazards(parsed.hazards)
     setDirty(false)
     setEditMode(null)
+    // Reset rangefinder tools — a ruler/cone/landing from the previous hole
+    // would otherwise linger on the new hole's map (anchored to stale lat/lng).
+    setActiveRangefinderTool('none')
     if (!playMode) setBallPos(parsed.teePos)
     setRedrawKey(k => k + 1)
 

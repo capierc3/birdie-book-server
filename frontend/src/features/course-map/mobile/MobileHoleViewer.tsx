@@ -25,6 +25,8 @@ import { ScorecardTab } from './tabs/ScorecardTab'
 import { EditTab } from './tabs/EditTab'
 import { HAZARD_COLORS, HAZARD_LABELS } from '../courseMapState'
 import { bearing as computeBearing, haversineYards, destPoint } from '../geoUtils'
+import { useWakeLock } from './useWakeLock'
+import { PLAY_WAKE_LOCK_STORAGE_KEY } from '../../settings/SettingsPage'
 import s from './MobileHoleViewer.module.css'
 import ts from './tabs/tabs.module.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -99,6 +101,10 @@ function MobileHoleViewerInner() {
   const mapRef = useRef<MapRef>(null)
   const prevHoleRef = useRef<number | null>(null)
   const prevCameraModeRef = useRef(cameraMode)
+
+  // Keep the screen on during Play mode when the user has enabled it (default on).
+  const wakeLockEnabled = playMode && localStorage.getItem(PLAY_WAKE_LOCK_STORAGE_KEY) !== '0'
+  useWakeLock(wakeLockEnabled)
 
   // Personal par per hole, derived from session.score_goal + active tee's holes.
   // Empty when no goal is set.

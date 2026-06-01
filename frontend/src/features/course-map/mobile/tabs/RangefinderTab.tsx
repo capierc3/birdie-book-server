@@ -24,7 +24,8 @@ export function RangefinderTab({ data, toolResult }: { data: RangefinderData; to
       return (
         <div className={s.centered}>
           <p className={s.hint}>No green position set for this hole.</p>
-          <p className={s.subHint}>Use the Edit tab to place the green.</p>
+          <p className={s.subHint}>Use the Edit tab to place the green, or use the Ruler tool from the peek to measure by tapping the map.</p>
+          {toolResult && <ToolResultDisplay result={toolResult} />}
         </div>
       )
     }
@@ -67,8 +68,9 @@ export function RangefinderTab({ data, toolResult }: { data: RangefinderData; to
     if (data.distToGreenCenter == null && data.gpsActive) {
       return (
         <div className={s.centered}>
-          <p className={s.hint}>GPS is active but this hole has no green position set.</p>
-          <p className={s.subHint}>Use the Edit tab to place the green, or edit the course on desktop.</p>
+          <p className={s.hint}>No green set — all rangefinder tools still work from your GPS position.</p>
+          <p className={s.subHint}>Pick a tool from the peek bar, then tap the map to set the aim/target. Place the green from the Edit tab for automatic distances and club recs.</p>
+          {toolResult && <ToolResultDisplay result={toolResult} />}
         </div>
       )
     }

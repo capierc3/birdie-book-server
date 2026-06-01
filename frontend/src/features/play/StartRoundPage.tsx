@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGolfClubs, useCourse, useCreatePlaySession, useMe, usePartners } from '../../api'
 import { Card, CardHeader, Button, FormGroup, Input, PickerTrigger, PickerSheet } from '../../components'
@@ -41,6 +41,17 @@ export function StartRoundPage() {
 
   const selectedClub = clubs?.find(c => c.id === selectedClubId)
   const { data: courseDetail } = useCourse(selectedCourseId ?? undefined)
+  const teesLoaded = selectedCourseId != null && courseDetail != null && courseDetail.id === selectedCourseId
+  const hasTees = (courseDetail?.tees?.length ?? 0) > 0
+
+  // Auto-select tee when course has exactly one — mirrors the single-course auto-select.
+  useEffect(() => {
+    if (!teesLoaded) return
+    if (selectedTeeId != null) return
+    if (courseDetail!.tees!.length === 1) {
+      setSelectedTeeId(courseDetail!.tees![0].id)
+    }
+  }, [teesLoaded, courseDetail, selectedTeeId])
 
   const selectedClubLabel = useMemo(() => {
     if (!selectedClub) return undefined
@@ -164,7 +175,8 @@ export function StartRoundPage() {
     partnerInputRefs.current[idx]?.blur()
   }
 
-  const canStart = selectedCourseId != null && selectedTeeId != null
+  const canStart =
+    selectedCourseId != null && teesLoaded && (!hasTees || selectedTeeId != null)
 
   const handleStart = async () => {
     if (!canStart) return
@@ -172,7 +184,7 @@ export function StartRoundPage() {
     try {
       const session = await createSession.mutateAsync({
         course_id: selectedCourseId!,
-        tee_id: selectedTeeId!,
+        tee_id: selectedTeeId ?? undefined,
         game_format: format,
         holes_played: 18,
         partners: partners
@@ -235,7 +247,7 @@ export function StartRoundPage() {
             </FormGroup>
           )}
 
-          {selectedCourseId && courseDetail?.tees && courseDetail.tees.length > 0 && (
+          {teesLoaded && hasTees && (
             <FormGroup label="Tees">
               <PickerTrigger
                 value={selectedTeeId ? String(selectedTeeId) : null}
@@ -252,6 +264,13 @@ export function StartRoundPage() {
                 onSelect={val => setSelectedTeeId(Number(val) || null)}
               />
             </FormGroup>
+          )}
+
+          {teesLoaded && !hasTees && (
+            <p className={s.noTeesHint}>
+              No tees configured for this course — starting without a tee selection. You can edit
+              hole and tee data from the course map.
+            </p>
           )}
         </div>
       </Card>

@@ -214,6 +214,17 @@
   margin: 0;
 }
 
+.noTeesHint {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0;
+  line-height: 1.4;
+}
+
 .gpsStatus {
   display: flex;
   align-items: center;

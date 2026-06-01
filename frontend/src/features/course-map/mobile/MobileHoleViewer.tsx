@@ -425,23 +425,30 @@ function MobileHoleViewerInner() {
     ctx.setEditMode(null)
   }, [ctx])
 
-  // Shared rangefinder peek content (distance, tools, club picker)
+  // Shared rangefinder peek content (distance, tools, club picker).
+  // When tee/green are missing, distance fields render "—" and the bottom-row
+  // score buttons swap out for Place Tee/Green actions — the tap-based tools
+  // (ruler / carry / recommend) still work via GPS origin + tap target.
   const rangefinderPeek = (showScore: boolean) => {
     const { currentHole } = ctx
     const par = formValues.par || '—'
     const hazard = rangefinderData.nearbyHazards[0]
     const ppar = personalPars?.get(currentHole)
+    const missingGeom = playMode && (!teePos || !greenPos)
     return (
       <>
         <div className={s.peekHoleLabel}>
           Hole {currentHole} · Par {par}
           {ppar != null && ppar !== Number(par) && <> · Goal {ppar}</>}
+          {missingGeom && (
+            <> · {!teePos && !greenPos ? 'No tee/green — pick a tool, tap map to aim' : !teePos ? 'No tee set' : 'No green — pick a tool, tap map to aim'}</>
+          )}
         </div>
         <div className={s.peekMainRow}>
           <div className={s.peekLeftCol}>
             <div className={s.peekDistGroup}>
               <div className={s.peekDistBlock}>
-                <span className={s.peekDist}>{rangefinderData.distToGreenCenter}</span>
+                <span className={s.peekDist}>{rangefinderData.distToGreenCenter ?? '—'}</span>
                 <span className={s.peekDistLabel}>yds</span>
               </div>
               <div className={s.peekFrontBack}>
@@ -510,7 +517,30 @@ function MobileHoleViewerInner() {
               </div>
             )}
           </div>
-          {showScore ? (
+          {missingGeom ? (
+            <div className={s.peekBallGroup}>
+              <button
+                className={`${s.peekGpsBtn} ${ctx.editMode === 'tee' ? ts.toolBtnActive : ''}`}
+                onClick={handlePlaceTee}
+              >
+                {ctx.editMode === 'tee' ? 'Tap Map' : teePos ? 'Tee ✓' : 'Place Tee'}
+              </button>
+              <button
+                className={`${s.peekGpsBtn} ${ctx.editMode === 'green' ? ts.toolBtnActive : ''}`}
+                onClick={handlePlaceGreen}
+              >
+                {ctx.editMode === 'green' ? 'Tap Map' : greenPos ? 'Green ✓' : 'Place Green'}
+              </button>
+              {ctx.dirty && (
+                <button
+                  className={s.peekGpsBtn}
+                  onClick={e => { e.stopPropagation(); ctx.saveHole() }}
+                >
+                  Save
+                </button>
+              )}
+            </div>
+          ) : showScore ? (
             <div className={s.peekScoreGroup}>
               <button className={s.peekScoreBtn} onClick={e => handlePeekScoreChange(-1, e)}>−</button>
               <span className={s.peekScoreDisplay}>{peekScore ?? '—'}</span>
@@ -534,44 +564,6 @@ function MobileHoleViewerInner() {
                 Reset
               </button>
             </div>
-          )}
-        </div>
-      </>
-    )
-  }
-
-  // Peek shown when the hole is missing tee or green — lets the user place them
-  // without digging into the Edit tab. Dirty state is saved on hole nav.
-  const placementPeek = () => {
-    const editingTee = ctx.editMode === 'tee'
-    const editingGreen = ctx.editMode === 'green'
-    return (
-      <>
-        <div className={s.peekRow}>
-          <span className={s.peekLabel}>
-            Hole {ctx.currentHole} · Par {formValues.par || '—'} — set tee & green to unlock tools
-          </span>
-        </div>
-        <div className={s.peekTools}>
-          <button
-            className={`${ts.toolBtn} ${editingTee ? ts.toolBtnActive : ''}`}
-            onClick={handlePlaceTee}
-          >
-            {editingTee ? 'Tap Map' : teePos ? 'Tee ✓' : 'Place Tee'}
-          </button>
-          <button
-            className={`${ts.toolBtn} ${editingGreen ? ts.toolBtnActive : ''}`}
-            onClick={handlePlaceGreen}
-          >
-            {editingGreen ? 'Tap Map' : greenPos ? 'Green ✓' : 'Place Green'}
-          </button>
-          {ctx.dirty && (
-            <button
-              className={ts.toolBtn}
-              onClick={e => { e.stopPropagation(); ctx.saveHole() }}
-            >
-              Save
-            </button>
           )}
         </div>
       </>
@@ -605,12 +597,10 @@ function MobileHoleViewerInner() {
       )
     }
 
-    // Hole has no saved geometry yet — let the user place tee/green from here.
-    if (!teePos || !greenPos) {
-      return placementPeek()
-    }
-
-    if (rangefinderData.distToGreenCenter != null) {
+    // Once GPS is active, show the rangefinder peek — even if tee/green
+    // aren't set yet, tap-based tools (ruler / carry / recommend) still work
+    // from GPS origin, and the bottom row surfaces Place Tee/Green actions.
+    if (rangefinderData.gpsActive) {
       return rangefinderPeek(true)
     }
 

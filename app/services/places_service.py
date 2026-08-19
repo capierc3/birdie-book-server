@@ -38,6 +38,8 @@ def _do_places_search(search_text: str, lat: float = None, lng: float = None) ->
     Returns structured result with name, location, and photo.
     """
     api_key = settings.google_maps_api_key
+    if not api_key:
+        return None
 
     body = {
         "textQuery": search_text,
@@ -66,14 +68,20 @@ def _do_places_search(search_text: str, lat: float = None, lng: float = None) ->
     if not check_limit("google_places"):
         return None
     track_call("google_places", "searchText")
-    resp = httpx.post(
-        f"{PLACES_BASE}:searchText",
-        json=body,
-        headers=headers,
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    # Fail soft like the other Places helpers — a Google outage, a revoked key,
+    # or disabled billing should degrade the lookup, not 500 the caller.
+    try:
+        resp = httpx.post(
+            f"{PLACES_BASE}:searchText",
+            json=body,
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.warning("Places Text search failed: %s", e)
+        return None
 
     places = data.get("places", [])
     if not places:

@@ -942,14 +942,35 @@ def sync_club_courses(db: Session, club: GolfClub) -> dict:
                 log.info("Found %d nearby match(es) on query '%s', skipping remaining", nearby, query)
                 break
 
-    # 3. Filter to courses at the same club (within 5 miles of our location)
+    # 3. Filter to courses at the same club (within 5 miles of our location).
+    # The queries above are deliberately broad — _build_search_queries strips the
+    # club suffix, so "Ironwood Golf Club" searches "ironwood" and matches every
+    # Ironwood in the country. This filter is the only thing keeping unrelated
+    # clubs out, so it fails closed: when we know where our club is, a candidate
+    # that can't prove it's nearby is rejected rather than accepted.
     club_courses = []
     for r in all_results:
         loc = r.get("location") or {}
         api_lat, api_lng = loc.get("latitude"), loc.get("longitude")
-        if our_lat and api_lat:
+        if our_lat and our_lng:
+            if not (api_lat and api_lng):
+                log.info(
+                    "Skipping '%s / %s' — no coordinates to verify it's this club",
+                    r.get("club_name"), r.get("course_name"),
+                )
+                continue
             dist = _haversine_miles(our_lat, our_lng, api_lat, api_lng)
             if dist > 5:
+                continue
+        else:
+            # No location for our club at all — fall back to name similarity so a
+            # broad query can't sweep in every same-named club nationwide.
+            score, _ = _score_result(r, club.name)
+            if score < 60:
+                log.info(
+                    "Skipping '%s / %s' — name score %d below threshold (no GPS to check)",
+                    r.get("club_name"), r.get("course_name"), score,
+                )
                 continue
         club_courses.append(r)
 

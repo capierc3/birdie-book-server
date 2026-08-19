@@ -343,7 +343,13 @@ if _frontend_dist.is_dir():
         # Serve actual static files (manifest.json, icons, sw.js, etc.)
         if filename:
             candidate = _frontend_dist / filename
-            if candidate.is_file() and candidate.suffix in _static_exts:
+            try:
+                is_static = candidate.is_file() and candidate.suffix in _static_exts
+            except (OSError, ValueError):
+                # Path too long / invalid for the filesystem — treat as a
+                # non-static route and fall through to index.html.
+                is_static = False
+            if is_static:
                 return FileResponse(str(candidate))
         # Everything else → SPA index.html
         return FileResponse(str(_frontend_dist / "index.html"))

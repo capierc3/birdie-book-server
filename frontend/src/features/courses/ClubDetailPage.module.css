@@ -87,6 +87,20 @@
   flex-wrap: wrap;
 }
 
+/* Pushes the delete button to the far right of the course action row. */
+.courseActionsSpacer {
+  margin-left: auto;
+}
+
+.deleteCourseBtn {
+  color: var(--danger);
+}
+
+.deleteCourseBtn:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+
 .teeActions {
   display: flex;
   gap: 4px;

@@ -76,7 +76,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             )
           }
         >
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>
+          {/* pre-line so callers can use 
+
+ to separate the ask from its consequences */}
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0, whiteSpace: 'pre-line' }}>
             {state.options.message}
           </p>
         </Modal>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Card, CardHeader, DataTable, Badge, Button, useConfirm } from '../../components'
 import type { Column } from '../../components'
-import { useDeleteTee, ApiError } from '../../api'
+import { useDeleteTee, useDeleteCourse, fetchCourseDeletePreview, ApiError } from '../../api'
 import type { CourseDetail, CourseTee, TeeDeleteConflict } from '../../api'
 import { TeeEditModal } from './TeeEditModal'
 import { TeeReassignModal } from './TeeReassignModal'
@@ -18,6 +18,7 @@ interface Props {
 export function ClubCoursesSection({ courseDetails }: Props) {
   const navigate = useNavigate()
   const deleteTee = useDeleteTee()
+  const deleteCourse = useDeleteCourse()
   const { confirm, alert } = useConfirm()
 
   // Tee edit state
@@ -58,6 +59,42 @@ export function ClubCoursesSection({ courseDetails }: Props) {
       } else {
         await alert(e instanceof Error ? e.message : 'Failed to delete tee', 'Error')
       }
+    }
+  }
+
+  // Two-step delete: the first press fetches the round count so the confirm can
+  // say what will actually be destroyed, the second press in the dialog commits.
+  const handleDeleteCourse = async (courseId: number, fallbackName: string) => {
+    let preview
+    try {
+      preview = await fetchCourseDeletePreview(courseId)
+    } catch (e) {
+      await alert(e instanceof Error ? e.message : 'Could not check this course', 'Error')
+      return
+    }
+
+    const name = preview.course_name || fallbackName || 'this course'
+    const impact = preview.round_count > 0
+      ? `${preview.round_count} played ${preview.round_count === 1 ? 'round is' : 'rounds are'} linked to it. ` +
+        `Deleting the course will permanently delete ${preview.round_count === 1 ? 'that round' : 'those rounds'} and every shot in ${preview.round_count === 1 ? 'it' : 'them'}.`
+      : 'No rounds are linked to it, so this is safe to remove.'
+
+    const ok = await confirm({
+      title: 'Remove Course',
+      message: `Remove ${name}?
+
+${impact}
+
+Its tees and hole data go with it. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    })
+    if (!ok) return
+
+    try {
+      await deleteCourse.mutateAsync(courseId)
+    } catch (e) {
+      await alert(e instanceof Error ? e.message : 'Failed to delete course', 'Error')
     }
   }
 
@@ -183,6 +220,17 @@ export function ClubCoursesSection({ courseDetails }: Props) {
                 onClick={() => navigate(`/courses/${course.id}/map`)}
               >
                 View Holes
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`${cs.courseActionsSpacer} ${cs.deleteCourseBtn}`}
+                onClick={() => handleDeleteCourse(course.id, course.course_name ?? course.display_name ?? '')}
+                disabled={deleteCourse.isPending}
+                title="Remove this course"
+              >
+                <Trash2 size={14} />
+                {' Remove Course'}
               </Button>
             </div>
             {scorecardOpen[course.id] && <ClubScorecard course={course} />}

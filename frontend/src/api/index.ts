@@ -15,6 +15,7 @@ export {
   useSearchCreateCourse,
   useClubDeletePreview,
   useCourseDeletePreview,
+  fetchCourseDeletePreview,
   useDeleteClub,
   useDeleteCourse,
   linkOsmHole,

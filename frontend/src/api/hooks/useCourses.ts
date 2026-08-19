@@ -118,6 +118,15 @@ export function linkOsmHole(args: LinkOsmHoleArgs) {
   )
 }
 
+/**
+ * Imperative variant of useCourseDeletePreview, for confirm flows that need the
+ * round count on click rather than on render (e.g. a list of courses, where a
+ * per-course hook isn't possible).
+ */
+export function fetchCourseDeletePreview(courseId: number) {
+  return get<CourseDeletePreview>(`/courses/${courseId}/delete-preview`)
+}
+
 export function useDeleteCourse() {
   const qc = useQueryClient()
   return useMutation({

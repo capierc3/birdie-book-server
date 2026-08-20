@@ -58,7 +58,7 @@ def search_courses(query: str) -> list[dict]:
     return resp.json().get("courses", [])
 
 
-def get_course_detail(api_id: int) -> Optional[dict]:
+def get_course_detail(api_id: int | str) -> Optional[dict]:
     """Get full course detail including tees and holes."""
     if not _api_configured():
         return None
@@ -501,7 +501,7 @@ def search_course_candidates(db: Session, course: Course) -> dict:
     return result
 
 
-def apply_golf_course_data(db: Session, course: Course, api_id: int) -> dict:
+def apply_golf_course_data(db: Session, course: Course, api_id: int | str) -> dict:
     """
     Apply tee/hole data from a specific golf course API course to our course.
     Location/address goes on the GolfClub, tees go on Course.

@@ -132,7 +132,7 @@ export function useGolfApiSearch() {
 export function useApplyGolfApiMatch() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ courseId, apiId }: { courseId: number; apiId: number }) =>
+    mutationFn: ({ courseId, apiId }: { courseId: number; apiId: number | string }) =>
       post<GolfApiApplyResult>(`/courses/${courseId}/apply-match`, { api_id: apiId }),
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ['golf-clubs'] })
@@ -238,7 +238,8 @@ export interface TeeCreateBody {
 }
 
 export interface GolfApiSearchResult {
-  api_id: number
+  // Alphanumeric on current golfcourseapi.com records, numeric on older ones.
+  api_id: number | string
   club_name: string
   course_name: string
   address?: string

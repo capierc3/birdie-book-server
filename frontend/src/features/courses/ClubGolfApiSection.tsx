@@ -47,7 +47,7 @@ export function ClubGolfApiSection({ club, courseDetails }: Props) {
     }
   }
 
-  const handleApply = async (courseId: number, apiId: number) => {
+  const handleApply = async (courseId: number, apiId: number | string) => {
     setStatusMsg('Applying tees and holes from the Golf Course API...')
     try {
       const res = await applyMatch.mutateAsync({ courseId, apiId })

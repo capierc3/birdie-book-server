@@ -1084,7 +1084,10 @@ def get_course_stats(course_id: int, db: Session = Depends(get_db)):
 
 
 class ApplyMatchRequest(BaseModel):
-    api_id: int
+    # golfcourseapi.com returns 8-char alphanumeric ids (e.g. "mkfvvbxt"), but
+    # older records came back as plain integers — accept either. The value is
+    # only ever interpolated into the detail URL, never used as a number.
+    api_id: int | str
 
 
 @router.post("/club/{golf_club_id}/sync")

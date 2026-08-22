@@ -94,7 +94,7 @@ export function ClubDetailPage() {
         </div>
       )}
 
-      <ClubActionsSection clubId={club.id} />
+      <ClubActionsSection clubId={club.id} clubName={club.name} />
 
       <div className={styles.section}>
         <ClubGolfApiSection club={club} courseDetails={courseDetails} />

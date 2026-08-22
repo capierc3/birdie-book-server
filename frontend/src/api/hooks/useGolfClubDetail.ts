@@ -23,6 +23,15 @@ export function useCourseMergePreview(targetId: number | undefined, sourceId: nu
   })
 }
 
+export function useClubMergePreview(targetId: number | undefined, sourceId: number | undefined) {
+  return useQuery({
+    queryKey: ['club-merge-preview', targetId, sourceId],
+    queryFn: () => get<ClubMergePreview>(`/courses/club/${targetId}/merge-preview/${sourceId}`),
+    enabled: targetId !== undefined && sourceId !== undefined,
+    staleTime: 0,
+  })
+}
+
 // ── Mutations ──
 
 export function useUpdateTee() {
@@ -95,6 +104,19 @@ export function useMergeCourse() {
         `/courses/${targetId}/merge/${sourceId}${qs ? `?${qs}` : ''}`,
       )
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['golf-clubs'] })
+      qc.invalidateQueries({ queryKey: ['courses'] })
+      qc.invalidateQueries({ queryKey: ['rounds'] })
+    },
+  })
+}
+
+export function useMergeClub() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ targetId, sourceId }: { targetId: number; sourceId: number }) =>
+      post<ClubMergeResult>(`/courses/club/${targetId}/merge/${sourceId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['golf-clubs'] })
       qc.invalidateQueries({ queryKey: ['courses'] })
@@ -273,6 +295,30 @@ export interface MergePreview {
   conflicts: MergeConflict[]
   rounds_to_move: number
   tees_to_move: number
+}
+
+export interface ClubMergePreview {
+  target_id: number
+  source_id: number
+  target_name: string
+  source_name: string
+  courses_to_move: number
+  rounds_to_move: number
+  tees_to_move: number
+  hazards_to_move: number
+  osm_holes_to_move: number
+  fields_filled: string[]
+  duplicate_course_names: string[]
+}
+
+export interface ClubMergeResult {
+  status: string
+  target_id: number
+  source_id: number
+  courses_moved: number
+  hazards_moved: number
+  osm_holes_moved: number
+  fields_filled: string[]
 }
 
 export interface MergeConflict {

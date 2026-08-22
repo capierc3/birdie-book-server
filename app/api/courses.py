@@ -2874,3 +2874,147 @@ def _haversine_yards_simple(lat1, lng1, lat2, lng2):
     dlng = math.radians(lng2 - lng1)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)) * 1.09361
+
+
+# --- Club merge ---
+
+# Metadata carried over from the source club when the target is missing it.
+# Garmin-created clubs are name-and-nothing-else, so a merge usually flows in
+# the other direction — but a hand-added club can be the one lacking an address.
+_CLUB_METADATA_FIELDS = [
+    ("address", "Address"),
+    ("lat", "Latitude"),
+    ("lng", "Longitude"),
+    ("google_place_id", "Google Place ID"),
+    ("photo_url", "Photo"),
+    ("osm_id", "OSM ID"),
+    ("user_rating", "Your rating"),
+    ("user_notes", "Your notes"),
+]
+
+
+class ClubMergePreview(BaseModel):
+    target_id: int
+    source_id: int
+    target_name: str
+    source_name: str
+    courses_to_move: int
+    rounds_to_move: int
+    tees_to_move: int
+    hazards_to_move: int
+    osm_holes_to_move: int
+    # Fields the target is missing that the source can supply.
+    fields_filled: list[str]
+    # Course names present at both clubs — the user will want to merge these
+    # pairs afterwards with the existing course merge.
+    duplicate_course_names: list[str]
+
+
+def _club_pair(db: Session, target_id: int, source_id: int) -> tuple[GolfClub, GolfClub]:
+    if target_id == source_id:
+        raise HTTPException(status_code=400, detail="Cannot merge a club into itself")
+    target = db.query(GolfClub).filter(GolfClub.id == target_id).first()
+    source = db.query(GolfClub).filter(GolfClub.id == source_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Target club not found")
+    if not source:
+        raise HTTPException(status_code=404, detail="Source club not found")
+    return target, source
+
+
+@router.get("/club/{target_id}/merge-preview/{source_id}", response_model=ClubMergePreview)
+def club_merge_preview(target_id: int, source_id: int, db: Session = Depends(get_db)):
+    """Preview a club merge: what moves, and what metadata the target gains."""
+    target, source = _club_pair(db, target_id, source_id)
+
+    source_course_ids = [c.id for c in source.courses]
+    rounds_to_move = 0
+    tees_to_move = 0
+    if source_course_ids:
+        rounds_to_move = db.query(Round).filter(Round.course_id.in_(source_course_ids)).count()
+        tees_to_move = db.query(CourseTee).filter(CourseTee.course_id.in_(source_course_ids)).count()
+
+    fields_filled = [
+        label for attr, label in _CLUB_METADATA_FIELDS
+        if getattr(source, attr) is not None and getattr(target, attr) is None
+    ]
+
+    # Compare on the raw course name; None is the single unnamed course a
+    # one-course club has, and two of those collide just as surely as two
+    # "North"s do. Empty string marks that case for the caller to label.
+    target_names = {c.name for c in target.courses}
+    duplicate_course_names = sorted(
+        (c.name or "") for c in source.courses if c.name in target_names
+    )
+
+    return ClubMergePreview(
+        target_id=target.id,
+        source_id=source.id,
+        target_name=target.name,
+        source_name=source.name,
+        courses_to_move=len(source_course_ids),
+        rounds_to_move=rounds_to_move,
+        tees_to_move=tees_to_move,
+        hazards_to_move=db.query(CourseHazard).filter(CourseHazard.golf_club_id == source_id).count(),
+        osm_holes_to_move=db.query(OSMHole).filter(OSMHole.golf_club_id == source_id).count(),
+        fields_filled=fields_filled,
+        duplicate_course_names=duplicate_course_names,
+    )
+
+
+@router.post("/club/{target_id}/merge/{source_id}")
+def merge_clubs(target_id: int, source_id: int, db: Session = Depends(get_db)):
+    """Merge source club into target: re-parents every course, hazard and OSM
+    hole, then deletes the now-empty source club.
+
+    Courses are moved as-is, not combined — a duplicate course at the target is
+    merged afterwards with the course-level merge, which already knows how to
+    resolve holes/par conflicts. Every FK pointing at golf_clubs is CASCADE, so
+    each one has to be re-pointed before the delete or the data is destroyed.
+    """
+    target, source = _club_pair(db, target_id, source_id)
+
+    courses_moved = db.query(Course).filter(Course.golf_club_id == source_id).update(
+        {Course.golf_club_id: target_id}, synchronize_session="fetch"
+    )
+    hazards_moved = db.query(CourseHazard).filter(CourseHazard.golf_club_id == source_id).update(
+        {CourseHazard.golf_club_id: target_id}, synchronize_session="fetch"
+    )
+    osm_holes_moved = db.query(OSMHole).filter(OSMHole.golf_club_id == source_id).update(
+        {OSMHole.golf_club_id: target_id}, synchronize_session="fetch"
+    )
+
+    # Backfill anything the target never had. Never overwrite — the target is
+    # the club the user chose to keep.
+    fields_filled = []
+    for attr, label in _CLUB_METADATA_FIELDS:
+        value = getattr(source, attr)
+        if value is not None and getattr(target, attr) is None:
+            setattr(target, attr, value)
+            fields_filled.append(label)
+
+    # Read the names before the delete — SQLAlchemy expires the instance on
+    # commit and re-loading a deleted row raises.
+    source_name, target_name = source.name, target.name
+
+    # GolfClub.courses cascades delete-orphan, so db.delete() walks that
+    # collection. Expire the source first: a collection cached from before the
+    # re-parent would take the moved courses down with it.
+    db.expire(source)
+    db.delete(source)
+    db.commit()
+
+    logger.info(
+        "Merged club %d (%s) into %d (%s): %d courses, %d hazards, %d osm holes",
+        source_id, source_name, target_id, target_name,
+        courses_moved, hazards_moved, osm_holes_moved,
+    )
+    return {
+        "status": "merged",
+        "target_id": target_id,
+        "source_id": source_id,
+        "courses_moved": courses_moved,
+        "hazards_moved": hazards_moved,
+        "osm_holes_moved": osm_holes_moved,
+        "fields_filled": fields_filled,
+    }

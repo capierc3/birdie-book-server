@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { RefreshCw, Trash2 } from 'lucide-react'
+import { RefreshCw, Trash2, Merge } from 'lucide-react'
 import { Card, CardHeader, Button, StatusMessage, useConfirm } from '../../components'
 import { useSyncClubCourses, useClubDeletePreview, useDeleteClub } from '../../api'
+import { ClubMergeModal } from './ClubMergeModal'
 
 interface Props {
   clubId: number
+  clubName: string
 }
 
-export function ClubActionsSection({ clubId }: Props) {
+export function ClubActionsSection({ clubId, clubName }: Props) {
   const navigate = useNavigate()
   const sync = useSyncClubCourses()
   const deleteClub = useDeleteClub()
   const { data: preview } = useClubDeletePreview(clubId)
   const { confirm } = useConfirm()
   const [statusMsg, setStatusMsg] = useState<{ variant: 'success' | 'error' | 'progress'; text: string } | null>(null)
+  const [mergeOpen, setMergeOpen] = useState(false)
 
   const handleSync = async () => {
     const ok = await confirm({
@@ -65,6 +68,9 @@ export function ClubActionsSection({ clubId }: Props) {
         <Button variant="secondary" size="sm" onClick={handleSync} disabled={sync.isPending}>
           <RefreshCw size={14} /> Sync All Courses
         </Button>
+        <Button variant="secondary" size="sm" onClick={() => setMergeOpen(true)}>
+          <Merge size={14} /> Merge Into Another Club
+        </Button>
         <Button
           variant="secondary"
           size="sm"
@@ -83,6 +89,16 @@ export function ClubActionsSection({ clubId }: Props) {
           <StatusMessage variant={statusMsg.variant}>{statusMsg.text}</StatusMessage>
         </div>
       )}
+      <ClubMergeModal
+        isOpen={mergeOpen}
+        onClose={() => setMergeOpen(false)}
+        sourceClubId={clubId}
+        sourceClubName={clubName}
+        onMerged={(targetId) => {
+          setMergeOpen(false)
+          navigate(`/courses/club/${targetId}`)
+        }}
+      />
     </Card>
   )
 }
